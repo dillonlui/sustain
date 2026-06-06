@@ -17,6 +17,12 @@ final class PollingAudioHardwareMonitor: AudioHardwareMonitoring {
         self.interval = interval
     }
 
+    deinit {
+        MainActor.assumeIsolated {
+            timer?.invalidate()
+        }
+    }
+
     func start(onChange: @escaping @MainActor () -> Void) {
         self.onChange = onChange
         guard timer == nil else { return }
@@ -61,6 +67,12 @@ final class CoreAudioHardwareMonitor: AudioHardwareMonitoring {
 
     init(fallbackMonitor: AudioHardwareMonitoring = PollingAudioHardwareMonitor()) {
         self.fallbackMonitor = fallbackMonitor
+    }
+
+    deinit {
+        MainActor.assumeIsolated {
+            stop()
+        }
     }
 
     func start(onChange: @escaping @MainActor () -> Void) {
