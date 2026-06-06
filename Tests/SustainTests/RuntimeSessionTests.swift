@@ -62,6 +62,18 @@ struct RuntimeSessionTests {
         #expect(store.systemCheck.messages.contains("Warning: Holy Forever: Missing bundled pad Bb.mp3"))
     }
 
+    @Test func systemCheckWarnsAboutInvalidBPMLaterInSetlist() {
+        let store = AppStore.preview()
+        let laterEntry = store.activeSetlist.entries[1]
+
+        store.updateEntry(laterEntry.id, keyOverride: nil, bpmOverride: 0)
+        store.runSystemCheck()
+
+        #expect(store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.warnings.contains("King of Kings: needs a valid BPM."))
+        #expect(store.systemCheck.messages.contains("Warning: King of Kings: needs a valid BPM."))
+    }
+
     @Test func clickStartupFailureDoesNotStartNewPadDuringTransition() {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)
