@@ -475,6 +475,47 @@ struct RuntimeSessionTests {
         #expect(store.runtime.lastMessage == "Audio devices updated")
     }
 
+    @Test func systemWakeRechecksRoutingWithoutChange() {
+        let powerMonitor = NoopPowerStateMonitor()
+        let store = AppStore.preview(powerStateMonitor: powerMonitor)
+
+        powerMonitor.simulateWake()
+
+        #expect(store.runtime.lastMessage == "System woke. Rechecking audio routing.")
+        #expect(store.runtime.playbackPhase == .noSongPlaying)
+    }
+
+    @Test func systemWakeStopsPlaybackWhenSelectedOutputIsUnavailable() {
+        let audio = RecordingAudioEngine()
+        let provider = MutableAudioRoutingProvider(snapshotValue: .previewDefault)
+        let powerMonitor = NoopPowerStateMonitor()
+        let store = AppStore.preview(
+            audioEngine: audio,
+            audioRoutingProvider: provider,
+            powerStateMonitor: powerMonitor
+        )
+
+        store.startCuedSong()
+        provider.snapshotValue = AudioRoutingSnapshot(
+            outputs: [
+                AudioOutputDevice(id: 1, name: "Preview Output", isDefault: true)
+            ],
+            padOutputID: 1,
+            padOutputName: "Preview Output",
+            clickOutputID: 1,
+            clickOutputName: "Preview Output",
+            independentRoutingEnabled: false,
+            missingSelectionMessages: ["Selected pad output is unavailable."]
+        )
+
+        powerMonitor.simulateWake()
+
+        #expect(store.runtime.playbackPhase == .noSongPlaying)
+        #expect(store.runtime.lastMessage == "Selected pad output is unavailable.")
+        #expect(store.audioRouteChangePrompt == nil)
+        #expect(audio.stopAllCount == 1)
+    }
+
     @Test func routingSelectionPersistsToJSON() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainRoutingTests-\(UUID().uuidString)", isDirectory: true)

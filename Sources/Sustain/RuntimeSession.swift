@@ -87,6 +87,7 @@ final class AppStore: ObservableObject {
     private let libraryStore: LocalLibraryStore?
     private let audioRoutingProvider: AudioRoutingProviding
     private let audioHardwareMonitor: AudioHardwareMonitoring
+    private let powerStateMonitor: PowerStateMonitoring
     private let countoffDurationMultiplier: Double
     private var clickStateTask: Task<Void, Never>?
     private var audioRoutingFailureMessage: String?
@@ -98,6 +99,7 @@ final class AppStore: ObservableObject {
         libraryStore: LocalLibraryStore? = nil,
         audioRoutingProvider: AudioRoutingProviding = CoreAudioRoutingProvider(),
         audioHardwareMonitor: AudioHardwareMonitoring = NoopAudioHardwareMonitor(),
+        powerStateMonitor: PowerStateMonitoring = NoopPowerStateMonitor(),
         routingSettings: AudioRoutingSettings = .default,
         persistenceStatus: String = "Using seed library",
         countoffDurationMultiplier: Double = 1.0
@@ -108,6 +110,7 @@ final class AppStore: ObservableObject {
         self.libraryStore = libraryStore
         self.audioRoutingProvider = audioRoutingProvider
         self.audioHardwareMonitor = audioHardwareMonitor
+        self.powerStateMonitor = powerStateMonitor
         self.routingSettings = routingSettings
         self.audioStatus = audioEngine.statusSummary
         self.persistenceStatus = persistenceStatus
@@ -117,6 +120,9 @@ final class AppStore: ObservableObject {
         configureAudioRouting()
         audioHardwareMonitor.start { [weak self] in
             self?.handleAudioHardwareChanged()
+        }
+        powerStateMonitor.start { [weak self] in
+            self?.handleSystemWake()
         }
     }
 
@@ -592,6 +598,11 @@ final class AppStore: ObservableObject {
         setRouteChangePrompt(from: routingSnapshot)
     }
 
+    private func handleSystemWake() {
+        runtime.lastMessage = "System woke. Rechecking audio routing."
+        handleAudioHardwareChanged()
+    }
+
     private func stopAudioAfterHardwareChange(message: String) {
         clickStateTask?.cancel()
         audioEngine.stopAll()
@@ -670,6 +681,7 @@ extension AppStore {
                     audioEngine: SustainAudioEngine(),
                     libraryStore: libraryStore,
                     audioHardwareMonitor: CoreAudioHardwareMonitor(),
+                    powerStateMonitor: MacPowerStateMonitor(),
                     routingSettings: snapshot.routingSettings,
                     persistenceStatus: "Library loaded"
                 )
@@ -683,6 +695,7 @@ extension AppStore {
                 audioEngine: SustainAudioEngine(),
                 libraryStore: libraryStore,
                 audioHardwareMonitor: CoreAudioHardwareMonitor(),
+                powerStateMonitor: MacPowerStateMonitor(),
                 routingSettings: snapshot.routingSettings,
                 persistenceStatus: "Seed library saved"
             )
@@ -694,6 +707,7 @@ extension AppStore {
                 audioEngine: SustainAudioEngine(),
                 libraryStore: libraryStore,
                 audioHardwareMonitor: CoreAudioHardwareMonitor(),
+                powerStateMonitor: MacPowerStateMonitor(),
                 routingSettings: snapshot.routingSettings,
                 persistenceStatus: "Using seed library: \(error.localizedDescription)"
             )
@@ -705,6 +719,7 @@ extension AppStore {
         libraryStore: LocalLibraryStore? = nil,
         audioRoutingProvider: AudioRoutingProviding = StaticAudioRoutingProvider(snapshotValue: .previewDefault),
         audioHardwareMonitor: AudioHardwareMonitoring = NoopAudioHardwareMonitor(),
+        powerStateMonitor: PowerStateMonitoring = NoopPowerStateMonitor(),
         countoffDurationMultiplier: Double = 0
     ) -> AppStore {
         let snapshot = seedSnapshot()
@@ -715,6 +730,7 @@ extension AppStore {
             libraryStore: libraryStore,
             audioRoutingProvider: audioRoutingProvider,
             audioHardwareMonitor: audioHardwareMonitor,
+            powerStateMonitor: powerStateMonitor,
             routingSettings: snapshot.routingSettings,
             countoffDurationMultiplier: countoffDurationMultiplier
         )
