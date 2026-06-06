@@ -38,6 +38,12 @@ struct PadPack: Codable, Identifiable, Equatable, Hashable {
     func supports(_ key: MusicalKey) -> Bool {
         availableKeys.contains(key)
     }
+
+    static let bundled = PadPack(
+        name: "Bundled Pads",
+        folderName: "Pads",
+        availableKeys: Set(MusicalKey.allCases)
+    )
 }
 
 struct Song: Codable, Identifiable, Equatable, Hashable {

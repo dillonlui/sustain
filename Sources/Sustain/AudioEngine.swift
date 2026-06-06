@@ -15,7 +15,7 @@ enum AudioEngineError: LocalizedError {
         case .invalidOutputFormat:
             "The system output format is not available."
         case .missingPadFile(let pack, let key):
-            "\(pack) does not include a WAV pad for \(key.rawValue)."
+            "\(pack) does not include a pad for \(key.rawValue)."
         case .unreadablePadFile(let url):
             "The pad file could not be loaded: \(url.lastPathComponent)."
         }
@@ -33,7 +33,7 @@ protocol AudioControlling: AnyObject {
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool
     func startPad(for key: MusicalKey, padPack: PadPack) throws
     func stopPad()
-    func startClick(bpm: Int, timeSignature: TimeSignature) throws
+    func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool) throws
     func stopClick()
     func stopAll()
 }
@@ -131,7 +131,7 @@ final class SustainAudioEngine: AudioControlling {
             return "Found \(asset.displayName)"
         }
 
-        return "Missing \(padPack.name) \(key.rawValue).wav"
+        return "Missing bundled pad \(key.rawValue).mp3"
     }
 
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool {
@@ -197,7 +197,7 @@ final class SustainAudioEngine: AudioControlling {
         activePadAssetName = nil
     }
 
-    func startClick(bpm: Int, timeSignature: TimeSignature) throws {
+    func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool = true) throws {
         guard bpm > 0 else {
             throw AudioEngineError.invalidBPM(bpm)
         }
@@ -205,9 +205,11 @@ final class SustainAudioEngine: AudioControlling {
         try startClickEngineIfNeeded()
 
         clickPlayer.stop()
-        let countoff = makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1)
         let loop = makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1)
-        clickPlayer.scheduleBuffer(countoff)
+        if includesCountoff {
+            let countoff = makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1)
+            clickPlayer.scheduleBuffer(countoff)
+        }
         clickPlayer.scheduleBuffer(loop, at: nil, options: .loops)
         clickPlayer.play()
         clickIsActive = true
@@ -329,23 +331,20 @@ final class SilentAudioEngine: AudioControlling {
     func configureRouting(_ snapshot: AudioRoutingSnapshot) throws {}
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
-        "Found \(padPack.name) \(key.rawValue).wav"
+        "Found \(key.rawValue).mp3"
     }
 
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool {
-        padPack.supports(key)
+        true
     }
 
     func startPad(for key: MusicalKey, padPack: PadPack) throws {
-        guard hasPadAsset(for: padPack, key: key) else {
-            throw AudioEngineError.missingPadFile(pack: padPack.name, key: key)
-        }
         isEngineRunning = true
     }
 
     func stopPad() {}
 
-    func startClick(bpm: Int, timeSignature: TimeSignature) throws {
+    func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool) throws {
         guard bpm > 0 else {
             throw AudioEngineError.invalidBPM(bpm)
         }

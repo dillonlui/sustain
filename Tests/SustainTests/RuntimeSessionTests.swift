@@ -34,7 +34,7 @@ struct RuntimeSessionTests {
     }
 
     @Test func invalidTransitionDoesNotDestroyPlayingState() {
-        let audio = RecordingAudioEngine()
+        let audio = RecordingAudioEngine(missingPadKeys: [.bb])
         let store = AppStore.preview(audioEngine: audio)
         store.startCuedSong()
         let playing = store.runtime.playingEntryID
@@ -67,22 +67,11 @@ struct RuntimeSessionTests {
         #expect(loadedEntry.bpmOverride == 88)
     }
 
-    @Test func bundledPadResolverFindsExpectedWAVFiles() throws {
+    @Test func bundledPadResolverFindsBundledPadFiles() throws {
         let resolver = BundlePadAssetResolver()
-        let warm = PadPack(
-            name: "Warm",
-            folderName: "Warm",
-            availableKeys: Set(MusicalKey.allCases)
-        )
-        let airy = PadPack(
-            name: "Airy",
-            folderName: "Airy",
-            availableKeys: [.c, .d, .e, .f, .g, .a]
-        )
 
-        let warmAsset = try #require(resolver.asset(for: warm, key: .g))
-        #expect(warmAsset.url.pathExtension == "wav")
-        #expect(resolver.asset(for: airy, key: .bb) == nil)
+        let asset = try #require(resolver.asset(for: .bundled, key: .g))
+        #expect(asset.url.lastPathComponent == "G Major.mp3")
     }
 
     @Test func sharedOutputRoutingWarnsButDoesNotBlockPlayback() {
@@ -129,6 +118,30 @@ struct RuntimeSessionTests {
         #expect(loaded.routingSettings.padOutputID == 11)
         #expect(loaded.routingSettings.clickOutputID == 12)
     }
+
+    @Test func rehearseBPMUpdatesClickWithoutAnotherCountoff() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.startRehearseClick()
+        store.setRehearseBPM(96)
+
+        #expect(store.rehearse.bpm == 96)
+        #expect(store.rehearse.clickState == .playing)
+        #expect(audio.clickStartCount == 2)
+        #expect(audio.clickIncludesCountoffHistory == [true, false])
+    }
+
+    @Test func rehearsePadSelectionStartsBundledPad() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.startRehearsePad(key: .e)
+
+        #expect(store.rehearse.selectedKey == .e)
+        #expect(store.rehearse.padState == .playing)
+        #expect(audio.padStartCount == 1)
+    }
 }
 
 @MainActor
@@ -136,18 +149,24 @@ private final class RecordingAudioEngine: AudioControlling {
     var isEngineRunning = false
     var padStartCount = 0
     var clickStartCount = 0
+    var clickIncludesCountoffHistory: [Bool] = []
+    var missingPadKeys: Set<MusicalKey>
     var statusSummary: String { isEngineRunning ? "Running" : "Stopped" }
+
+    init(missingPadKeys: Set<MusicalKey> = []) {
+        self.missingPadKeys = missingPadKeys
+    }
 
     func prepare() {}
 
     func configureRouting(_ snapshot: AudioRoutingSnapshot) throws {}
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
-        "Found \(padPack.name) \(key.rawValue).wav"
+        missingPadKeys.contains(key) ? "Missing bundled pad \(key.rawValue).mp3" : "Found \(key.rawValue).mp3"
     }
 
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool {
-        padPack.supports(key)
+        !missingPadKeys.contains(key)
     }
 
     func startPad(for key: MusicalKey, padPack: PadPack) throws {
@@ -157,8 +176,9 @@ private final class RecordingAudioEngine: AudioControlling {
 
     func stopPad() {}
 
-    func startClick(bpm: Int, timeSignature: TimeSignature) throws {
+    func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool) throws {
         clickStartCount += 1
+        clickIncludesCountoffHistory.append(includesCountoff)
         isEngineRunning = true
     }
 

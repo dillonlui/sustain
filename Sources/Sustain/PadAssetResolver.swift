@@ -11,24 +11,32 @@ protocol PadAssetResolving {
 
 struct BundlePadAssetResolver: PadAssetResolving {
     func asset(for padPack: PadPack, key: MusicalKey) -> PadAsset? {
-        let subdirectories = [
-            "Pads/\(padPack.folderName)",
-            "Resources/Pads/\(padPack.folderName)"
+        let candidates = [
+            PadAssetCandidate(resourceName: "\(key.rawValue) Major", extension: "mp3", subdirectory: "Pads"),
+            PadAssetCandidate(resourceName: "\(key.rawValue) Major", extension: "mp3", subdirectory: "Resources/Pads"),
+            PadAssetCandidate(resourceName: key.rawValue, extension: "mp3", subdirectory: "Pads"),
+            PadAssetCandidate(resourceName: key.rawValue, extension: "mp3", subdirectory: "Resources/Pads")
         ]
 
-        guard let url = subdirectories.compactMap({ subdirectory in
+        guard let match = candidates.compactMap({ candidate -> (URL, String)? in
             Bundle.module.url(
-            forResource: key.rawValue,
-            withExtension: "wav",
-            subdirectory: subdirectory
-            )
+                forResource: candidate.resourceName,
+                withExtension: candidate.extension,
+                subdirectory: candidate.subdirectory
+            ).map { ($0, "\(candidate.resourceName).\(candidate.extension)") }
         }).first else {
             return nil
         }
 
         return PadAsset(
-            url: url,
-            displayName: "\(padPack.name) \(key.rawValue).wav"
+            url: match.0,
+            displayName: "\(key.rawValue).\(match.1)"
         )
     }
+}
+
+private struct PadAssetCandidate {
+    var resourceName: String
+    var `extension`: String
+    var subdirectory: String
 }

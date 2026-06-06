@@ -18,7 +18,7 @@ struct SongLibraryView: View {
             TableColumn("Time") { song in
                 Text(song.timeSignature.description)
             }
-            TableColumn("Pad Pack") { song in
+            TableColumn("Pad Source") { song in
                 Text(song.padPack.name)
             }
         }
@@ -157,7 +157,7 @@ struct AudioSetupView: View {
 
             Section("Engine") {
                 LabeledContent("Status", value: store.audioStatus)
-                LabeledContent("Pad Playback", value: "Looping WAV files")
+                LabeledContent("Pad Playback", value: "Looping bundled MP3 files")
                 LabeledContent("Click", value: "Generated from BPM")
                 LabeledContent("Countoff", value: "Required before click")
             }

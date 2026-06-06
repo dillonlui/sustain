@@ -10,6 +10,8 @@ struct RootView: View {
             switch store.selectedScreen {
             case .live:
                 LiveServiceView()
+            case .rehearse:
+                RehearseView()
             case .songs:
                 SongLibraryView()
             case .setlist:
@@ -46,6 +48,7 @@ private struct SidebarView: View {
     private func icon(for screen: AppScreen) -> String {
         switch screen {
         case .live: "play.circle"
+        case .rehearse: "music.quarternote.3"
         case .songs: "music.note.list"
         case .setlist: "list.bullet"
         case .audio: "speaker.wave.2"

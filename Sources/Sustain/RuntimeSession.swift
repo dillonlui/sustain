@@ -4,6 +4,7 @@ import Foundation
 
 enum AppScreen: String, CaseIterable, Identifiable {
     case live = "Live Service"
+    case rehearse = "Rehearse"
     case songs = "Song Library"
     case setlist = "Setlist"
     case audio = "Audio Setup"
@@ -40,6 +41,16 @@ struct RuntimeSession: Equatable {
     var lastMessage = "Ready"
 }
 
+struct RehearseSession: Equatable {
+    var selectedKey: MusicalKey = .c
+    var padState: PadPlaybackState = .off
+    var clickState: ClickPlaybackState = .off
+    var bpm: Int = 72
+    var timeSignature: TimeSignature = .fourFour
+    var countoffEnabled = true
+    var lastMessage = "Ready to rehearse"
+}
+
 struct SystemCheckResult: Equatable {
     var canStartPlayback: Bool
     var messages: [String]
@@ -57,6 +68,7 @@ final class AppStore: ObservableObject {
     @Published var songs: [Song]
     @Published var activeSetlist: Setlist
     @Published var runtime = RuntimeSession()
+    @Published var rehearse = RehearseSession()
     @Published var systemCheck = SystemCheckResult.notRun
     @Published var audioStatus: String
     @Published var persistenceStatus: String
@@ -167,6 +179,7 @@ final class AppStore: ObservableObject {
         let bpm = cuedEntry.resolvedBPM(for: cuedSong)
 
         do {
+            stopRehearsalForLiveSession()
             runtime.playbackPhase = .songStarting
 
             if runtime.playingEntryID != nil {
@@ -179,7 +192,7 @@ final class AppStore: ObservableObject {
             try audioEngine.startPad(for: key, padPack: cuedSong.padPack)
             runtime.padState = .playing
 
-            try audioEngine.startClick(bpm: bpm, timeSignature: cuedSong.timeSignature)
+            try audioEngine.startClick(bpm: bpm, timeSignature: cuedSong.timeSignature, includesCountoff: true)
             runtime.playingEntryID = cuedEntry.id
             runtime.playbackPhase = .songPlaying
             beginCountoff(for: cuedEntry.id, songTitle: cuedSong.title, bpm: bpm, timeSignature: cuedSong.timeSignature)
@@ -224,7 +237,7 @@ final class AppStore: ObservableObject {
         let bpm = playingEntry.resolvedBPM(for: song)
 
         do {
-            try audioEngine.startClick(bpm: bpm, timeSignature: song.timeSignature)
+            try audioEngine.startClick(bpm: bpm, timeSignature: song.timeSignature, includesCountoff: true)
             beginCountoff(for: playingEntry.id, songTitle: song.title, bpm: bpm, timeSignature: song.timeSignature)
             runtime.lastMessage = "Countoff started for \(song.title)"
             refreshAudioStatus()
@@ -264,6 +277,96 @@ final class AppStore: ObservableObject {
         runtime.padState = .off
         runtime.lastMessage = "Pad stopped"
         refreshAudioStatus()
+    }
+
+    func startRehearsePad(key: MusicalKey) {
+        stopLiveSessionForRehearsal()
+        rehearse.selectedKey = key
+
+        do {
+            try audioEngine.startPad(for: key, padPack: .bundled)
+            rehearse.padState = .playing
+            rehearse.lastMessage = "Pad playing in \(key.rawValue)"
+            refreshAudioStatus()
+        } catch {
+            rehearse.lastMessage = error.localizedDescription
+            refreshAudioStatus()
+        }
+    }
+
+    func stopRehearsePad() {
+        audioEngine.stopPad()
+        rehearse.padState = .off
+        rehearse.lastMessage = "Pad stopped"
+        refreshAudioStatus()
+    }
+
+    func startRehearseClick() {
+        stopLiveSessionForRehearsal()
+
+        do {
+            try audioEngine.startClick(
+                bpm: rehearse.bpm,
+                timeSignature: rehearse.timeSignature,
+                includesCountoff: rehearse.countoffEnabled
+            )
+
+            if rehearse.countoffEnabled {
+                beginRehearseCountoff()
+                rehearse.lastMessage = "Countoff started at \(rehearse.bpm) BPM"
+            } else {
+                rehearse.clickState = .playing
+                rehearse.lastMessage = "Click playing at \(rehearse.bpm) BPM"
+            }
+            refreshAudioStatus()
+        } catch {
+            rehearse.lastMessage = error.localizedDescription
+            refreshAudioStatus()
+        }
+    }
+
+    func stopRehearseClick() {
+        clickStateTask?.cancel()
+        audioEngine.stopClick()
+        rehearse.clickState = .off
+        rehearse.lastMessage = "Click stopped"
+        refreshAudioStatus()
+    }
+
+    func setRehearseBPM(_ bpm: Int) {
+        rehearse.bpm = min(220, max(40, bpm))
+
+        guard rehearse.clickState != .off else {
+            rehearse.lastMessage = "Click set to \(rehearse.bpm) BPM"
+            return
+        }
+
+        do {
+            clickStateTask?.cancel()
+            try audioEngine.startClick(
+                bpm: rehearse.bpm,
+                timeSignature: rehearse.timeSignature,
+                includesCountoff: false
+            )
+            rehearse.clickState = .playing
+            rehearse.lastMessage = "Click updated to \(rehearse.bpm) BPM"
+            refreshAudioStatus()
+        } catch {
+            rehearse.lastMessage = error.localizedDescription
+            refreshAudioStatus()
+        }
+    }
+
+    func setRehearseTimeSignature(_ timeSignature: TimeSignature) {
+        rehearse.timeSignature = timeSignature
+
+        guard rehearse.clickState != .off else { return }
+        setRehearseBPM(rehearse.bpm)
+    }
+
+    func setRehearseCountoffEnabled(_ isEnabled: Bool) {
+        rehearse.countoffEnabled = isEnabled
+        rehearse.lastMessage = isEnabled ? "Countoff enabled" : "Countoff disabled"
     }
 
     func updateEntry(
@@ -334,6 +437,57 @@ final class AppStore: ObservableObject {
         }
     }
 
+    private func beginRehearseCountoff() {
+        clickStateTask?.cancel()
+        rehearse.clickState = .countoff
+
+        let duration = countoffDuration(bpm: rehearse.bpm, timeSignature: rehearse.timeSignature)
+        clickStateTask = Task { @MainActor in
+            let nanoseconds = UInt64(max(0, duration * countoffDurationMultiplier) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanoseconds)
+
+            guard !Task.isCancelled,
+                  rehearse.clickState == .countoff else {
+                return
+            }
+
+            rehearse.clickState = .playing
+            rehearse.lastMessage = "Click playing at \(rehearse.bpm) BPM"
+        }
+    }
+
+    private func stopLiveSessionForRehearsal() {
+        guard runtime.playbackPhase != .noSongPlaying || runtime.clickState != .off else { return }
+
+        clickStateTask?.cancel()
+        if runtime.clickState != .off {
+            audioEngine.stopClick()
+        }
+        if runtime.padState != .off {
+            audioEngine.stopPad()
+        }
+        runtime.clickState = .off
+        runtime.padState = .off
+        runtime.playingEntryID = nil
+        runtime.playbackPhase = .noSongPlaying
+        runtime.lastMessage = "Live playback stopped for rehearsal"
+    }
+
+    private func stopRehearsalForLiveSession() {
+        clickStateTask?.cancel()
+
+        if rehearse.clickState != .off {
+            audioEngine.stopClick()
+        }
+        if rehearse.padState != .off {
+            audioEngine.stopPad()
+        }
+
+        rehearse.clickState = .off
+        rehearse.padState = .off
+        rehearse.lastMessage = "Rehearsal stopped"
+    }
+
     private func countoffDuration(bpm: Int, timeSignature: TimeSignature) -> TimeInterval {
         guard bpm > 0 else { return 0 }
         return (60.0 / Double(bpm)) * Double(max(1, timeSignature.beatsPerMeasure))
@@ -380,10 +534,6 @@ final class AppStore: ObservableObject {
 
         if bpm <= 0 {
             blockingMessages.append("\(song.title) needs a valid BPM.")
-        }
-
-        if !song.padPack.supports(key) {
-            blockingMessages.append("\(song.padPack.name) does not include a pad for \(key.rawValue).")
         }
 
         if !audioEngine.hasPadAsset(for: song.padPack, key: key) {
@@ -468,21 +618,12 @@ extension AppStore {
     }
 
     static func seedSnapshot() -> LibrarySnapshot {
-        let warm = PadPack(
-            name: "Warm",
-            folderName: "Warm",
-            availableKeys: Set(MusicalKey.allCases)
-        )
-        let airy = PadPack(
-            name: "Airy",
-            folderName: "Airy",
-            availableKeys: [.c, .d, .e, .f, .g, .a]
-        )
+        let bundledPads = PadPack.bundled
 
         let songs = [
-            Song(title: "Goodness of God", defaultKey: .g, defaultBPM: 72, timeSignature: .sixEight, padPack: warm),
-            Song(title: "King of Kings", defaultKey: .d, defaultBPM: 68, timeSignature: .fourFour, padPack: warm),
-            Song(title: "Holy Forever", defaultKey: .a, defaultBPM: 76, timeSignature: .fourFour, padPack: airy)
+            Song(title: "Goodness of God", defaultKey: .g, defaultBPM: 72, timeSignature: .sixEight, padPack: bundledPads),
+            Song(title: "King of Kings", defaultKey: .d, defaultBPM: 68, timeSignature: .fourFour, padPack: bundledPads),
+            Song(title: "Holy Forever", defaultKey: .a, defaultBPM: 76, timeSignature: .fourFour, padPack: bundledPads)
         ]
 
         let entries = [
