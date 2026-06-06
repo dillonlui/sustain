@@ -22,6 +22,18 @@ struct RootView: View {
                 SystemCheckView()
             }
         }
+        .alert(item: $store.audioRouteChangePrompt) { prompt in
+            Alert(
+                title: Text("Audio Output Change Detected"),
+                message: Text(prompt.message),
+                primaryButton: .default(Text("Keep Current Settings")) {
+                    store.keepCurrentAudioRouting()
+                },
+                secondaryButton: .default(Text("Switch to \(prompt.detectedOutputName)")) {
+                    store.switchToDetectedAudioOutput()
+                }
+            )
+        }
     }
 }
 

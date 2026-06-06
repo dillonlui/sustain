@@ -304,7 +304,92 @@ struct RuntimeSessionTests {
         #expect(store.runtime.padState == .off)
         #expect(store.runtime.clickState == .off)
         #expect(store.runtime.lastMessage == "Audio devices changed. Playback stopped so routing can be rechecked.")
+        #expect(store.audioRouteChangePrompt?.detectedOutputID == 3)
         #expect(audio.stopAllCount == 1)
+    }
+
+    @Test func keepingCurrentRoutingDismissesRouteChangePrompt() {
+        let provider = MutableAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 1, name: "AirPods", isDefault: true),
+                    AudioOutputDevice(id: 2, name: "MacBook Speakers", isDefault: false),
+                    AudioOutputDevice(id: 3, name: "Monitor Speakers", isDefault: false)
+                ],
+                padOutputID: 1,
+                padOutputName: "AirPods",
+                clickOutputID: 2,
+                clickOutputName: "MacBook Speakers",
+                independentRoutingEnabled: true
+            )
+        )
+        let monitor = NoopAudioHardwareMonitor()
+        let store = AppStore.preview(
+            audioRoutingProvider: provider,
+            audioHardwareMonitor: monitor
+        )
+
+        provider.snapshotValue = AudioRoutingSnapshot(
+            outputs: [
+                AudioOutputDevice(id: 1, name: "AirPods", isDefault: false),
+                AudioOutputDevice(id: 2, name: "MacBook Speakers", isDefault: false),
+                AudioOutputDevice(id: 3, name: "Monitor Speakers", isDefault: true)
+            ],
+            padOutputID: 1,
+            padOutputName: "AirPods",
+            clickOutputID: 2,
+            clickOutputName: "MacBook Speakers",
+            independentRoutingEnabled: true
+        )
+        monitor.simulateChange()
+
+        store.keepCurrentAudioRouting()
+
+        #expect(store.audioRouteChangePrompt == nil)
+        #expect(store.routingSettings.padOutputID == nil)
+        #expect(store.routingSettings.clickOutputID == nil)
+        #expect(store.runtime.lastMessage == "Kept current audio output settings")
+    }
+
+    @Test func switchingToDetectedOutputUpdatesRoutingSettings() {
+        let provider = MutableAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 1, name: "AirPods", isDefault: true),
+                    AudioOutputDevice(id: 3, name: "Monitor Speakers", isDefault: false)
+                ],
+                padOutputID: 1,
+                padOutputName: "AirPods",
+                clickOutputID: 1,
+                clickOutputName: "AirPods",
+                independentRoutingEnabled: false
+            )
+        )
+        let monitor = NoopAudioHardwareMonitor()
+        let store = AppStore.preview(
+            audioRoutingProvider: provider,
+            audioHardwareMonitor: monitor
+        )
+
+        provider.snapshotValue = AudioRoutingSnapshot(
+            outputs: [
+                AudioOutputDevice(id: 1, name: "AirPods", isDefault: false),
+                AudioOutputDevice(id: 3, name: "Monitor Speakers", isDefault: true)
+            ],
+            padOutputID: 1,
+            padOutputName: "AirPods",
+            clickOutputID: 1,
+            clickOutputName: "AirPods",
+            independentRoutingEnabled: false
+        )
+        monitor.simulateChange()
+
+        store.switchToDetectedAudioOutput()
+
+        #expect(store.audioRouteChangePrompt == nil)
+        #expect(store.routingSettings.padOutputID == 3)
+        #expect(store.routingSettings.clickOutputID == 3)
+        #expect(store.runtime.lastMessage == "Switched audio outputs to Monitor Speakers")
     }
 
     @Test func unchangedHardwarePollDoesNotOverwriteRuntimeMessage() {

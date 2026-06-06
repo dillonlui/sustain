@@ -62,6 +62,13 @@ struct SystemCheckResult: Equatable {
     )
 }
 
+struct AudioRouteChangePrompt: Identifiable, Equatable {
+    var id = UUID()
+    var detectedOutputID: AudioDeviceID
+    var detectedOutputName: String
+    var message: String
+}
+
 @MainActor
 final class AppStore: ObservableObject {
     @Published var selectedScreen: AppScreen = .live
@@ -74,6 +81,7 @@ final class AppStore: ObservableObject {
     @Published var persistenceStatus: String
     @Published var routingSettings: AudioRoutingSettings
     @Published var routingSnapshot: AudioRoutingSnapshot
+    @Published var audioRouteChangePrompt: AudioRouteChangePrompt?
 
     private let audioEngine: AudioControlling
     private let libraryStore: LocalLibraryStore?
@@ -405,6 +413,22 @@ final class AppStore: ObservableObject {
         saveLibrary()
     }
 
+    func keepCurrentAudioRouting() {
+        audioRouteChangePrompt = nil
+        configureAudioRouting()
+        runtime.lastMessage = "Kept current audio output settings"
+    }
+
+    func switchToDetectedAudioOutput() {
+        guard let prompt = audioRouteChangePrompt else { return }
+        audioRouteChangePrompt = nil
+        updateRouting(
+            padOutputID: prompt.detectedOutputID,
+            clickOutputID: prompt.detectedOutputID
+        )
+        runtime.lastMessage = "Switched audio outputs to \(prompt.detectedOutputName)"
+    }
+
     func runSystemCheck() {
         audioEngine.prepare()
         refreshRoutingSnapshot()
@@ -553,19 +577,19 @@ final class AppStore: ObservableObject {
         }
 
         if !routingSnapshot.missingSelectionMessages.isEmpty {
+            audioRouteChangePrompt = nil
             stopAudioAfterHardwareChange(message: routingSnapshot.missingSelectionMessages.joined(separator: " "))
             return
         }
 
         if runtime.playbackPhase != .noSongPlaying || rehearse.padState != .off || rehearse.clickState != .off {
             stopAudioAfterHardwareChange(message: "Audio devices changed. Playback stopped so routing can be rechecked.")
+            setRouteChangePrompt(from: routingSnapshot)
             return
         }
 
-        if runtime.playbackPhase == .noSongPlaying {
-            configureAudioRouting()
-        }
         runtime.lastMessage = "Audio devices updated"
+        setRouteChangePrompt(from: routingSnapshot)
     }
 
     private func stopAudioAfterHardwareChange(message: String) {
@@ -580,6 +604,19 @@ final class AppStore: ObservableObject {
         rehearse.lastMessage = message
         runtime.lastMessage = message
         refreshAudioStatus()
+    }
+
+    private func setRouteChangePrompt(from snapshot: AudioRoutingSnapshot) {
+        guard let detectedOutput = snapshot.outputs.first(where: \.isDefault) ?? snapshot.outputs.first else {
+            audioRouteChangePrompt = nil
+            return
+        }
+
+        audioRouteChangePrompt = AudioRouteChangePrompt(
+            detectedOutputID: detectedOutput.id,
+            detectedOutputName: detectedOutput.name,
+            message: "Audio output change detected. Keep your current Sustain routing, or switch pad and click to \(detectedOutput.name)."
+        )
     }
 
     private func validate(entry: SetlistEntry, song: Song) -> SystemCheckResult {
