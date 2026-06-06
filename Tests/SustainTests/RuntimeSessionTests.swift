@@ -261,6 +261,52 @@ struct RuntimeSessionTests {
         #expect(audio.stopAllCount == 1)
     }
 
+    @Test func hardwareChangeStopsPlaybackWhenDefaultOutputChanges() {
+        let audio = RecordingAudioEngine()
+        let provider = MutableAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 1, name: "AirPods", isDefault: true),
+                    AudioOutputDevice(id: 2, name: "MacBook Speakers", isDefault: false),
+                    AudioOutputDevice(id: 3, name: "Monitor Speakers", isDefault: false)
+                ],
+                padOutputID: 1,
+                padOutputName: "AirPods",
+                clickOutputID: 2,
+                clickOutputName: "MacBook Speakers",
+                independentRoutingEnabled: true
+            )
+        )
+        let monitor = NoopAudioHardwareMonitor()
+        let store = AppStore.preview(
+            audioEngine: audio,
+            audioRoutingProvider: provider,
+            audioHardwareMonitor: monitor
+        )
+
+        store.startCuedSong()
+
+        provider.snapshotValue = AudioRoutingSnapshot(
+            outputs: [
+                AudioOutputDevice(id: 1, name: "AirPods", isDefault: false),
+                AudioOutputDevice(id: 2, name: "MacBook Speakers", isDefault: false),
+                AudioOutputDevice(id: 3, name: "Monitor Speakers", isDefault: true)
+            ],
+            padOutputID: 1,
+            padOutputName: "AirPods",
+            clickOutputID: 2,
+            clickOutputName: "MacBook Speakers",
+            independentRoutingEnabled: true
+        )
+        monitor.simulateChange()
+
+        #expect(store.runtime.playbackPhase == .noSongPlaying)
+        #expect(store.runtime.padState == .off)
+        #expect(store.runtime.clickState == .off)
+        #expect(store.runtime.lastMessage == "Audio devices changed. Playback stopped so routing can be rechecked.")
+        #expect(audio.stopAllCount == 1)
+    }
+
     @Test func unchangedHardwarePollDoesNotOverwriteRuntimeMessage() {
         let audio = RecordingAudioEngine()
         let provider = MutableAudioRoutingProvider(snapshotValue: .previewDefault)

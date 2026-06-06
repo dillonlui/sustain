@@ -552,14 +552,23 @@ final class AppStore: ObservableObject {
             systemCheck = validate(entry: cuedEntry, song: cuedSong)
         }
 
-        guard !routingSnapshot.missingSelectionMessages.isEmpty else {
-            if runtime.playbackPhase == .noSongPlaying {
-                configureAudioRouting()
-            }
-            runtime.lastMessage = "Audio devices updated"
+        if !routingSnapshot.missingSelectionMessages.isEmpty {
+            stopAudioAfterHardwareChange(message: routingSnapshot.missingSelectionMessages.joined(separator: " "))
             return
         }
 
+        if runtime.playbackPhase != .noSongPlaying || rehearse.padState != .off || rehearse.clickState != .off {
+            stopAudioAfterHardwareChange(message: "Audio devices changed. Playback stopped so routing can be rechecked.")
+            return
+        }
+
+        if runtime.playbackPhase == .noSongPlaying {
+            configureAudioRouting()
+        }
+        runtime.lastMessage = "Audio devices updated"
+    }
+
+    private func stopAudioAfterHardwareChange(message: String) {
         clickStateTask?.cancel()
         audioEngine.stopAll()
         runtime.clickState = .off
@@ -568,8 +577,8 @@ final class AppStore: ObservableObject {
         runtime.playbackPhase = .noSongPlaying
         rehearse.clickState = .off
         rehearse.padState = .off
-        rehearse.lastMessage = routingSnapshot.missingSelectionMessages.joined(separator: " ")
-        runtime.lastMessage = routingSnapshot.missingSelectionMessages.joined(separator: " ")
+        rehearse.lastMessage = message
+        runtime.lastMessage = message
         refreshAudioStatus()
     }
 
@@ -609,6 +618,7 @@ final class AppStore: ObservableObject {
             warnings: warnings
         )
     }
+
 }
 
 extension AppStore {
