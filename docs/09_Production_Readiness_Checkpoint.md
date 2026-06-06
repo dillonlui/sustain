@@ -21,6 +21,7 @@ The app now has the first production-shaped audio path:
 - A pad pack importer service can inspect folders, report missing keys, and copy usable packs into app storage.
 - Imported pad pack metadata persists in the saved library catalog.
 - Songs can be created, edited, assigned to a pad source, and added to the active setlist.
+- The active setlist can be renamed and cleared when playback is stopped.
 - Setlist entries can be removed when they are not actively playing.
 - System Check warns when pad and click resolve to the same output.
 - Hardware routing is revalidated automatically through Core Audio device-change listeners.
