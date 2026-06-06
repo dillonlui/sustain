@@ -95,6 +95,8 @@ Success criteria:
 
 Run pad and click together for at least 30 minutes.
 
+Use [10_Duration_Test_Checklist.md](10_Duration_Test_Checklist.md) to keep the run repeatable.
+
 Observe:
 
 - Click drift.
