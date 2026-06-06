@@ -9,6 +9,7 @@ The app now has the first production-shaped audio path:
 - Missing pad files block playback during system check.
 - System Check warns about missing pad assets elsewhere in the active setlist.
 - System Check warns about invalid BPMs elsewhere in the active setlist.
+- System Check warns about broken song references elsewhere in the active setlist.
 - Pad transitions use two player nodes and mixer fades.
 - Click and countoff are generated from BPM and time signature.
 - macOS output devices are enumerated through Core Audio.
@@ -21,6 +22,7 @@ The app now has the first production-shaped audio path:
 - Playback and rehearsal are stopped visibly if a selected routed output disappears.
 - Hardware/default routing changes prompt the user to keep current Sustain settings or switch pad/click to the detected output.
 - Active playback and rehearsal are stopped before that prompt when hardware/default routing changes.
+- Manual Audio Setup routing changes stop active playback and rehearsal so outputs can be rechecked before restart.
 - Playback is blocked if Core Audio output-device assignment fails.
 
 ## What Is Still Prototype
@@ -55,6 +57,7 @@ Success criteria:
 - Playback failure is visible and does not silently lie to the user.
 - Output-device assignment failures block playback.
 - Default-output changes during playback stop audio and prompt instead of allowing silent route drift.
+- Manual output changes during playback stop audio instead of hot-swapping live routes.
 - Reconnect behavior restores a safe, understandable routing state.
 - Bluetooth-style reconnects that change Core Audio device IDs recover by matching the saved output name when possible.
 
