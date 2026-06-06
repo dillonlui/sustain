@@ -51,6 +51,17 @@ struct RuntimeSessionTests {
         #expect(audio.clickStartCount == clickStarts)
     }
 
+    @Test func systemCheckWarnsAboutMissingPadAssetsLaterInSetlist() {
+        let audio = RecordingAudioEngine(missingPadKeys: [.bb])
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.runSystemCheck()
+
+        #expect(store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.warnings.contains("Holy Forever: Missing bundled pad Bb.mp3"))
+        #expect(store.systemCheck.messages.contains("Warning: Holy Forever: Missing bundled pad Bb.mp3"))
+    }
+
     @Test func clickStartupFailureDoesNotStartNewPadDuringTransition() {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)

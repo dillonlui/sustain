@@ -728,6 +728,8 @@ final class AppStore: ObservableObject {
             warnings.append(warning)
         }
 
+        warnings.append(contentsOf: setlistPadAssetWarnings(excluding: entry.id))
+
         var messages = blockingMessages
         if messages.isEmpty {
             messages.append("Ready for \(song.title) in \(key.rawValue) at \(bpm) BPM.")
@@ -739,6 +741,21 @@ final class AppStore: ObservableObject {
             messages: messages,
             warnings: warnings
         )
+    }
+
+    private func setlistPadAssetWarnings(excluding cuedEntryID: SetlistEntry.ID) -> [String] {
+        activeSetlist.entries.compactMap { entry in
+            guard entry.id != cuedEntryID, let song = song(for: entry) else {
+                return nil
+            }
+
+            let key = entry.resolvedKey(for: song)
+            guard !audioEngine.hasPadAsset(for: song.padPack, key: key) else {
+                return nil
+            }
+
+            return "\(song.title): \(audioEngine.padAssetStatus(for: song.padPack, key: key))"
+        }
     }
 
 }
