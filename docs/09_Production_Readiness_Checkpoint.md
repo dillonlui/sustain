@@ -7,6 +7,7 @@ The app now has the first production-shaped audio path:
 - Pads are real MP3 files bundled with the app.
 - Pad lookup is based on pad pack and musical key.
 - Missing pad files block playback during system check.
+- System Check warns about missing pad assets elsewhere in the active setlist.
 - Pad transitions use two player nodes and mixer fades.
 - Click and countoff are generated from BPM and time signature.
 - macOS output devices are enumerated through Core Audio.
