@@ -14,13 +14,16 @@ The app now has the first production-shaped audio path:
 - Audio Setup can select separate pad and click output devices.
 - Routing selections persist across relaunch.
 - System Check warns when pad and click resolve to the same output.
+- Hardware routing is revalidated automatically with a lightweight polling monitor.
+- Playback and rehearsal are stopped visibly if a selected routed output disappears.
 
 ## What Is Still Prototype
 
 - Bundled MP3s are development sample assets, not the final pad library.
 - User-imported pad packs do not exist yet.
 - Independent routing is implemented structurally but has not been validated on multiple real hardware outputs.
-- Device disconnect/reconnect recovery is not implemented.
+- Device disconnect recovery is implemented at the app-state level with polling, but native Core Audio property-listener monitoring is still a future refinement.
+- Device reconnect recovery has not been validated on real hardware.
 - Sleep/wake recovery is not implemented.
 - Long-running timing stability has not been measured.
 - Audio scheduling is still coordinated partly by UI/runtime tasks.
@@ -43,6 +46,7 @@ Success criteria:
 - Click can play through a different selected output.
 - The app detects when a selected output disappears.
 - Playback failure is visible and does not silently lie to the user.
+- Reconnect behavior restores a safe, understandable routing state.
 
 Fallback decision:
 
@@ -80,6 +84,17 @@ Observe:
 - Memory growth.
 - CPU usage.
 - Behavior when display sleeps.
+
+### 4. Native Hardware Listener
+
+The current monitor polls the routing snapshot and ignores unchanged snapshots. This is safe and testable, but a native Core Audio property listener would reduce latency and unnecessary polling.
+
+Success criteria:
+
+- Device-list and default-output changes trigger routing refresh without polling.
+- Swift concurrency boundaries are explicit and testable.
+- Listener registration and removal are paired correctly.
+- Existing playback-loss tests continue to pass unchanged.
 
 ## Product Rule
 
