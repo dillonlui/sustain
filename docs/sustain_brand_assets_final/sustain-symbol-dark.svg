@@ -1,0 +1,39 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="48%" r="72%">
+      <stop offset="0%" stop-color="#171917"/>
+      <stop offset="54%" stop-color="#111313"/>
+      <stop offset="100%" stop-color="#0E0F10"/>
+    </radialGradient>
+    <radialGradient id="atmosphere" cx="48%" cy="53%" r="42%">
+      <stop offset="0%" stop-color="#DDE9C8" stop-opacity="0.38"/>
+      <stop offset="44%" stop-color="#A8BE9A" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#A8BE9A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wave" x1="98" y1="263" x2="418" y2="265" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#EAECDD"/>
+      <stop offset="42%" stop-color="#A8BE9A"/>
+      <stop offset="72%" stop-color="#CAD9B5"/>
+      <stop offset="100%" stop-color="#F1EFE6"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-40%" width="160%" height="180%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.82 0 0 0 0 0.90 0 0 0 0 0.70 0 0 0 0.48 0"/>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <ellipse cx="250" cy="275" rx="170" ry="122" fill="url(#atmosphere)"/>
+  <g opacity="0.16" stroke="#A8BE9A" stroke-width="1.15" stroke-linecap="round">
+    <path d="M89 242 C127 196 180 181 232 207 C275 230 303 280 360 276 C400 273 428 246 446 237"/>
+    <path d="M80 253 C123 195 187 174 244 205 C285 228 313 282 370 284 C410 286 440 254 457 245"/>
+    <path d="M72 266 C120 192 194 166 257 204 C295 226 324 284 379 295 C420 303 450 268 466 258"/>
+    <path d="M69 279 C118 196 203 161 272 205 C305 226 335 285 389 308 C428 324 457 288 474 274"/>
+  </g>
+  <path d="M98 268 C128 223 173 211 212 233 C253 255 274 288 318 290 C359 292 391 266 418 239 C390 282 353 311 302 312 C256 314 225 281 187 260 C155 243 127 247 98 268 Z"
+        fill="#A8BE9A"
+        opacity="0.48"
+        filter="url(#softGlow)"/>
+  <path d="M98 268 C128 223 173 211 212 233 C253 255 274 288 318 290 C359 292 391 266 418 239 C390 282 353 311 302 312 C256 314 225 281 187 260 C155 243 127 247 98 268 Z"
+        fill="url(#wave)"/>
+</svg>

@@ -1,0 +1,36 @@
+<svg width="1200" height="520" viewBox="0 0 1200 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="atmosphere" cx="45%" cy="52%" r="48%">
+      <stop offset="0%" stop-color="#DDE9C8" stop-opacity="0.36"/>
+      <stop offset="45%" stop-color="#A8BE9A" stop-opacity="0.11"/>
+      <stop offset="100%" stop-color="#A8BE9A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wave" x1="170" y1="264" x2="1018" y2="270" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#EAECDD"/>
+      <stop offset="42%" stop-color="#A8BE9A"/>
+      <stop offset="72%" stop-color="#CAD9B5"/>
+      <stop offset="100%" stop-color="#F1EFE6"/>
+    </linearGradient>
+    <filter id="softGlow" x="-25%" y="-45%" width="150%" height="190%">
+      <feGaussianBlur stdDeviation="20" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.82 0 0 0 0 0.90 0 0 0 0 0.70 0 0 0 0.44 0"/>
+    </filter>
+  </defs>
+
+  <ellipse cx="562" cy="278" rx="410" ry="210" fill="url(#atmosphere)"/>
+  <g opacity="0.16" stroke="#A8BE9A" stroke-width="2" stroke-linecap="round">
+    <path d="M144 220 C245 105 385 67 522 134 C637 192 712 319 865 309 C971 301 1044 231 1093 207"/>
+    <path d="M119 251 C234 103 402 52 554 131 C665 190 738 324 891 330 C997 334 1075 252 1121 229"/>
+    <path d="M99 283 C226 99 421 30 589 127 C688 184 766 328 915 358 C1023 379 1103 287 1146 263"/>
+    <path d="M92 318 C223 107 445 21 627 132 C715 185 794 331 941 391 C1044 433 1120 340 1166 304"/>
+    <path d="M105 352 C240 136 479 23 668 147 C744 199 823 346 965 424 C1059 475 1143 404 1182 365"/>
+    <path d="M142 384 C288 184 519 52 710 174 C779 219 854 374 993 447 C1084 495 1155 449 1192 417"/>
+  </g>
+
+  <path d="M170 284 C250 172 368 142 474 197 C581 254 638 337 755 342 C864 347 948 282 1018 214 C944 321 847 394 713 398 C591 402 509 321 408 268 C322 224 245 235 170 284 Z"
+        fill="#A8BE9A"
+        opacity="0.5"
+        filter="url(#softGlow)"/>
+  <path d="M170 284 C250 172 368 142 474 197 C581 254 638 337 755 342 C864 347 948 282 1018 214 C944 321 847 394 713 398 C591 402 509 321 408 268 C322 224 245 235 170 284 Z"
+        fill="url(#wave)"/>
+</svg>

@@ -1,0 +1,24 @@
+{
+  "name": "Sustain",
+  "tagline": "Atmosphere. Presence. Flow.",
+  "palette": {
+    "near_black": "#0E0F10",
+    "charcoal": "#171917",
+    "deep_olive": "#1E231E",
+    "moss": "#3A4A39",
+    "sage": "#A8BE9A",
+    "warm_ivy": "#F1EFE6",
+    "muted_gold": "#DCCB8A"
+  },
+  "direction": {
+    "core_mark": "single flowing wave",
+    "supporting_element": "organic ripple resonance field",
+    "notes": [
+      "wave is the hero",
+      "ripple field is secondary and subtle",
+      "no internal border, no inner highlight, no ribbon-within-ribbon treatment",
+      "premium, calm, Apple-native tone",
+      "organic asymmetry, not mathematically perfect"
+    ]
+  }
+}

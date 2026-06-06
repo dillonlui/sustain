@@ -1,0 +1,51 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="48%" r="72%">
+      <stop offset="0%" stop-color="#171917"/>
+      <stop offset="54%" stop-color="#111313"/>
+      <stop offset="100%" stop-color="#0E0F10"/>
+    </radialGradient>
+    <radialGradient id="atmosphere" cx="48%" cy="53%" r="42%">
+      <stop offset="0%" stop-color="#DDE9C8" stop-opacity="0.42"/>
+      <stop offset="42%" stop-color="#A8BE9A" stop-opacity="0.13"/>
+      <stop offset="100%" stop-color="#A8BE9A" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wave" x1="196" y1="526" x2="835" y2="530" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#EAECDD"/>
+      <stop offset="42%" stop-color="#A8BE9A"/>
+      <stop offset="72%" stop-color="#CAD9B5"/>
+      <stop offset="100%" stop-color="#F1EFE6"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-40%" width="160%" height="180%">
+      <feGaussianBlur stdDeviation="24" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.82 0 0 0 0 0.90 0 0 0 0 0.70 0 0 0 0.48 0"/>
+    </filter>
+    <clipPath id="round">
+      <rect width="1024" height="1024" rx="220"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#round)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <ellipse cx="500" cy="550" rx="340" ry="245" fill="url(#atmosphere)"/>
+
+    <g opacity="0.16" stroke="#A8BE9A" stroke-width="1.9" stroke-linecap="round">
+      <path d="M178 483 C254 392 360 361 463 414 C550 460 606 560 720 552 C800 546 855 491 892 473"/>
+      <path d="M159 506 C246 390 373 348 487 410 C570 456 626 564 739 568 C819 571 879 507 914 489"/>
+      <path d="M143 531 C239 385 388 331 514 407 C589 453 648 568 758 589 C839 606 899 535 932 516"/>
+      <path d="M137 558 C236 391 405 322 543 410 C609 453 669 570 777 615 C855 647 913 576 948 548"/>
+      <path d="M147 586 C249 413 430 323 574 422 C631 463 691 581 795 641 C866 682 929 624 959 592"/>
+      <path d="M173 612 C283 452 459 345 604 444 C656 480 714 603 815 660 C884 699 937 662 965 635"/>
+      <path d="M216 635 C328 500 499 381 634 478 C682 512 738 626 836 673 C895 702 944 688 970 669"/>
+    </g>
+
+    <path d="M196 535 C256 446 345 422 424 466 C505 510 548 575 636 579 C718 583 781 531 835 478 C779 563 705 621 604 624 C512 627 450 562 374 520 C310 485 253 494 196 535 Z"
+          fill="#A8BE9A"
+          opacity="0.5"
+          filter="url(#softGlow)"/>
+    <path d="M196 535 C256 446 345 422 424 466 C505 510 548 575 636 579 C718 583 781 531 835 478 C779 563 705 621 604 624 C512 627 450 562 374 520 C310 485 253 494 196 535 Z"
+          fill="url(#wave)"/>
+  </g>
+
+  <rect x="12" y="12" width="1000" height="1000" rx="208" stroke="#F1EFE6" stroke-opacity="0.07" stroke-width="2"/>
+</svg>

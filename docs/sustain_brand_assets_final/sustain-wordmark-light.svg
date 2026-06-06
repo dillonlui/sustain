@@ -1,0 +1,40 @@
+<svg width="1800" height="560" viewBox="0 0 1800 560" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1800" height="560" rx="32" fill="#F1EFE6"/>
+  <defs>
+    <radialGradient id="atmosphere" cx="44%" cy="52%" r="50%">
+      <stop offset="0%" stop-color="#A8BE9A" stop-opacity="0.24"/>
+      <stop offset="52%" stop-color="#3A4A39" stop-opacity="0.07"/>
+      <stop offset="100%" stop-color="#3A4A39" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wave" x1="130" y1="222" x2="724" y2="226" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E231E"/>
+      <stop offset="42%" stop-color="#A8BE9A"/>
+      <stop offset="100%" stop-color="#3A4A39"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-35%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="12" stdDeviation="13" flood-color="#1E231E" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+
+  <g transform="translate(70 86)">
+    <ellipse cx="392" cy="200" rx="292" ry="150" fill="url(#atmosphere)"/>
+    <g opacity="0.15" stroke="#3A4A39" stroke-width="1.7" stroke-linecap="round">
+      <path d="M112 159 C184 77 284 50 382 98 C464 139 518 230 627 223 C703 217 755 167 790 150"/>
+      <path d="M94 181 C177 76 296 39 405 95 C484 137 536 234 646 238 C721 241 778 183 811 166"/>
+      <path d="M80 204 C171 73 310 24 430 92 C501 133 557 237 663 259 C741 274 799 208 829 190"/>
+      <path d="M75 228 C169 79 327 18 457 96 C520 134 576 240 681 282 C754 312 809 245 842 220"/>
+    </g>
+
+    <path d="M130 204 C187 124 271 103 347 142 C423 183 464 242 548 246 C625 250 686 203 736 154 C683 232 614 284 518 287 C431 290 372 232 300 192 C238 162 185 169 130 204 Z"
+          fill="url(#wave)"
+          filter="url(#softShadow)"/>
+
+    <text x="865" y="188" fill="#171917"
+          font-family="SF Pro Display, Inter, Helvetica, Arial, sans-serif"
+          font-size="96" font-weight="500" letter-spacing="32">SUSTAIN</text>
+
+    <text x="869" y="258" fill="#3A4A39"
+          font-family="SF Pro Text, Inter, Helvetica, Arial, sans-serif"
+          font-size="24" font-weight="500" letter-spacing="9">ATMOSPHERE. PRESENCE. FLOW.</text>
+  </g>
+</svg>
