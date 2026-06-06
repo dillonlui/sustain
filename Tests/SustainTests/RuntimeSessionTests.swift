@@ -69,6 +69,21 @@ struct RuntimeSessionTests {
         #expect(store.runtime.lastMessage == AudioEngineError.invalidOutputFormat.localizedDescription)
     }
 
+    @Test func padStartupFailureStopsClickForInitialSong() {
+        let audio = RecordingAudioEngine()
+        audio.shouldFailPadStart = true
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.startCuedSong()
+
+        #expect(store.runtime.playingEntryID == nil)
+        #expect(store.runtime.playbackPhase == .noSongPlaying)
+        #expect(store.runtime.padState == .off)
+        #expect(store.runtime.clickState == .off)
+        #expect(!audio.isEngineRunning)
+        #expect(audio.clickStartCount == 1)
+    }
+
     @Test func stopClearsAudioStatus() {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)
@@ -366,6 +381,7 @@ private final class RecordingAudioEngine: AudioControlling {
     var stopAllCount = 0
     var clickIncludesCountoffHistory: [Bool] = []
     var missingPadKeys: Set<MusicalKey>
+    var shouldFailPadStart = false
     var shouldFailClickStart = false
     var statusSummary: String { isEngineRunning ? "Running" : "Stopped" }
 
@@ -387,6 +403,9 @@ private final class RecordingAudioEngine: AudioControlling {
 
     func startPad(for key: MusicalKey, padPack: PadPack) throws {
         padStartCount += 1
+        if shouldFailPadStart {
+            throw AudioEngineError.unreadablePadFile(URL(fileURLWithPath: "\(key.rawValue).mp3"))
+        }
         padIsActive = true
     }
 
