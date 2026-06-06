@@ -259,6 +259,37 @@ struct RuntimeSessionTests {
         #expect(audio.stopAllCount == 1)
     }
 
+    @Test func hardwareReconnectRefreshesSystemCheck() {
+        let provider = MutableAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 1, name: "Preview Output", isDefault: true)
+                ],
+                padOutputID: 1,
+                padOutputName: "Preview Output",
+                clickOutputID: 1,
+                clickOutputName: "Preview Output",
+                independentRoutingEnabled: false,
+                missingSelectionMessages: ["Selected click output is unavailable."]
+            )
+        )
+        let monitor = NoopAudioHardwareMonitor()
+        let store = AppStore.preview(
+            audioRoutingProvider: provider,
+            audioHardwareMonitor: monitor
+        )
+
+        store.runSystemCheck()
+        #expect(!store.systemCheck.canStartPlayback)
+
+        provider.snapshotValue = .previewDefault
+        monitor.simulateChange()
+
+        #expect(store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.messages.contains("Ready for Goodness of God in G at 72 BPM."))
+        #expect(store.runtime.lastMessage == "Audio devices updated")
+    }
+
     @Test func routingSelectionPersistsToJSON() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainRoutingTests-\(UUID().uuidString)", isDirectory: true)
