@@ -51,6 +51,24 @@ struct RuntimeSessionTests {
         #expect(audio.clickStartCount == clickStarts)
     }
 
+    @Test func clickStartupFailureDoesNotStartNewPadDuringTransition() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedSong()
+        let playing = store.runtime.playingEntryID
+        let padStarts = audio.padStartCount
+
+        audio.shouldFailClickStart = true
+        store.cueNextSong()
+        store.startCuedSong()
+
+        #expect(store.runtime.playingEntryID == playing)
+        #expect(store.runtime.playbackPhase == .songPlaying)
+        #expect(store.runtime.padState == .playing)
+        #expect(audio.padStartCount == padStarts)
+        #expect(store.runtime.lastMessage == AudioEngineError.invalidOutputFormat.localizedDescription)
+    }
+
     @Test func stopClearsAudioStatus() {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)
@@ -348,6 +366,7 @@ private final class RecordingAudioEngine: AudioControlling {
     var stopAllCount = 0
     var clickIncludesCountoffHistory: [Bool] = []
     var missingPadKeys: Set<MusicalKey>
+    var shouldFailClickStart = false
     var statusSummary: String { isEngineRunning ? "Running" : "Stopped" }
 
     init(missingPadKeys: Set<MusicalKey> = []) {
@@ -378,6 +397,9 @@ private final class RecordingAudioEngine: AudioControlling {
     func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool) throws {
         clickStartCount += 1
         clickIncludesCountoffHistory.append(includesCountoff)
+        if shouldFailClickStart {
+            throw AudioEngineError.invalidOutputFormat
+        }
         clickIsActive = true
     }
 

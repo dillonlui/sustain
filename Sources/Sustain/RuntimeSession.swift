@@ -184,22 +184,22 @@ final class AppStore: ObservableObject {
 
         let key = cuedEntry.resolvedKey(for: cuedSong)
         let bpm = cuedEntry.resolvedBPM(for: cuedSong)
+        let hadPlayingEntry = runtime.playingEntryID != nil
 
         do {
             stopRehearsalForLiveSession()
             runtime.playbackPhase = .songStarting
 
-            if runtime.playingEntryID != nil {
+            if hadPlayingEntry {
                 clickStateTask?.cancel()
                 audioEngine.stopClick()
                 runtime.clickState = .off
                 runtime.padState = .fadingOut
             }
 
+            try audioEngine.startClick(bpm: bpm, timeSignature: cuedSong.timeSignature, includesCountoff: true)
             try audioEngine.startPad(for: key, padPack: cuedSong.padPack)
             runtime.padState = .playing
-
-            try audioEngine.startClick(bpm: bpm, timeSignature: cuedSong.timeSignature, includesCountoff: true)
             runtime.playingEntryID = cuedEntry.id
             runtime.playbackPhase = .songPlaying
             beginCountoff(for: cuedEntry.id, songTitle: cuedSong.title, bpm: bpm, timeSignature: cuedSong.timeSignature)
@@ -207,7 +207,10 @@ final class AppStore: ObservableObject {
             refreshAudioStatus()
         } catch {
             audioEngine.stopClick()
-            if runtime.playingEntryID == nil {
+            if hadPlayingEntry {
+                runtime.padState = .playing
+                runtime.playbackPhase = .songPlaying
+            } else {
                 audioEngine.stopPad()
                 runtime.padState = .off
                 runtime.playbackPhase = .noSongPlaying
