@@ -38,8 +38,12 @@ final class PollingAudioHardwareMonitor: AudioHardwareMonitoring {
 @MainActor
 final class CoreAudioHardwareMonitor: AudioHardwareMonitoring {
     private let relay = AudioHardwareChangeRelay()
+    private let fallbackMonitor: AudioHardwareMonitoring
     private let queue = DispatchQueue(label: "com.sustain.audio-hardware-monitor")
     private var isListening = false
+    private var isFallbackActive = false
+    private var devicesListenerRegistered = false
+    private var defaultOutputListenerRegistered = false
     private var devicesAddress = AudioObjectPropertyAddress(
         mSelector: kAudioHardwarePropertyDevices,
         mScope: kAudioObjectPropertyScopeGlobal,
@@ -55,31 +59,50 @@ final class CoreAudioHardwareMonitor: AudioHardwareMonitoring {
         relay.notify()
     }
 
+    init(fallbackMonitor: AudioHardwareMonitoring = PollingAudioHardwareMonitor()) {
+        self.fallbackMonitor = fallbackMonitor
+    }
+
     func start(onChange: @escaping @MainActor () -> Void) {
         relay.update(onChange: onChange)
-        guard !isListening else { return }
+        guard !isListening, !isFallbackActive else { return }
 
-        addListener(for: &devicesAddress)
-        addListener(for: &defaultOutputAddress)
-        isListening = true
+        devicesListenerRegistered = addListener(for: &devicesAddress)
+        defaultOutputListenerRegistered = addListener(for: &defaultOutputAddress)
+        isListening = devicesListenerRegistered || defaultOutputListenerRegistered
+
+        if !isListening {
+            fallbackMonitor.start(onChange: onChange)
+            isFallbackActive = true
+        }
     }
 
     func stop() {
-        guard isListening else { return }
+        if devicesListenerRegistered {
+            removeListener(for: &devicesAddress)
+        }
+        if defaultOutputListenerRegistered {
+            removeListener(for: &defaultOutputAddress)
+        }
 
-        removeListener(for: &devicesAddress)
-        removeListener(for: &defaultOutputAddress)
+        if isFallbackActive {
+            fallbackMonitor.stop()
+        }
+
+        devicesListenerRegistered = false
+        defaultOutputListenerRegistered = false
         isListening = false
+        isFallbackActive = false
         relay.update(onChange: nil)
     }
 
-    private func addListener(for address: inout AudioObjectPropertyAddress) {
+    private func addListener(for address: inout AudioObjectPropertyAddress) -> Bool {
         AudioObjectAddPropertyListenerBlock(
             AudioObjectID(kAudioObjectSystemObject),
             &address,
             queue,
             listener
-        )
+        ) == noErr
     }
 
     private func removeListener(for address: inout AudioObjectPropertyAddress) {
