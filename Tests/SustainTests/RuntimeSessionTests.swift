@@ -150,6 +150,31 @@ struct RuntimeSessionTests {
         #expect(store.systemCheck.messages.contains("Selected click output is unavailable."))
     }
 
+    @Test func startSongRefreshesRoutingBeforeValidation() {
+        let audio = RecordingAudioEngine()
+        let provider = MutableAudioRoutingProvider(snapshotValue: .previewDefault)
+        let store = AppStore.preview(audioEngine: audio, audioRoutingProvider: provider)
+
+        provider.snapshotValue = AudioRoutingSnapshot(
+            outputs: [
+                AudioOutputDevice(id: 1, name: "Preview Output", isDefault: true)
+            ],
+            padOutputID: 1,
+            padOutputName: "Preview Output",
+            clickOutputID: 1,
+            clickOutputName: "Preview Output",
+            independentRoutingEnabled: false,
+            missingSelectionMessages: ["Selected click output is unavailable."]
+        )
+
+        store.startCuedSong()
+
+        #expect(store.runtime.lastMessage == "Playback blocked by system check")
+        #expect(!store.systemCheck.canStartPlayback)
+        #expect(audio.padStartCount == 0)
+        #expect(audio.clickStartCount == 0)
+    }
+
     @Test func routingSelectionPersistsToJSON() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainRoutingTests-\(UUID().uuidString)", isDirectory: true)
@@ -230,5 +255,17 @@ private final class RecordingAudioEngine: AudioControlling {
 
     func stopAll() {
         isEngineRunning = false
+    }
+}
+
+private final class MutableAudioRoutingProvider: AudioRoutingProviding {
+    var snapshotValue: AudioRoutingSnapshot
+
+    init(snapshotValue: AudioRoutingSnapshot) {
+        self.snapshotValue = snapshotValue
+    }
+
+    func snapshot(settings: AudioRoutingSettings = .default) -> AudioRoutingSnapshot {
+        snapshotValue
     }
 }

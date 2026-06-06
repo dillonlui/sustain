@@ -168,6 +168,7 @@ final class AppStore: ObservableObject {
             return
         }
 
+        refreshRoutingSnapshot()
         let validation = validate(entry: cuedEntry, song: cuedSong)
         guard validation.canStartPlayback else {
             systemCheck = validation
@@ -396,7 +397,7 @@ final class AppStore: ObservableObject {
 
     func runSystemCheck() {
         audioEngine.prepare()
-        routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
+        refreshRoutingSnapshot()
         configureAudioRouting()
         refreshAudioStatus()
 
@@ -524,6 +525,10 @@ final class AppStore: ObservableObject {
 
     private func refreshAudioStatus() {
         audioStatus = audioEngine.statusSummary
+    }
+
+    private func refreshRoutingSnapshot() {
+        routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
     }
 
     private func validate(entry: SetlistEntry, song: Song) -> SystemCheckResult {
