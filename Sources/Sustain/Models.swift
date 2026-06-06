@@ -25,6 +25,7 @@ struct TimeSignature: Codable, Equatable, Hashable, CustomStringConvertible {
         "\(beatsPerMeasure)/\(beatUnit)"
     }
 
+    static let common = [fourFour, sixEight]
     static let fourFour = TimeSignature(beatsPerMeasure: 4, beatUnit: 4)
     static let sixEight = TimeSignature(beatsPerMeasure: 6, beatUnit: 8)
 }

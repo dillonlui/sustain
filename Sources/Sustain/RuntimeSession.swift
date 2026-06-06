@@ -401,6 +401,90 @@ final class AppStore: ObservableObject {
         rehearse.lastMessage = isEnabled ? "Countoff enabled" : "Countoff disabled"
     }
 
+    @discardableResult
+    func addSong() -> Song.ID {
+        let padPack = padPacks.first ?? .bundled
+        let song = Song(
+            title: "New Song",
+            defaultKey: .c,
+            defaultBPM: 72,
+            timeSignature: .fourFour,
+            padPack: padPack
+        )
+        songs.append(song)
+        saveLibrary()
+        persistenceStatus = "Added song \(song.title)"
+        return song.id
+    }
+
+    func updateSong(
+        _ songID: Song.ID,
+        title: String,
+        defaultKey: MusicalKey,
+        defaultBPM: Int,
+        timeSignature: TimeSignature,
+        padPackID: PadPack.ID
+    ) {
+        guard let songIndex = songs.firstIndex(where: { $0.id == songID }) else {
+            persistenceStatus = "Could not update song"
+            return
+        }
+        guard let padPack = padPacks.first(where: { $0.id == padPackID }) else {
+            persistenceStatus = "Could not update song pad source"
+            return
+        }
+
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        songs[songIndex] = Song(
+            id: songID,
+            title: trimmedTitle.isEmpty ? songs[songIndex].title : trimmedTitle,
+            defaultKey: defaultKey,
+            defaultBPM: min(220, max(40, defaultBPM)),
+            timeSignature: timeSignature,
+            padPack: padPack
+        )
+        saveLibrary()
+    }
+
+    @discardableResult
+    func addSongToSetlist(_ songID: Song.ID) -> SetlistEntry.ID? {
+        guard let song = songs.first(where: { $0.id == songID }) else {
+            runtime.lastMessage = "Could not add song to setlist"
+            return nil
+        }
+
+        let entry = SetlistEntry(songID: songID)
+        activeSetlist.entries.append(entry)
+
+        if runtime.cuedEntryID == nil {
+            runtime.cuedEntryID = entry.id
+        }
+
+        runtime.lastMessage = "Added \(song.title) to setlist"
+        saveLibrary()
+        return entry.id
+    }
+
+    func removeSetlistEntry(_ entryID: SetlistEntry.ID) {
+        guard runtime.playingEntryID != entryID else {
+            runtime.lastMessage = "Stop playback before removing the playing song"
+            return
+        }
+
+        guard let index = activeSetlist.entries.firstIndex(where: { $0.id == entryID }) else {
+            runtime.lastMessage = "Could not remove setlist entry"
+            return
+        }
+
+        let removedEntry = activeSetlist.entries.remove(at: index)
+        if runtime.cuedEntryID == removedEntry.id {
+            runtime.cuedEntryID = activeSetlist.entries[safe: index]?.id ?? activeSetlist.entries.last?.id
+        }
+
+        runtime.lastMessage = "Removed song from setlist"
+        saveLibrary()
+    }
+
     func updateEntry(
         _ entryID: SetlistEntry.ID,
         keyOverride: MusicalKey?,
@@ -925,5 +1009,11 @@ extension AppStore {
         }
 
         return padPacks
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

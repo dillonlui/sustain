@@ -166,6 +166,63 @@ struct RuntimeSessionTests {
         #expect(store.persistenceStatus == "Imported pad pack Warm. Missing keys: C, Db, D, Eb, E, F, Gb, Ab, A, Bb, B")
     }
 
+    @Test func songAssignmentWorkflowPersistsSongAndSetlistEntry() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let warmPadPack = PadPack(
+            name: "Warm",
+            folderName: "Warm",
+            availableKeys: Set(MusicalKey.allCases)
+        )
+        let store = AppStore.preview(libraryStore: libraryStore)
+        store.padPacks.append(warmPadPack)
+
+        let songID = store.addSong()
+        store.updateSong(
+            songID,
+            title: "Gratitude",
+            defaultKey: .bb,
+            defaultBPM: 82,
+            timeSignature: .sixEight,
+            padPackID: warmPadPack.id
+        )
+        let entryID = try #require(store.addSongToSetlist(songID))
+
+        let loaded = try #require(try libraryStore.loadLibrary())
+        let loadedSong = try #require(loaded.songs.first { $0.id == songID })
+
+        #expect(loadedSong.title == "Gratitude")
+        #expect(loadedSong.defaultKey == .bb)
+        #expect(loadedSong.defaultBPM == 82)
+        #expect(loadedSong.timeSignature == .sixEight)
+        #expect(loadedSong.padPack == warmPadPack)
+        #expect(loaded.activeSetlist.entries.contains { $0.id == entryID && $0.songID == songID })
+    }
+
+    @Test func addingFirstSetlistEntryCuesIt() throws {
+        let snapshot = AppStore.seedSnapshot()
+        let store = AppStore(
+            songs: snapshot.songs,
+            activeSetlist: Setlist(title: "Empty", entries: [])
+        )
+
+        let entryID = try #require(store.addSongToSetlist(snapshot.songs[0].id))
+
+        #expect(store.runtime.cuedEntryID == entryID)
+    }
+
+    @Test func removingPlayingSetlistEntryIsBlocked() throws {
+        let store = AppStore.preview()
+        let entry = try #require(store.activeSetlist.entries.first)
+
+        store.startCuedSong()
+        store.removeSetlistEntry(entry.id)
+
+        #expect(store.activeSetlist.entries.contains(entry))
+        #expect(store.runtime.lastMessage == "Stop playback before removing the playing song")
+    }
+
     @Test func librarySnapshotRequiresUsableSetlist() {
         let snapshot = AppStore.seedSnapshot()
 
