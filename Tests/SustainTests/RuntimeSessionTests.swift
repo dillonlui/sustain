@@ -106,6 +106,50 @@ struct RuntimeSessionTests {
         #expect(store.routingSnapshot.independentRoutingEnabled)
     }
 
+    @Test func unavailablePadOutputBlocksPlayback() {
+        let provider = StaticAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 2, name: "Click Bus", isDefault: true)
+                ],
+                padOutputID: 2,
+                padOutputName: "Click Bus",
+                clickOutputID: 2,
+                clickOutputName: "Click Bus",
+                independentRoutingEnabled: false,
+                missingSelectionMessages: ["Selected pad output is unavailable."]
+            )
+        )
+        let store = AppStore.preview(audioRoutingProvider: provider)
+
+        store.runSystemCheck()
+
+        #expect(!store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.messages.contains("Selected pad output is unavailable."))
+    }
+
+    @Test func unavailableClickOutputBlocksPlayback() {
+        let provider = StaticAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 1, name: "Main", isDefault: true)
+                ],
+                padOutputID: 1,
+                padOutputName: "Main",
+                clickOutputID: 1,
+                clickOutputName: "Main",
+                independentRoutingEnabled: false,
+                missingSelectionMessages: ["Selected click output is unavailable."]
+            )
+        )
+        let store = AppStore.preview(audioRoutingProvider: provider)
+
+        store.runSystemCheck()
+
+        #expect(!store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.messages.contains("Selected click output is unavailable."))
+    }
+
     @Test func routingSelectionPersistsToJSON() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainRoutingTests-\(UUID().uuidString)", isDirectory: true)

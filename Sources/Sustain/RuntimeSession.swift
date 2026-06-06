@@ -542,6 +542,8 @@ final class AppStore: ObservableObject {
 
         if routingSnapshot.outputs.isEmpty {
             blockingMessages.append("No output audio device is available.")
+        } else if !routingSnapshot.missingSelectionMessages.isEmpty {
+            blockingMessages.append(contentsOf: routingSnapshot.missingSelectionMessages)
         } else if let warning = routingSnapshot.warning {
             warnings.append(warning)
         }
