@@ -3,11 +3,15 @@ import Foundation
 
 struct AudioRoutingSettings: Codable, Equatable {
     var padOutputID: AudioDeviceID?
+    var padOutputName: String? = nil
     var clickOutputID: AudioDeviceID?
+    var clickOutputName: String? = nil
 
     static let `default` = AudioRoutingSettings(
         padOutputID: nil,
-        clickOutputID: nil
+        padOutputName: nil,
+        clickOutputID: nil,
+        clickOutputName: nil
     )
 }
 
@@ -67,18 +71,29 @@ protocol AudioRoutingProviding {
     func snapshot(settings: AudioRoutingSettings) -> AudioRoutingSnapshot
 }
 
-struct CoreAudioRoutingProvider: AudioRoutingProviding {
-    func snapshot(settings: AudioRoutingSettings = .default) -> AudioRoutingSnapshot {
-        let outputs = outputDevices()
+struct AudioRoutingResolver {
+    func snapshot(settings: AudioRoutingSettings, outputs: [AudioOutputDevice]) -> AudioRoutingSnapshot {
         let defaultOutput = outputs.first(where: \.isDefault) ?? outputs.first
-        let padOutput = resolveOutput(id: settings.padOutputID, outputs: outputs, fallback: defaultOutput)
-        let clickOutput = resolveOutput(id: settings.clickOutputID, outputs: outputs, fallback: defaultOutput)
+        let padOutput = resolveOutput(
+            id: settings.padOutputID,
+            name: settings.padOutputName,
+            outputs: outputs,
+            fallback: defaultOutput
+        )
+        let clickOutput = resolveOutput(
+            id: settings.clickOutputID,
+            name: settings.clickOutputName,
+            outputs: outputs,
+            fallback: defaultOutput
+        )
 
         var missingSelectionMessages: [String] = []
-        if let padOutputID = settings.padOutputID, !outputs.contains(where: { $0.id == padOutputID }) {
+        if settings.padOutputID != nil,
+           padOutput == nil || isFallbackOutput(padOutput, fallback: defaultOutput, name: settings.padOutputName) {
             missingSelectionMessages.append("Selected pad output is unavailable.")
         }
-        if let clickOutputID = settings.clickOutputID, !outputs.contains(where: { $0.id == clickOutputID }) {
+        if settings.clickOutputID != nil,
+           clickOutput == nil || isFallbackOutput(clickOutput, fallback: defaultOutput, name: settings.clickOutputName) {
             missingSelectionMessages.append("Selected click output is unavailable.")
         }
 
@@ -98,11 +113,36 @@ struct CoreAudioRoutingProvider: AudioRoutingProviding {
 
     private func resolveOutput(
         id: AudioDeviceID?,
+        name: String?,
         outputs: [AudioOutputDevice],
         fallback: AudioOutputDevice?
     ) -> AudioOutputDevice? {
-        guard let id else { return fallback }
-        return outputs.first { $0.id == id } ?? fallback
+        if let id, let output = outputs.first(where: { $0.id == id }) {
+            return output
+        }
+
+        if let name, let output = outputs.first(where: { $0.name == name }) {
+            return output
+        }
+
+        return id == nil ? fallback : nil
+    }
+
+    private func isFallbackOutput(
+        _ output: AudioOutputDevice?,
+        fallback: AudioOutputDevice?,
+        name: String?
+    ) -> Bool {
+        guard let name, let output, let fallback else { return output == nil }
+        return output.id == fallback.id && output.name != name
+    }
+}
+
+struct CoreAudioRoutingProvider: AudioRoutingProviding {
+    private let resolver = AudioRoutingResolver()
+
+    func snapshot(settings: AudioRoutingSettings = .default) -> AudioRoutingSnapshot {
+        resolver.snapshot(settings: settings, outputs: outputDevices())
     }
 
     private func outputDevices() -> [AudioOutputDevice] {

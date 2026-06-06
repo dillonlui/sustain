@@ -160,6 +160,27 @@ struct RuntimeSessionTests {
         #expect(store.systemCheck.messages.contains("Audio routing failed: \(AudioEngineError.invalidOutputFormat.localizedDescription)"))
     }
 
+    @Test func routingResolverRecoversSelectedOutputByNameWhenDeviceIDChanges() {
+        let resolver = AudioRoutingResolver()
+        let snapshot = resolver.snapshot(
+            settings: AudioRoutingSettings(
+                padOutputID: 10,
+                padOutputName: "Dillon's AirPods",
+                clickOutputID: 20,
+                clickOutputName: "MacBook Pro Speakers"
+            ),
+            outputs: [
+                AudioOutputDevice(id: 30, name: "Dillon's AirPods", isDefault: false),
+                AudioOutputDevice(id: 20, name: "MacBook Pro Speakers", isDefault: true)
+            ]
+        )
+
+        #expect(snapshot.padOutputID == 30)
+        #expect(snapshot.padOutputName == "Dillon's AirPods")
+        #expect(snapshot.clickOutputID == 20)
+        #expect(snapshot.missingSelectionMessages.isEmpty)
+    }
+
     @Test func unavailablePadOutputBlocksPlayback() {
         let provider = StaticAudioRoutingProvider(
             snapshotValue: AudioRoutingSnapshot(
@@ -481,7 +502,7 @@ struct RuntimeSessionTests {
 
         powerMonitor.simulateWake()
 
-        #expect(store.runtime.lastMessage == "System woke. Rechecking audio routing.")
+        #expect(store.runtime.lastMessage == "System woke. Audio routing checked.")
         #expect(store.runtime.playbackPhase == .noSongPlaying)
     }
 
@@ -514,6 +535,44 @@ struct RuntimeSessionTests {
         #expect(store.runtime.lastMessage == "Selected pad output is unavailable.")
         #expect(store.audioRouteChangePrompt == nil)
         #expect(audio.stopAllCount == 1)
+    }
+
+    @Test func systemWakeNormalizesRecoveredOutputDeviceID() {
+        let provider = MutableAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 30, name: "Dillon's AirPods", isDefault: false),
+                    AudioOutputDevice(id: 20, name: "MacBook Pro Speakers", isDefault: true)
+                ],
+                padOutputID: 30,
+                padOutputName: "Dillon's AirPods",
+                clickOutputID: 20,
+                clickOutputName: "MacBook Pro Speakers",
+                independentRoutingEnabled: true
+            )
+        )
+        let powerMonitor = NoopPowerStateMonitor()
+        let snapshot = AppStore.seedSnapshot()
+        let store = AppStore(
+            songs: snapshot.songs,
+            activeSetlist: snapshot.activeSetlist,
+            audioEngine: RecordingAudioEngine(),
+            audioRoutingProvider: provider,
+            powerStateMonitor: powerMonitor,
+            routingSettings: AudioRoutingSettings(
+                padOutputID: 10,
+                padOutputName: "Dillon's AirPods",
+                clickOutputID: 20,
+                clickOutputName: "MacBook Pro Speakers"
+            )
+        )
+
+        powerMonitor.simulateWake()
+
+        #expect(store.routingSettings.padOutputID == 30)
+        #expect(store.routingSettings.padOutputName == "Dillon's AirPods")
+        #expect(store.routingSettings.clickOutputID == 20)
+        #expect(store.systemCheck.canStartPlayback)
     }
 
     @Test func routingSelectionPersistsToJSON() throws {

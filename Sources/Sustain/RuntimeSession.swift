@@ -412,7 +412,9 @@ final class AppStore: ObservableObject {
     func updateRouting(padOutputID: AudioDeviceID?, clickOutputID: AudioDeviceID?) {
         routingSettings = AudioRoutingSettings(
             padOutputID: padOutputID,
-            clickOutputID: clickOutputID
+            padOutputName: outputName(for: padOutputID),
+            clickOutputID: clickOutputID,
+            clickOutputName: outputName(for: clickOutputID)
         )
         routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
         configureAudioRouting()
@@ -571,12 +573,34 @@ final class AppStore: ObservableObject {
 
     private func refreshRoutingSnapshot() {
         routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
+        normalizeRoutingSettingsFromSnapshot()
     }
 
-    private func handleAudioHardwareChanged() {
+    private func outputName(for outputID: AudioDeviceID?) -> String? {
+        guard let outputID else { return nil }
+        return routingSnapshot.outputs.first { $0.id == outputID }?.name
+    }
+
+    private func normalizeRoutingSettingsFromSnapshot() {
+        let normalized = AudioRoutingSettings(
+            padOutputID: routingSettings.padOutputID == nil ? nil : routingSnapshot.padOutputID,
+            padOutputName: routingSettings.padOutputID == nil ? nil : routingSnapshot.padOutputName,
+            clickOutputID: routingSettings.clickOutputID == nil ? nil : routingSnapshot.clickOutputID,
+            clickOutputName: routingSettings.clickOutputID == nil ? nil : routingSnapshot.clickOutputName
+        )
+
+        if normalized != routingSettings {
+            routingSettings = normalized
+        }
+    }
+
+    private func handleAudioHardwareChanged(
+        forceValidation: Bool = false,
+        readyMessage: String = "Audio devices updated"
+    ) {
         let previousSnapshot = routingSnapshot
         refreshRoutingSnapshot()
-        guard routingSnapshot != previousSnapshot else { return }
+        guard forceValidation || routingSnapshot != previousSnapshot else { return }
 
         if let cuedEntry, let cuedSong = song(for: cuedEntry) {
             systemCheck = validate(entry: cuedEntry, song: cuedSong)
@@ -594,13 +618,15 @@ final class AppStore: ObservableObject {
             return
         }
 
-        runtime.lastMessage = "Audio devices updated"
+        runtime.lastMessage = readyMessage
         setRouteChangePrompt(from: routingSnapshot)
     }
 
     private func handleSystemWake() {
-        runtime.lastMessage = "System woke. Rechecking audio routing."
-        handleAudioHardwareChanged()
+        handleAudioHardwareChanged(
+            forceValidation: true,
+            readyMessage: "System woke. Audio routing checked."
+        )
     }
 
     private func stopAudioAfterHardwareChange(message: String) {
