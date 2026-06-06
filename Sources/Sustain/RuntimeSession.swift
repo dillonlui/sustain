@@ -78,6 +78,7 @@ final class AppStore: ObservableObject {
     private let audioEngine: AudioControlling
     private let libraryStore: LocalLibraryStore?
     private let audioRoutingProvider: AudioRoutingProviding
+    private let audioHardwareMonitor: AudioHardwareMonitoring
     private let countoffDurationMultiplier: Double
     private var clickStateTask: Task<Void, Never>?
 
@@ -87,6 +88,7 @@ final class AppStore: ObservableObject {
         audioEngine: AudioControlling = SilentAudioEngine(),
         libraryStore: LocalLibraryStore? = nil,
         audioRoutingProvider: AudioRoutingProviding = CoreAudioRoutingProvider(),
+        audioHardwareMonitor: AudioHardwareMonitoring = NoopAudioHardwareMonitor(),
         routingSettings: AudioRoutingSettings = .default,
         persistenceStatus: String = "Using seed library",
         countoffDurationMultiplier: Double = 1.0
@@ -96,6 +98,7 @@ final class AppStore: ObservableObject {
         self.audioEngine = audioEngine
         self.libraryStore = libraryStore
         self.audioRoutingProvider = audioRoutingProvider
+        self.audioHardwareMonitor = audioHardwareMonitor
         self.routingSettings = routingSettings
         self.audioStatus = audioEngine.statusSummary
         self.persistenceStatus = persistenceStatus
@@ -103,6 +106,9 @@ final class AppStore: ObservableObject {
         self.countoffDurationMultiplier = countoffDurationMultiplier
         runtime.cuedEntryID = activeSetlist.entries.first?.id
         configureAudioRouting()
+        audioHardwareMonitor.start { [weak self] in
+            self?.handleAudioHardwareChanged()
+        }
     }
 
     var playingEntry: SetlistEntry? {
@@ -531,6 +537,31 @@ final class AppStore: ObservableObject {
         routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
     }
 
+    private func handleAudioHardwareChanged() {
+        refreshRoutingSnapshot()
+
+        if let cuedEntry, let cuedSong = song(for: cuedEntry) {
+            systemCheck = validate(entry: cuedEntry, song: cuedSong)
+        }
+
+        guard !routingSnapshot.missingSelectionMessages.isEmpty else {
+            if runtime.playbackPhase == .noSongPlaying {
+                configureAudioRouting()
+            }
+            runtime.lastMessage = "Audio devices updated"
+            return
+        }
+
+        clickStateTask?.cancel()
+        audioEngine.stopAll()
+        runtime.clickState = .off
+        runtime.padState = .off
+        runtime.playingEntryID = nil
+        runtime.playbackPhase = .noSongPlaying
+        runtime.lastMessage = routingSnapshot.missingSelectionMessages.joined(separator: " ")
+        refreshAudioStatus()
+    }
+
     private func validate(entry: SetlistEntry, song: Song) -> SystemCheckResult {
         var blockingMessages: [String] = []
         var warnings: [String] = []
@@ -578,6 +609,7 @@ extension AppStore {
                     activeSetlist: snapshot.activeSetlist,
                     audioEngine: SustainAudioEngine(),
                     libraryStore: libraryStore,
+                    audioHardwareMonitor: PollingAudioHardwareMonitor(),
                     routingSettings: snapshot.routingSettings,
                     persistenceStatus: "Library loaded"
                 )
@@ -590,6 +622,7 @@ extension AppStore {
                 activeSetlist: snapshot.activeSetlist,
                 audioEngine: SustainAudioEngine(),
                 libraryStore: libraryStore,
+                audioHardwareMonitor: PollingAudioHardwareMonitor(),
                 routingSettings: snapshot.routingSettings,
                 persistenceStatus: "Seed library saved"
             )
@@ -600,6 +633,7 @@ extension AppStore {
                 activeSetlist: snapshot.activeSetlist,
                 audioEngine: SustainAudioEngine(),
                 libraryStore: libraryStore,
+                audioHardwareMonitor: PollingAudioHardwareMonitor(),
                 routingSettings: snapshot.routingSettings,
                 persistenceStatus: "Using seed library: \(error.localizedDescription)"
             )
@@ -610,6 +644,7 @@ extension AppStore {
         audioEngine: AudioControlling = SilentAudioEngine(),
         libraryStore: LocalLibraryStore? = nil,
         audioRoutingProvider: AudioRoutingProviding = StaticAudioRoutingProvider(snapshotValue: .previewDefault),
+        audioHardwareMonitor: AudioHardwareMonitoring = NoopAudioHardwareMonitor(),
         countoffDurationMultiplier: Double = 0
     ) -> AppStore {
         let snapshot = seedSnapshot()
@@ -619,6 +654,7 @@ extension AppStore {
             audioEngine: audioEngine,
             libraryStore: libraryStore,
             audioRoutingProvider: audioRoutingProvider,
+            audioHardwareMonitor: audioHardwareMonitor,
             routingSettings: snapshot.routingSettings,
             countoffDurationMultiplier: countoffDurationMultiplier
         )

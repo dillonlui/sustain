@@ -175,6 +175,38 @@ struct RuntimeSessionTests {
         #expect(audio.clickStartCount == 0)
     }
 
+    @Test func hardwareChangeStopsPlaybackWhenSelectedOutputDisappears() {
+        let audio = RecordingAudioEngine()
+        let provider = MutableAudioRoutingProvider(snapshotValue: .previewDefault)
+        let monitor = NoopAudioHardwareMonitor()
+        let store = AppStore.preview(
+            audioEngine: audio,
+            audioRoutingProvider: provider,
+            audioHardwareMonitor: monitor
+        )
+
+        store.startCuedSong()
+
+        provider.snapshotValue = AudioRoutingSnapshot(
+            outputs: [
+                AudioOutputDevice(id: 1, name: "Preview Output", isDefault: true)
+            ],
+            padOutputID: 1,
+            padOutputName: "Preview Output",
+            clickOutputID: 1,
+            clickOutputName: "Preview Output",
+            independentRoutingEnabled: false,
+            missingSelectionMessages: ["Selected click output is unavailable."]
+        )
+        monitor.simulateChange()
+
+        #expect(store.runtime.playbackPhase == .noSongPlaying)
+        #expect(store.runtime.padState == .off)
+        #expect(store.runtime.clickState == .off)
+        #expect(store.runtime.lastMessage == "Selected click output is unavailable.")
+        #expect(audio.stopAllCount == 1)
+    }
+
     @Test func routingSelectionPersistsToJSON() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainRoutingTests-\(UUID().uuidString)", isDirectory: true)
@@ -218,6 +250,7 @@ private final class RecordingAudioEngine: AudioControlling {
     var isEngineRunning = false
     var padStartCount = 0
     var clickStartCount = 0
+    var stopAllCount = 0
     var clickIncludesCountoffHistory: [Bool] = []
     var missingPadKeys: Set<MusicalKey>
     var statusSummary: String { isEngineRunning ? "Running" : "Stopped" }
@@ -254,6 +287,7 @@ private final class RecordingAudioEngine: AudioControlling {
     func stopClick() {}
 
     func stopAll() {
+        stopAllCount += 1
         isEngineRunning = false
     }
 }
