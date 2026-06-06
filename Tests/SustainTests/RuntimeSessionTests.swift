@@ -207,6 +207,26 @@ struct RuntimeSessionTests {
         #expect(audio.stopAllCount == 1)
     }
 
+    @Test func unchangedHardwarePollDoesNotOverwriteRuntimeMessage() {
+        let audio = RecordingAudioEngine()
+        let provider = MutableAudioRoutingProvider(snapshotValue: .previewDefault)
+        let monitor = NoopAudioHardwareMonitor()
+        let store = AppStore.preview(
+            audioEngine: audio,
+            audioRoutingProvider: provider,
+            audioHardwareMonitor: monitor
+        )
+
+        store.startCuedSong()
+        let message = store.runtime.lastMessage
+
+        monitor.simulateChange()
+
+        #expect(store.runtime.lastMessage == message)
+        #expect(store.runtime.playbackPhase == .songPlaying)
+        #expect(audio.stopAllCount == 0)
+    }
+
     @Test func routingSelectionPersistsToJSON() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainRoutingTests-\(UUID().uuidString)", isDirectory: true)

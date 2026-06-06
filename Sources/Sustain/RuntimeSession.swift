@@ -538,7 +538,9 @@ final class AppStore: ObservableObject {
     }
 
     private func handleAudioHardwareChanged() {
+        let previousSnapshot = routingSnapshot
         refreshRoutingSnapshot()
+        guard routingSnapshot != previousSnapshot else { return }
 
         if let cuedEntry, let cuedSong = song(for: cuedEntry) {
             systemCheck = validate(entry: cuedEntry, song: cuedSong)
