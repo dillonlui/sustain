@@ -728,6 +728,55 @@ struct RuntimeSessionTests {
         #expect(loaded.routingSettings.clickOutputName == "Click Bus")
     }
 
+    @Test func manualRoutingChangeStopsLivePlayback() {
+        let audio = RecordingAudioEngine()
+        let provider = StaticAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 11, name: "Pads Bus", isDefault: true),
+                    AudioOutputDevice(id: 12, name: "Click Bus", isDefault: false)
+                ],
+                padOutputID: 11,
+                padOutputName: "Pads Bus",
+                clickOutputID: 12,
+                clickOutputName: "Click Bus",
+                independentRoutingEnabled: true
+            )
+        )
+        let store = AppStore.preview(audioEngine: audio, audioRoutingProvider: provider)
+
+        store.startCuedSong()
+        store.updateRouting(padOutputID: 11, clickOutputID: 12)
+
+        #expect(store.runtime.playbackPhase == .noSongPlaying)
+        #expect(store.runtime.lastMessage == "Audio routing changed. Playback stopped so outputs can be rechecked.")
+        #expect(audio.stopAllCount == 1)
+    }
+
+    @Test func manualRoutingChangeStopsRehearsalPlayback() {
+        let audio = RecordingAudioEngine()
+        let provider = StaticAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 11, name: "Pads Bus", isDefault: true)
+                ],
+                padOutputID: 11,
+                padOutputName: "Pads Bus",
+                clickOutputID: 11,
+                clickOutputName: "Pads Bus",
+                independentRoutingEnabled: false
+            )
+        )
+        let store = AppStore.preview(audioEngine: audio, audioRoutingProvider: provider)
+
+        store.startRehearsePad(key: .g)
+        store.updateRouting(padOutputID: 11, clickOutputID: 11)
+
+        #expect(store.rehearse.padState == .off)
+        #expect(store.rehearse.lastMessage == "Audio routing changed. Playback stopped so outputs can be rechecked.")
+        #expect(audio.stopAllCount == 1)
+    }
+
     @Test func rehearseBPMUpdatesClickWithoutAnotherCountoff() {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)

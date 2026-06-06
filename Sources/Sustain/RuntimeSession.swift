@@ -414,6 +414,7 @@ final class AppStore: ObservableObject {
     }
 
     func updateRouting(padOutputID: AudioDeviceID?, clickOutputID: AudioDeviceID?) {
+        stopAudioForManualRoutingChangeIfNeeded()
         routingSettings = AudioRoutingSettings(
             padOutputID: padOutputID,
             padOutputName: outputName(for: padOutputID),
@@ -423,6 +424,14 @@ final class AppStore: ObservableObject {
         routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
         configureAudioRouting()
         saveLibrary()
+    }
+
+    private func stopAudioForManualRoutingChangeIfNeeded() {
+        guard runtime.playbackPhase != .noSongPlaying || rehearse.padState != .off || rehearse.clickState != .off else {
+            return
+        }
+
+        stopAudioAfterHardwareChange(message: "Audio routing changed. Playback stopped so outputs can be rechecked.")
     }
 
     func keepCurrentAudioRouting() {
