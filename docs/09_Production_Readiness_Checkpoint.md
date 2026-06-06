@@ -8,12 +8,14 @@ The app now has the first production-shaped audio path:
 - Pad lookup is based on pad pack and musical key.
 - Missing pad files block playback during system check.
 - System Check warns about missing pad assets elsewhere in the active setlist.
+- System Check warns about invalid BPMs elsewhere in the active setlist.
 - Pad transitions use two player nodes and mixer fades.
 - Click and countoff are generated from BPM and time signature.
 - macOS output devices are enumerated through Core Audio.
 - Pad and click now use separate AVAudioEngine instances.
 - Audio Setup can select separate pad and click output devices.
 - Routing selections persist across relaunch.
+- Persisted libraries are validated at launch and unusable setlists fall back to seed data.
 - System Check warns when pad and click resolve to the same output.
 - Hardware routing is revalidated automatically through Core Audio device-change listeners.
 - Playback and rehearsal are stopped visibly if a selected routed output disappears.
