@@ -14,7 +14,7 @@ The app now has the first production-shaped audio path:
 - Audio Setup can select separate pad and click output devices.
 - Routing selections persist across relaunch.
 - System Check warns when pad and click resolve to the same output.
-- Hardware routing is revalidated automatically with a lightweight polling monitor.
+- Hardware routing is revalidated automatically through Core Audio device-change listeners.
 - Playback and rehearsal are stopped visibly if a selected routed output disappears.
 
 ## What Is Still Prototype
@@ -22,7 +22,7 @@ The app now has the first production-shaped audio path:
 - Bundled MP3s are development sample assets, not the final pad library.
 - User-imported pad packs do not exist yet.
 - Independent routing is implemented structurally but has not been validated on multiple real hardware outputs.
-- Device disconnect recovery is implemented at the app-state level with polling, but native Core Audio property-listener monitoring is still a future refinement.
+- Device disconnect recovery is implemented at the app-state level through Core Audio listener-driven routing refresh.
 - Device reconnect recovery has not been validated on real hardware.
 - Sleep/wake recovery is not implemented.
 - Long-running timing stability has not been measured.
@@ -85,15 +85,14 @@ Observe:
 - CPU usage.
 - Behavior when display sleeps.
 
-### 4. Native Hardware Listener
+### 4. Listener Validation
 
-The current monitor polls the routing snapshot and ignores unchanged snapshots. This is safe and testable, but a native Core Audio property listener would reduce latency and unnecessary polling.
+The current monitor uses Core Audio property listeners for device-list and default-output changes. The implementation compiles under Swift concurrency using a small sendable relay back to the main actor, but it still needs real-hardware validation.
 
 Success criteria:
 
-- Device-list and default-output changes trigger routing refresh without polling.
-- Swift concurrency boundaries are explicit and testable.
-- Listener registration and removal are paired correctly.
+- Device-list and default-output changes trigger routing refresh on real hardware.
+- Listener registration and removal remain paired during app lifecycle.
 - Existing playback-loss tests continue to pass unchanged.
 
 ## Product Rule

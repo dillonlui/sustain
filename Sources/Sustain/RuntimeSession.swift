@@ -614,7 +614,7 @@ extension AppStore {
                     activeSetlist: snapshot.activeSetlist,
                     audioEngine: SustainAudioEngine(),
                     libraryStore: libraryStore,
-                    audioHardwareMonitor: PollingAudioHardwareMonitor(),
+                    audioHardwareMonitor: CoreAudioHardwareMonitor(),
                     routingSettings: snapshot.routingSettings,
                     persistenceStatus: "Library loaded"
                 )
@@ -627,7 +627,7 @@ extension AppStore {
                 activeSetlist: snapshot.activeSetlist,
                 audioEngine: SustainAudioEngine(),
                 libraryStore: libraryStore,
-                audioHardwareMonitor: PollingAudioHardwareMonitor(),
+                audioHardwareMonitor: CoreAudioHardwareMonitor(),
                 routingSettings: snapshot.routingSettings,
                 persistenceStatus: "Seed library saved"
             )
@@ -638,7 +638,7 @@ extension AppStore {
                 activeSetlist: snapshot.activeSetlist,
                 audioEngine: SustainAudioEngine(),
                 libraryStore: libraryStore,
-                audioHardwareMonitor: PollingAudioHardwareMonitor(),
+                audioHardwareMonitor: CoreAudioHardwareMonitor(),
                 routingSettings: snapshot.routingSettings,
                 persistenceStatus: "Using seed library: \(error.localizedDescription)"
             )
