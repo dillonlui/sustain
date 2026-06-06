@@ -372,6 +372,44 @@ struct RuntimeSessionTests {
         #expect(store.runtime.lastMessage == "Kept current audio output settings")
     }
 
+    @Test func keepingCurrentRoutingPreservesExplicitSelectionWhenOutputIsTemporarilyUnavailable() {
+        let provider = MutableAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 3, name: "Monitor Speakers", isDefault: true)
+                ],
+                padOutputID: nil,
+                padOutputName: "Unavailable",
+                clickOutputID: 3,
+                clickOutputName: "Monitor Speakers",
+                independentRoutingEnabled: false,
+                missingSelectionMessages: ["Selected pad output is unavailable."]
+            )
+        )
+        let monitor = NoopAudioHardwareMonitor()
+        let snapshot = AppStore.seedSnapshot()
+        let store = AppStore(
+            songs: snapshot.songs,
+            activeSetlist: snapshot.activeSetlist,
+            audioEngine: RecordingAudioEngine(),
+            audioRoutingProvider: provider,
+            audioHardwareMonitor: monitor,
+            routingSettings: AudioRoutingSettings(
+                padOutputID: 10,
+                padOutputName: "Dillon's AirPods",
+                clickOutputID: 3,
+                clickOutputName: "Monitor Speakers"
+            )
+        )
+
+        monitor.simulateChange()
+        store.keepCurrentAudioRouting()
+
+        #expect(store.routingSettings.padOutputID == 10)
+        #expect(store.routingSettings.padOutputName == "Dillon's AirPods")
+        #expect(store.routingSettings.clickOutputID == 3)
+    }
+
     @Test func switchingToDetectedOutputUpdatesRoutingSettings() {
         let provider = MutableAudioRoutingProvider(
             snapshotValue: AudioRoutingSnapshot(

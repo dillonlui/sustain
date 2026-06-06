@@ -583,15 +583,43 @@ final class AppStore: ObservableObject {
 
     private func normalizeRoutingSettingsFromSnapshot() {
         let normalized = AudioRoutingSettings(
-            padOutputID: routingSettings.padOutputID == nil ? nil : routingSnapshot.padOutputID,
-            padOutputName: routingSettings.padOutputID == nil ? nil : routingSnapshot.padOutputName,
-            clickOutputID: routingSettings.clickOutputID == nil ? nil : routingSnapshot.clickOutputID,
-            clickOutputName: routingSettings.clickOutputID == nil ? nil : routingSnapshot.clickOutputName
+            padOutputID: normalizedOutputID(
+                currentID: routingSettings.padOutputID,
+                resolvedID: routingSnapshot.padOutputID
+            ),
+            padOutputName: normalizedOutputName(
+                currentID: routingSettings.padOutputID,
+                currentName: routingSettings.padOutputName,
+                resolvedName: routingSnapshot.padOutputName
+            ),
+            clickOutputID: normalizedOutputID(
+                currentID: routingSettings.clickOutputID,
+                resolvedID: routingSnapshot.clickOutputID
+            ),
+            clickOutputName: normalizedOutputName(
+                currentID: routingSettings.clickOutputID,
+                currentName: routingSettings.clickOutputName,
+                resolvedName: routingSnapshot.clickOutputName
+            )
         )
 
         if normalized != routingSettings {
             routingSettings = normalized
         }
+    }
+
+    private func normalizedOutputID(currentID: AudioDeviceID?, resolvedID: AudioDeviceID?) -> AudioDeviceID? {
+        guard currentID != nil else { return nil }
+        return resolvedID ?? currentID
+    }
+
+    private func normalizedOutputName(
+        currentID: AudioDeviceID?,
+        currentName: String?,
+        resolvedName: String
+    ) -> String? {
+        guard currentID != nil else { return nil }
+        return resolvedName == "Unavailable" ? currentName : resolvedName
     }
 
     private func handleAudioHardwareChanged(
