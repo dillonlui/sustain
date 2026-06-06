@@ -146,6 +146,26 @@ struct RuntimeSessionTests {
         #expect(loadedEntry.bpmOverride == 88)
     }
 
+    @Test func importedPadPackPersistsToJSON() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainPadImportSource-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data().write(to: source.appendingPathComponent("G.wav", isDirectory: false))
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let store = AppStore.preview(libraryStore: libraryStore)
+
+        store.importPadPack(from: source, name: "Warm")
+
+        let loaded = try #require(try libraryStore.loadLibrary())
+        let imported = try #require(loaded.padPacks.first { $0.name == "Warm" })
+
+        #expect(imported.folderName == "Warm")
+        #expect(imported.availableKeys == [.g])
+        #expect(store.persistenceStatus == "Imported pad pack Warm. Missing keys: C, Db, D, Eb, E, F, Gb, Ab, A, Bb, B")
+    }
+
     @Test func librarySnapshotRequiresUsableSetlist() {
         let snapshot = AppStore.seedSnapshot()
 

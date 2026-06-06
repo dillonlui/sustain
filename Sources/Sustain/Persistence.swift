@@ -2,21 +2,25 @@ import Foundation
 
 struct LibrarySnapshot: Codable, Equatable {
     var songs: [Song]
+    var padPacks: [PadPack]
     var activeSetlist: Setlist
     var routingSettings: AudioRoutingSettings
 
     init(
         songs: [Song],
+        padPacks: [PadPack]? = nil,
         activeSetlist: Setlist,
         routingSettings: AudioRoutingSettings = .default
     ) {
         self.songs = songs
+        self.padPacks = padPacks ?? Self.defaultPadPacks(from: songs)
         self.activeSetlist = activeSetlist
         self.routingSettings = routingSettings
     }
 
     private enum CodingKeys: String, CodingKey {
         case songs
+        case padPacks
         case activeSetlist
         case routingSettings
     }
@@ -24,6 +28,7 @@ struct LibrarySnapshot: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         songs = try container.decode([Song].self, forKey: .songs)
+        padPacks = try container.decodeIfPresent([PadPack].self, forKey: .padPacks) ?? Self.defaultPadPacks(from: songs)
         activeSetlist = try container.decode(Setlist.self, forKey: .activeSetlist)
         routingSettings = try container.decodeIfPresent(AudioRoutingSettings.self, forKey: .routingSettings) ?? .default
     }
@@ -31,6 +36,16 @@ struct LibrarySnapshot: Codable, Equatable {
     var hasUsableSetlist: Bool {
         let songIDs = Set(songs.map(\.id))
         return !songs.isEmpty && activeSetlist.entries.contains { songIDs.contains($0.songID) }
+    }
+
+    private static func defaultPadPacks(from songs: [Song]) -> [PadPack] {
+        var padPacks = [PadPack.bundled]
+
+        for song in songs where !padPacks.contains(song.padPack) {
+            padPacks.append(song.padPack)
+        }
+
+        return padPacks
     }
 }
 

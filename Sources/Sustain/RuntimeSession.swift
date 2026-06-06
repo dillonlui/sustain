@@ -77,6 +77,7 @@ struct AudioRouteChangePrompt: Identifiable, Equatable {
 final class AppStore: ObservableObject {
     @Published var selectedScreen: AppScreen = .live
     @Published var songs: [Song]
+    @Published var padPacks: [PadPack]
     @Published var activeSetlist: Setlist
     @Published var runtime = RuntimeSession()
     @Published var rehearse = RehearseSession()
@@ -98,6 +99,7 @@ final class AppStore: ObservableObject {
 
     init(
         songs: [Song],
+        padPacks: [PadPack]? = nil,
         activeSetlist: Setlist,
         audioEngine: AudioControlling = SilentAudioEngine(),
         libraryStore: LocalLibraryStore? = nil,
@@ -109,6 +111,7 @@ final class AppStore: ObservableObject {
         countoffDurationMultiplier: Double = 1.0
     ) {
         self.songs = songs
+        self.padPacks = padPacks ?? Self.defaultPadPacks(from: songs)
         self.activeSetlist = activeSetlist
         self.audioEngine = audioEngine
         self.libraryStore = libraryStore
@@ -413,6 +416,37 @@ final class AppStore: ObservableObject {
         saveLibrary()
     }
 
+    func importPadPack(from sourceURL: URL, name: String? = nil) {
+        guard let libraryStore else {
+            persistenceStatus = "Pad pack import requires local library storage"
+            return
+        }
+
+        do {
+            let importer = PadPackImporter(destinationRoot: try libraryStore.padPacksDirectory())
+            let result = try importer.importFolder(sourceURL, name: name)
+            upsertPadPack(result.padPack)
+            saveLibrary()
+
+            if result.missingKeys.isEmpty {
+                persistenceStatus = "Imported pad pack \(result.padPack.name)"
+            } else {
+                let missing = result.missingKeys.map(\.rawValue).joined(separator: ", ")
+                persistenceStatus = "Imported pad pack \(result.padPack.name). Missing keys: \(missing)"
+            }
+        } catch {
+            persistenceStatus = "Pad pack import failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func upsertPadPack(_ padPack: PadPack) {
+        if let index = padPacks.firstIndex(where: { $0.folderName == padPack.folderName }) {
+            padPacks[index] = padPack
+        } else {
+            padPacks.append(padPack)
+        }
+    }
+
     func updateRouting(padOutputID: AudioDeviceID?, clickOutputID: AudioDeviceID?) {
         stopAudioForManualRoutingChangeIfNeeded()
         routingSettings = AudioRoutingSettings(
@@ -568,6 +602,7 @@ final class AppStore: ObservableObject {
             try libraryStore.saveLibrary(
                 LibrarySnapshot(
                     songs: songs,
+                    padPacks: padPacks,
                     activeSetlist: activeSetlist,
                     routingSettings: routingSettings
                 )
@@ -792,6 +827,7 @@ extension AppStore {
 
                 return AppStore(
                     songs: snapshot.songs,
+                    padPacks: snapshot.padPacks,
                     activeSetlist: snapshot.activeSetlist,
                     audioEngine: liveAudioEngine(libraryStore: libraryStore),
                     libraryStore: libraryStore,
@@ -806,6 +842,7 @@ extension AppStore {
             try libraryStore.saveLibrary(snapshot)
             return AppStore(
                 songs: snapshot.songs,
+                padPacks: snapshot.padPacks,
                 activeSetlist: snapshot.activeSetlist,
                 audioEngine: liveAudioEngine(libraryStore: libraryStore),
                 libraryStore: libraryStore,
@@ -818,6 +855,7 @@ extension AppStore {
             let snapshot = seedSnapshot()
             return AppStore(
                 songs: snapshot.songs,
+                padPacks: snapshot.padPacks,
                 activeSetlist: snapshot.activeSetlist,
                 audioEngine: liveAudioEngine(libraryStore: libraryStore),
                 libraryStore: libraryStore,
@@ -845,6 +883,7 @@ extension AppStore {
         let snapshot = seedSnapshot()
         return AppStore(
             songs: snapshot.songs,
+            padPacks: snapshot.padPacks,
             activeSetlist: snapshot.activeSetlist,
             audioEngine: audioEngine,
             libraryStore: libraryStore,
@@ -873,7 +912,18 @@ extension AppStore {
 
         return LibrarySnapshot(
             songs: songs,
+            padPacks: [bundledPads],
             activeSetlist: Setlist(title: "Sunday Morning", entries: entries)
         )
+    }
+
+    private static func defaultPadPacks(from songs: [Song]) -> [PadPack] {
+        var padPacks = [PadPack.bundled]
+
+        for song in songs where !padPacks.contains(song.padPack) {
+            padPacks.append(song.padPack)
+        }
+
+        return padPacks
     }
 }
