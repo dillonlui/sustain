@@ -367,9 +367,53 @@ struct RuntimeSessionTests {
         store.keepCurrentAudioRouting()
 
         #expect(store.audioRouteChangePrompt == nil)
-        #expect(store.routingSettings.padOutputID == nil)
-        #expect(store.routingSettings.clickOutputID == nil)
+        #expect(store.routingSettings.padOutputID == 1)
+        #expect(store.routingSettings.padOutputName == "AirPods")
+        #expect(store.routingSettings.clickOutputID == 2)
+        #expect(store.routingSettings.clickOutputName == "MacBook Speakers")
         #expect(store.runtime.lastMessage == "Kept current audio output settings")
+    }
+
+    @Test func keepingCurrentRoutingPinsPreviousDefaultOutputAfterDefaultChanges() {
+        let provider = MutableAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 10, name: "Dillon's AirPods", isDefault: true),
+                    AudioOutputDevice(id: 3, name: "Monitor Speakers", isDefault: false)
+                ],
+                padOutputID: 10,
+                padOutputName: "Dillon's AirPods",
+                clickOutputID: 10,
+                clickOutputName: "Dillon's AirPods",
+                independentRoutingEnabled: false
+            )
+        )
+        let monitor = NoopAudioHardwareMonitor()
+        let store = AppStore.preview(
+            audioRoutingProvider: provider,
+            audioHardwareMonitor: monitor
+        )
+
+        provider.snapshotValue = AudioRoutingSnapshot(
+            outputs: [
+                AudioOutputDevice(id: 10, name: "Dillon's AirPods", isDefault: false),
+                AudioOutputDevice(id: 3, name: "Monitor Speakers", isDefault: true)
+            ],
+            padOutputID: 3,
+            padOutputName: "Monitor Speakers",
+            clickOutputID: 3,
+            clickOutputName: "Monitor Speakers",
+            independentRoutingEnabled: false
+        )
+        monitor.simulateChange()
+
+        store.keepCurrentAudioRouting()
+
+        #expect(store.audioRouteChangePrompt == nil)
+        #expect(store.routingSettings.padOutputID == 10)
+        #expect(store.routingSettings.padOutputName == "Dillon's AirPods")
+        #expect(store.routingSettings.clickOutputID == 10)
+        #expect(store.routingSettings.clickOutputName == "Dillon's AirPods")
     }
 
     @Test func keepingCurrentRoutingPreservesExplicitSelectionWhenOutputIsTemporarilyUnavailable() {

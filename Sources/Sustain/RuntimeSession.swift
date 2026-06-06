@@ -66,6 +66,10 @@ struct AudioRouteChangePrompt: Identifiable, Equatable {
     var id = UUID()
     var detectedOutputID: AudioDeviceID
     var detectedOutputName: String
+    var previousPadOutputID: AudioDeviceID?
+    var previousPadOutputName: String
+    var previousClickOutputID: AudioDeviceID?
+    var previousClickOutputName: String
     var message: String
 }
 
@@ -422,8 +426,17 @@ final class AppStore: ObservableObject {
     }
 
     func keepCurrentAudioRouting() {
+        guard let prompt = audioRouteChangePrompt else { return }
         audioRouteChangePrompt = nil
+        routingSettings = AudioRoutingSettings(
+            padOutputID: prompt.previousPadOutputID,
+            padOutputName: prompt.previousPadOutputName,
+            clickOutputID: prompt.previousClickOutputID,
+            clickOutputName: prompt.previousClickOutputName
+        )
+        routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
         configureAudioRouting()
+        saveLibrary()
         runtime.lastMessage = "Kept current audio output settings"
     }
 
@@ -642,12 +655,12 @@ final class AppStore: ObservableObject {
 
         if runtime.playbackPhase != .noSongPlaying || rehearse.padState != .off || rehearse.clickState != .off {
             stopAudioAfterHardwareChange(message: "Audio devices changed. Playback stopped so routing can be rechecked.")
-            setRouteChangePrompt(from: routingSnapshot)
+            setRouteChangePrompt(from: routingSnapshot, previousSnapshot: previousSnapshot)
             return
         }
 
         runtime.lastMessage = readyMessage
-        setRouteChangePrompt(from: routingSnapshot)
+        setRouteChangePrompt(from: routingSnapshot, previousSnapshot: previousSnapshot)
     }
 
     private func handleSystemWake() {
@@ -671,7 +684,10 @@ final class AppStore: ObservableObject {
         refreshAudioStatus()
     }
 
-    private func setRouteChangePrompt(from snapshot: AudioRoutingSnapshot) {
+    private func setRouteChangePrompt(
+        from snapshot: AudioRoutingSnapshot,
+        previousSnapshot: AudioRoutingSnapshot
+    ) {
         guard let detectedOutput = snapshot.outputs.first(where: \.isDefault) ?? snapshot.outputs.first else {
             audioRouteChangePrompt = nil
             return
@@ -680,6 +696,10 @@ final class AppStore: ObservableObject {
         audioRouteChangePrompt = AudioRouteChangePrompt(
             detectedOutputID: detectedOutput.id,
             detectedOutputName: detectedOutput.name,
+            previousPadOutputID: previousSnapshot.padOutputID,
+            previousPadOutputName: previousSnapshot.padOutputName,
+            previousClickOutputID: previousSnapshot.clickOutputID,
+            previousClickOutputName: previousSnapshot.clickOutputName,
             message: "Audio output change detected. Keep your current Sustain routing, or switch pad and click to \(detectedOutput.name)."
         )
     }
