@@ -19,6 +19,7 @@ The app now has the first production-shaped audio path:
 - Persisted libraries are validated at launch and unusable setlists fall back to seed data.
 - The audio layer can resolve non-bundled pad packs from the app's local Pad Packs directory.
 - A pad pack importer service can inspect folders, report missing keys, and copy usable packs into app storage.
+- Imported pad pack metadata persists in the saved library catalog.
 - System Check warns when pad and click resolve to the same output.
 - Hardware routing is revalidated automatically through Core Audio device-change listeners.
 - Playback and rehearsal are stopped visibly if a selected routed output disappears.
