@@ -149,6 +149,17 @@ struct RuntimeSessionTests {
         #expect(store.routingSnapshot.independentRoutingEnabled)
     }
 
+    @Test func routingConfigurationFailureBlocksPlayback() {
+        let audio = RecordingAudioEngine()
+        audio.shouldFailConfigureRouting = true
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.runSystemCheck()
+
+        #expect(!store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.messages.contains("Audio routing failed: \(AudioEngineError.invalidOutputFormat.localizedDescription)"))
+    }
+
     @Test func unavailablePadOutputBlocksPlayback() {
         let provider = StaticAudioRoutingProvider(
             snapshotValue: AudioRoutingSnapshot(
@@ -383,6 +394,7 @@ private final class RecordingAudioEngine: AudioControlling {
     var missingPadKeys: Set<MusicalKey>
     var shouldFailPadStart = false
     var shouldFailClickStart = false
+    var shouldFailConfigureRouting = false
     var statusSummary: String { isEngineRunning ? "Running" : "Stopped" }
 
     init(missingPadKeys: Set<MusicalKey> = []) {
@@ -391,7 +403,11 @@ private final class RecordingAudioEngine: AudioControlling {
 
     func prepare() {}
 
-    func configureRouting(_ snapshot: AudioRoutingSnapshot) throws {}
+    func configureRouting(_ snapshot: AudioRoutingSnapshot) throws {
+        if shouldFailConfigureRouting {
+            throw AudioEngineError.invalidOutputFormat
+        }
+    }
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
         missingPadKeys.contains(key) ? "Missing bundled pad \(key.rawValue).mp3" : "Found \(key.rawValue).mp3"

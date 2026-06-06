@@ -81,6 +81,7 @@ final class AppStore: ObservableObject {
     private let audioHardwareMonitor: AudioHardwareMonitoring
     private let countoffDurationMultiplier: Double
     private var clickStateTask: Task<Void, Never>?
+    private var audioRoutingFailureMessage: String?
 
     init(
         songs: [Song],
@@ -526,8 +527,10 @@ final class AppStore: ObservableObject {
     private func configureAudioRouting() {
         do {
             try audioEngine.configureRouting(routingSnapshot)
+            audioRoutingFailureMessage = nil
         } catch {
-            runtime.lastMessage = "Audio routing failed: \(error.localizedDescription)"
+            audioRoutingFailureMessage = "Audio routing failed: \(error.localizedDescription)"
+            runtime.lastMessage = audioRoutingFailureMessage ?? "Audio routing failed"
         }
         refreshAudioStatus()
     }
@@ -586,6 +589,8 @@ final class AppStore: ObservableObject {
 
         if routingSnapshot.outputs.isEmpty {
             blockingMessages.append("No output audio device is available.")
+        } else if let audioRoutingFailureMessage {
+            blockingMessages.append(audioRoutingFailureMessage)
         } else if !routingSnapshot.missingSelectionMessages.isEmpty {
             blockingMessages.append(contentsOf: routingSnapshot.missingSelectionMessages)
         } else if let warning = routingSnapshot.warning {
