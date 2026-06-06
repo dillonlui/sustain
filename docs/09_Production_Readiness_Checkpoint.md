@@ -16,6 +16,7 @@ The app now has the first production-shaped audio path:
 - System Check warns when pad and click resolve to the same output.
 - Hardware routing is revalidated automatically through Core Audio device-change listeners.
 - Playback and rehearsal are stopped visibly if a selected routed output disappears.
+- Playback is blocked if Core Audio output-device assignment fails.
 
 ## What Is Still Prototype
 
@@ -46,6 +47,7 @@ Success criteria:
 - Click can play through a different selected output.
 - The app detects when a selected output disappears.
 - Playback failure is visible and does not silently lie to the user.
+- Output-device assignment failures block playback.
 - Reconnect behavior restores a safe, understandable routing state.
 
 Fallback decision:
