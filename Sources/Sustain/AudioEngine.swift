@@ -79,7 +79,7 @@ final class SustainAudioEngine: AudioControlling {
         return "\(active.joined(separator: " + ")) (\(routingSummary))"
     }
 
-    init(padAssetResolver: PadAssetResolving = BundlePadAssetResolver()) {
+    init(padAssetResolver: PadAssetResolving = DefaultPadAssetResolver()) {
         self.padAssetResolver = padAssetResolver
 
         let hardwareFormat = clickEngine.outputNode.inputFormat(forBus: 0)
@@ -130,7 +130,11 @@ final class SustainAudioEngine: AudioControlling {
             return "Found \(asset.displayName)"
         }
 
-        return "Missing bundled pad \(key.rawValue).mp3"
+        if padPack.isBundled {
+            return "Missing bundled pad \(key.rawValue).mp3"
+        }
+
+        return "\(padPack.name) does not include a pad for \(key.rawValue)."
     }
 
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool {

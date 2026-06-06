@@ -39,6 +39,10 @@ struct PadPack: Codable, Identifiable, Equatable, Hashable {
         availableKeys.contains(key)
     }
 
+    var isBundled: Bool {
+        name == Self.bundled.name && folderName == Self.bundled.folderName
+    }
+
     static let bundled = PadPack(
         name: "Bundled Pads",
         folderName: "Pads",

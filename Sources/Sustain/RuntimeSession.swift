@@ -793,7 +793,7 @@ extension AppStore {
                 return AppStore(
                     songs: snapshot.songs,
                     activeSetlist: snapshot.activeSetlist,
-                    audioEngine: SustainAudioEngine(),
+                    audioEngine: liveAudioEngine(libraryStore: libraryStore),
                     libraryStore: libraryStore,
                     audioHardwareMonitor: CoreAudioHardwareMonitor(),
                     powerStateMonitor: MacPowerStateMonitor(),
@@ -807,7 +807,7 @@ extension AppStore {
             return AppStore(
                 songs: snapshot.songs,
                 activeSetlist: snapshot.activeSetlist,
-                audioEngine: SustainAudioEngine(),
+                audioEngine: liveAudioEngine(libraryStore: libraryStore),
                 libraryStore: libraryStore,
                 audioHardwareMonitor: CoreAudioHardwareMonitor(),
                 powerStateMonitor: MacPowerStateMonitor(),
@@ -819,7 +819,7 @@ extension AppStore {
             return AppStore(
                 songs: snapshot.songs,
                 activeSetlist: snapshot.activeSetlist,
-                audioEngine: SustainAudioEngine(),
+                audioEngine: liveAudioEngine(libraryStore: libraryStore),
                 libraryStore: libraryStore,
                 audioHardwareMonitor: CoreAudioHardwareMonitor(),
                 powerStateMonitor: MacPowerStateMonitor(),
@@ -827,6 +827,11 @@ extension AppStore {
                 persistenceStatus: "Using seed library: \(error.localizedDescription)"
             )
         }
+    }
+
+    private static func liveAudioEngine(libraryStore: LocalLibraryStore) -> SustainAudioEngine {
+        let padPacksDirectory = try? libraryStore.padPacksDirectory()
+        return SustainAudioEngine(padAssetResolver: DefaultPadAssetResolver(fileSystemRoot: padPacksDirectory))
     }
 
     static func preview(

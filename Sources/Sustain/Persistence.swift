@@ -77,6 +77,16 @@ struct LocalLibraryStore {
         return directory
     }
 
+    func padPacksDirectory() throws -> URL {
+        let directory = try applicationSupportDirectory().appendingPathComponent("Pad Packs", isDirectory: true)
+
+        if !fileManager.fileExists(atPath: directory.path) {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        return directory
+    }
+
     func loadLibrary() throws -> LibrarySnapshot? {
         let url = try libraryURL()
         guard fileManager.fileExists(atPath: url.path) else {

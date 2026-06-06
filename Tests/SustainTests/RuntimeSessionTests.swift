@@ -173,6 +173,37 @@ struct RuntimeSessionTests {
         #expect(asset.url.lastPathComponent == "G Major.mp3")
     }
 
+    @Test func bundledPadResolverIgnoresFolderBackedPadPacks() {
+        let resolver = BundlePadAssetResolver()
+        let padPack = PadPack(
+            name: "Warm",
+            folderName: "Warm",
+            availableKeys: Set(MusicalKey.allCases)
+        )
+
+        #expect(resolver.asset(for: padPack, key: .g) == nil)
+    }
+
+    @Test func fileSystemPadResolverFindsFolderBackedPadFiles() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainPadResolverTests-\(UUID().uuidString)", isDirectory: true)
+        let packDirectory = root.appendingPathComponent("Warm", isDirectory: true)
+        try FileManager.default.createDirectory(at: packDirectory, withIntermediateDirectories: true)
+        let fileURL = packDirectory.appendingPathComponent("Db.wav", isDirectory: false)
+        try Data().write(to: fileURL)
+        let resolver = FileSystemPadAssetResolver(rootDirectory: root)
+        let padPack = PadPack(
+            name: "Warm",
+            folderName: "Warm",
+            availableKeys: Set(MusicalKey.allCases)
+        )
+
+        let asset = try #require(resolver.asset(for: padPack, key: .db))
+
+        #expect(asset.url == fileURL)
+        #expect(asset.displayName == "Warm/Db.wav")
+    }
+
     @Test func sharedOutputRoutingWarnsButDoesNotBlockPlayback() {
         let store = AppStore.preview()
 
