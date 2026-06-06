@@ -27,6 +27,22 @@ struct LibrarySnapshot: Codable, Equatable {
         activeSetlist = try container.decode(Setlist.self, forKey: .activeSetlist)
         routingSettings = try container.decodeIfPresent(AudioRoutingSettings.self, forKey: .routingSettings) ?? .default
     }
+
+    var hasUsableSetlist: Bool {
+        let songIDs = Set(songs.map(\.id))
+        return !songs.isEmpty && activeSetlist.entries.contains { songIDs.contains($0.songID) }
+    }
+}
+
+enum LibraryValidationError: LocalizedError {
+    case unusableSetlist
+
+    var errorDescription: String? {
+        switch self {
+        case .unusableSetlist:
+            "Saved library does not include a usable setlist."
+        }
+    }
 }
 
 struct LocalLibraryStore {

@@ -133,6 +133,26 @@ struct RuntimeSessionTests {
         #expect(loadedEntry.bpmOverride == 88)
     }
 
+    @Test func librarySnapshotRequiresUsableSetlist() {
+        let snapshot = AppStore.seedSnapshot()
+
+        let emptySetlist = LibrarySnapshot(
+            songs: snapshot.songs,
+            activeSetlist: Setlist(title: "Empty", entries: [])
+        )
+        let missingSongSetlist = LibrarySnapshot(
+            songs: snapshot.songs,
+            activeSetlist: Setlist(
+                title: "Broken",
+                entries: [SetlistEntry(songID: UUID())]
+            )
+        )
+
+        #expect(snapshot.hasUsableSetlist)
+        #expect(!emptySetlist.hasUsableSetlist)
+        #expect(!missingSongSetlist.hasUsableSetlist)
+    }
+
     @Test func bundledPadResolverFindsBundledPadFiles() throws {
         let resolver = BundlePadAssetResolver()
 

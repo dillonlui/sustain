@@ -773,6 +773,10 @@ extension AppStore {
 
         do {
             if let snapshot = try libraryStore.loadLibrary() {
+                guard snapshot.hasUsableSetlist else {
+                    throw LibraryValidationError.unusableSetlist
+                }
+
                 return AppStore(
                     songs: snapshot.songs,
                     activeSetlist: snapshot.activeSetlist,
