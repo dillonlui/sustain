@@ -212,6 +212,7 @@ struct RuntimeSessionTests {
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         try Data().write(to: source.appendingPathComponent("C.wav", isDirectory: false))
         try Data().write(to: source.appendingPathComponent("Db Major.mp3", isDirectory: false))
+        try Data().write(to: source.appendingPathComponent("D.txt", isDirectory: false))
         let importer = PadPackImporter(destinationRoot: destination)
 
         let result = try importer.inspectFolder(source, name: "Warm")

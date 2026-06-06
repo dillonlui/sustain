@@ -17,6 +17,8 @@ enum PadPackImportError: LocalizedError {
 }
 
 struct PadPackImporter {
+    private static let supportedFileExtensions = Set(["wav", "aif", "aiff", "mp3", "m4a", "flac"])
+
     private let destinationRoot: URL
     private let fileManager: FileManager
 
@@ -70,7 +72,13 @@ struct PadPackImporter {
             at: folderURL,
             includingPropertiesForKeys: nil
         )
-        let fileNames = Set(fileURLs.map { $0.deletingPathExtension().lastPathComponent.lowercased() })
+        let fileNames = Set(fileURLs.compactMap { url -> String? in
+            guard Self.supportedFileExtensions.contains(url.pathExtension.lowercased()) else {
+                return nil
+            }
+
+            return url.deletingPathExtension().lastPathComponent.lowercased()
+        })
 
         return Set(MusicalKey.allCases.filter { key in
             fileNames.contains(key.rawValue.lowercased()) ||
