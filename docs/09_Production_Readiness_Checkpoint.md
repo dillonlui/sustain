@@ -17,6 +17,7 @@ The app now has the first production-shaped audio path:
 - Audio Setup can select separate pad and click output devices.
 - Routing selections persist across relaunch.
 - Persisted libraries are validated at launch and unusable setlists fall back to seed data.
+- The audio layer can resolve non-bundled pad packs from the app's local Pad Packs directory.
 - System Check warns when pad and click resolve to the same output.
 - Hardware routing is revalidated automatically through Core Audio device-change listeners.
 - Playback and rehearsal are stopped visibly if a selected routed output disappears.
@@ -28,7 +29,8 @@ The app now has the first production-shaped audio path:
 ## What Is Still Prototype
 
 - Bundled MP3s are development sample assets, not the final pad library.
-- User-imported pad packs do not exist yet.
+- User-imported pad pack UI does not exist yet.
+- Imported pad pack validation does not exist yet.
 - Independent routing is implemented structurally but has not been validated on multiple real hardware outputs.
 - Device disconnect recovery is implemented at the app-state level through Core Audio listener-driven routing refresh.
 - Device reconnect recovery can rebind selected outputs by saved device name when Core Audio assigns a new device ID.
@@ -83,6 +85,7 @@ Success criteria:
 
 - Import validates required keys.
 - Missing keys are shown clearly.
+- Imported songs use folder-backed pad assets during System Check and playback.
 - Imported files persist across relaunch.
 - System Check validates the cued song against imported files.
 
