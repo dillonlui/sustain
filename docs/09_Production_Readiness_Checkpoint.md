@@ -20,6 +20,8 @@ The app now has the first production-shaped audio path:
 - The audio layer can resolve non-bundled pad packs from the app's local Pad Packs directory.
 - A pad pack importer service can inspect folders, report missing keys, and copy usable packs into app storage.
 - Imported pad pack metadata persists in the saved library catalog.
+- Songs can be created, edited, assigned to a pad source, and added to the active setlist.
+- Setlist entries can be removed when they are not actively playing.
 - System Check warns when pad and click resolve to the same output.
 - Hardware routing is revalidated automatically through Core Audio device-change listeners.
 - Playback and rehearsal are stopped visibly if a selected routed output disappears.
@@ -31,9 +33,9 @@ The app now has the first production-shaped audio path:
 ## What Is Still Prototype
 
 - Bundled MP3s are development sample assets, not the final pad library.
-- User-imported pad pack UI does not exist yet.
+- User-imported pad pack UI does not exist yet, and may not be needed for v1 if bundled/default pad assets are enough.
 - Imported pad pack validation exists in the backend but is not surfaced in the UI yet.
-- Songs cannot be assigned to imported pad packs from the UI yet.
+- Song and setlist editing is functional but intentionally unpolished.
 - Independent routing is implemented structurally but has not been validated on multiple real hardware outputs.
 - Device disconnect recovery is implemented at the app-state level through Core Audio listener-driven routing refresh.
 - Device reconnect recovery can rebind selected outputs by saved device name when Core Audio assigns a new device ID.
