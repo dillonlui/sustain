@@ -684,13 +684,28 @@ struct RuntimeSessionTests {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainRoutingTests-\(UUID().uuidString)", isDirectory: true)
         let libraryStore = LocalLibraryStore(directoryOverride: directory)
-        let store = AppStore.preview(libraryStore: libraryStore)
+        let provider = StaticAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 11, name: "Pads Bus", isDefault: true),
+                    AudioOutputDevice(id: 12, name: "Click Bus", isDefault: false)
+                ],
+                padOutputID: 11,
+                padOutputName: "Pads Bus",
+                clickOutputID: 12,
+                clickOutputName: "Click Bus",
+                independentRoutingEnabled: true
+            )
+        )
+        let store = AppStore.preview(libraryStore: libraryStore, audioRoutingProvider: provider)
 
         store.updateRouting(padOutputID: 11, clickOutputID: 12)
 
         let loaded = try #require(try libraryStore.loadLibrary())
         #expect(loaded.routingSettings.padOutputID == 11)
+        #expect(loaded.routingSettings.padOutputName == "Pads Bus")
         #expect(loaded.routingSettings.clickOutputID == 12)
+        #expect(loaded.routingSettings.clickOutputName == "Click Bus")
     }
 
     @Test func rehearseBPMUpdatesClickWithoutAnotherCountoff() {
