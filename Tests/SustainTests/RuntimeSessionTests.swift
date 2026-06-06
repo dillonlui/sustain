@@ -1,4 +1,5 @@
 import Foundation
+import CoreAudio
 import Testing
 @testable import Sustain
 
@@ -90,7 +91,43 @@ struct RuntimeSessionTests {
         store.runSystemCheck()
 
         #expect(store.systemCheck.canStartPlayback)
-        #expect(store.systemCheck.warnings == ["Pad and click are currently sharing the default system output."])
+        #expect(store.systemCheck.warnings == ["Pad and click are currently sharing the same output."])
+    }
+
+    @Test func independentOutputRoutingClearsSharedOutputWarning() {
+        let provider = StaticAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(id: 1, name: "Main", isDefault: true),
+                    AudioOutputDevice(id: 2, name: "Click Bus", isDefault: false)
+                ],
+                padOutputID: 1,
+                padOutputName: "Main",
+                clickOutputID: 2,
+                clickOutputName: "Click Bus",
+                independentRoutingEnabled: true
+            )
+        )
+        let store = AppStore.preview(audioRoutingProvider: provider)
+
+        store.runSystemCheck()
+
+        #expect(store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.warnings.isEmpty)
+        #expect(store.routingSnapshot.independentRoutingEnabled)
+    }
+
+    @Test func routingSelectionPersistsToJSON() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainRoutingTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let store = AppStore.preview(libraryStore: libraryStore)
+
+        store.updateRouting(padOutputID: 11, clickOutputID: 12)
+
+        let loaded = try #require(try libraryStore.loadLibrary())
+        #expect(loaded.routingSettings.padOutputID == 11)
+        #expect(loaded.routingSettings.clickOutputID == 12)
     }
 }
 
@@ -102,6 +139,8 @@ private final class RecordingAudioEngine: AudioControlling {
     var statusSummary: String { isEngineRunning ? "Running" : "Stopped" }
 
     func prepare() {}
+
+    func configureRouting(_ snapshot: AudioRoutingSnapshot) throws {}
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
         "Found \(padPack.name) \(key.rawValue).wav"

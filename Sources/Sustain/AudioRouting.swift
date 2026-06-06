@@ -1,6 +1,16 @@
 import CoreAudio
 import Foundation
 
+struct AudioRoutingSettings: Codable, Equatable {
+    var padOutputID: AudioDeviceID?
+    var clickOutputID: AudioDeviceID?
+
+    static let `default` = AudioRoutingSettings(
+        padOutputID: nil,
+        clickOutputID: nil
+    )
+}
+
 struct AudioOutputDevice: Identifiable, Equatable {
     var id: AudioDeviceID
     var name: String
@@ -9,9 +19,12 @@ struct AudioOutputDevice: Identifiable, Equatable {
 
 struct AudioRoutingSnapshot: Equatable {
     var outputs: [AudioOutputDevice]
+    var padOutputID: AudioDeviceID?
     var padOutputName: String
+    var clickOutputID: AudioDeviceID?
     var clickOutputName: String
     var independentRoutingEnabled: Bool
+    var missingSelectionMessages: [String] = []
 
     var summary: String {
         if independentRoutingEnabled {
@@ -22,12 +35,18 @@ struct AudioRoutingSnapshot: Equatable {
     }
 
     var warning: String? {
-        independentRoutingEnabled ? nil : "Pad and click are currently sharing the default system output."
+        if !missingSelectionMessages.isEmpty {
+            return missingSelectionMessages.joined(separator: " ")
+        }
+
+        return independentRoutingEnabled ? nil : "Pad and click are currently sharing the same output."
     }
 
     static let unavailable = AudioRoutingSnapshot(
         outputs: [],
+        padOutputID: nil,
         padOutputName: "Unavailable",
+        clickOutputID: nil,
         clickOutputName: "Unavailable",
         independentRoutingEnabled: false
     )
@@ -36,27 +55,54 @@ struct AudioRoutingSnapshot: Equatable {
         outputs: [
             AudioOutputDevice(id: 1, name: "Preview Output", isDefault: true)
         ],
+        padOutputID: 1,
         padOutputName: "Preview Output",
+        clickOutputID: 1,
         clickOutputName: "Preview Output",
         independentRoutingEnabled: false
     )
 }
 
 protocol AudioRoutingProviding {
-    func snapshot() -> AudioRoutingSnapshot
+    func snapshot(settings: AudioRoutingSettings) -> AudioRoutingSnapshot
 }
 
 struct CoreAudioRoutingProvider: AudioRoutingProviding {
-    func snapshot() -> AudioRoutingSnapshot {
+    func snapshot(settings: AudioRoutingSettings = .default) -> AudioRoutingSnapshot {
         let outputs = outputDevices()
-        let defaultOutput = outputs.first(where: \.isDefault)?.name ?? outputs.first?.name ?? "Default Output"
+        let defaultOutput = outputs.first(where: \.isDefault) ?? outputs.first
+        let padOutput = resolveOutput(id: settings.padOutputID, outputs: outputs, fallback: defaultOutput)
+        let clickOutput = resolveOutput(id: settings.clickOutputID, outputs: outputs, fallback: defaultOutput)
+
+        var missingSelectionMessages: [String] = []
+        if let padOutputID = settings.padOutputID, !outputs.contains(where: { $0.id == padOutputID }) {
+            missingSelectionMessages.append("Selected pad output is unavailable.")
+        }
+        if let clickOutputID = settings.clickOutputID, !outputs.contains(where: { $0.id == clickOutputID }) {
+            missingSelectionMessages.append("Selected click output is unavailable.")
+        }
+
+        let padOutputID = padOutput?.id
+        let clickOutputID = clickOutput?.id
 
         return AudioRoutingSnapshot(
             outputs: outputs,
-            padOutputName: defaultOutput,
-            clickOutputName: defaultOutput,
-            independentRoutingEnabled: false
+            padOutputID: padOutputID,
+            padOutputName: padOutput?.name ?? "Unavailable",
+            clickOutputID: clickOutputID,
+            clickOutputName: clickOutput?.name ?? "Unavailable",
+            independentRoutingEnabled: padOutputID != nil && clickOutputID != nil && padOutputID != clickOutputID,
+            missingSelectionMessages: missingSelectionMessages
         )
+    }
+
+    private func resolveOutput(
+        id: AudioDeviceID?,
+        outputs: [AudioOutputDevice],
+        fallback: AudioOutputDevice?
+    ) -> AudioOutputDevice? {
+        guard let id else { return fallback }
+        return outputs.first { $0.id == id } ?? fallback
     }
 
     private func outputDevices() -> [AudioOutputDevice] {
@@ -167,7 +213,7 @@ struct CoreAudioRoutingProvider: AudioRoutingProviding {
 struct StaticAudioRoutingProvider: AudioRoutingProviding {
     var snapshotValue: AudioRoutingSnapshot
 
-    func snapshot() -> AudioRoutingSnapshot {
+    func snapshot(settings: AudioRoutingSettings = .default) -> AudioRoutingSnapshot {
         snapshotValue
     }
 }

@@ -1,4 +1,5 @@
 import Combine
+import CoreAudio
 import Foundation
 
 enum AppScreen: String, CaseIterable, Identifiable {
@@ -59,6 +60,7 @@ final class AppStore: ObservableObject {
     @Published var systemCheck = SystemCheckResult.notRun
     @Published var audioStatus: String
     @Published var persistenceStatus: String
+    @Published var routingSettings: AudioRoutingSettings
     @Published var routingSnapshot: AudioRoutingSnapshot
 
     private let audioEngine: AudioControlling
@@ -73,6 +75,7 @@ final class AppStore: ObservableObject {
         audioEngine: AudioControlling = SilentAudioEngine(),
         libraryStore: LocalLibraryStore? = nil,
         audioRoutingProvider: AudioRoutingProviding = CoreAudioRoutingProvider(),
+        routingSettings: AudioRoutingSettings = .default,
         persistenceStatus: String = "Using seed library",
         countoffDurationMultiplier: Double = 1.0
     ) {
@@ -81,11 +84,13 @@ final class AppStore: ObservableObject {
         self.audioEngine = audioEngine
         self.libraryStore = libraryStore
         self.audioRoutingProvider = audioRoutingProvider
+        self.routingSettings = routingSettings
         self.audioStatus = audioEngine.statusSummary
         self.persistenceStatus = persistenceStatus
-        self.routingSnapshot = audioRoutingProvider.snapshot()
+        self.routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
         self.countoffDurationMultiplier = countoffDurationMultiplier
         runtime.cuedEntryID = activeSetlist.entries.first?.id
+        configureAudioRouting()
     }
 
     var playingEntry: SetlistEntry? {
@@ -276,9 +281,20 @@ final class AppStore: ObservableObject {
         saveLibrary()
     }
 
+    func updateRouting(padOutputID: AudioDeviceID?, clickOutputID: AudioDeviceID?) {
+        routingSettings = AudioRoutingSettings(
+            padOutputID: padOutputID,
+            clickOutputID: clickOutputID
+        )
+        routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
+        configureAudioRouting()
+        saveLibrary()
+    }
+
     func runSystemCheck() {
         audioEngine.prepare()
-        routingSnapshot = audioRoutingProvider.snapshot()
+        routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
+        configureAudioRouting()
         refreshAudioStatus()
 
         if let cuedEntry, let cuedSong = song(for: cuedEntry) {
@@ -330,11 +346,26 @@ final class AppStore: ObservableObject {
         }
 
         do {
-            try libraryStore.saveLibrary(LibrarySnapshot(songs: songs, activeSetlist: activeSetlist))
+            try libraryStore.saveLibrary(
+                LibrarySnapshot(
+                    songs: songs,
+                    activeSetlist: activeSetlist,
+                    routingSettings: routingSettings
+                )
+            )
             persistenceStatus = "Library saved"
         } catch {
             persistenceStatus = "Library save failed: \(error.localizedDescription)"
         }
+    }
+
+    private func configureAudioRouting() {
+        do {
+            try audioEngine.configureRouting(routingSnapshot)
+        } catch {
+            runtime.lastMessage = "Audio routing failed: \(error.localizedDescription)"
+        }
+        refreshAudioStatus()
     }
 
     private func refreshAudioStatus() {
@@ -390,6 +421,7 @@ extension AppStore {
                     activeSetlist: snapshot.activeSetlist,
                     audioEngine: SustainAudioEngine(),
                     libraryStore: libraryStore,
+                    routingSettings: snapshot.routingSettings,
                     persistenceStatus: "Library loaded"
                 )
             }
@@ -401,6 +433,7 @@ extension AppStore {
                 activeSetlist: snapshot.activeSetlist,
                 audioEngine: SustainAudioEngine(),
                 libraryStore: libraryStore,
+                routingSettings: snapshot.routingSettings,
                 persistenceStatus: "Seed library saved"
             )
         } catch {
@@ -410,6 +443,7 @@ extension AppStore {
                 activeSetlist: snapshot.activeSetlist,
                 audioEngine: SustainAudioEngine(),
                 libraryStore: libraryStore,
+                routingSettings: snapshot.routingSettings,
                 persistenceStatus: "Using seed library: \(error.localizedDescription)"
             )
         }
@@ -428,6 +462,7 @@ extension AppStore {
             audioEngine: audioEngine,
             libraryStore: libraryStore,
             audioRoutingProvider: audioRoutingProvider,
+            routingSettings: snapshot.routingSettings,
             countoffDurationMultiplier: countoffDurationMultiplier
         )
     }

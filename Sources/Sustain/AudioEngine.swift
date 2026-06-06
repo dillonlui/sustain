@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import Foundation
 
 enum AudioEngineError: LocalizedError {
@@ -27,6 +28,7 @@ protocol AudioControlling: AnyObject {
     var statusSummary: String { get }
 
     func prepare()
+    func configureRouting(_ snapshot: AudioRoutingSnapshot) throws
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool
     func startPad(for key: MusicalKey, padPack: PadPack) throws
@@ -38,25 +40,27 @@ protocol AudioControlling: AnyObject {
 
 @MainActor
 final class SustainAudioEngine: AudioControlling {
-    private let engine = AVAudioEngine()
+    private let padEngine = AVAudioEngine()
+    private let clickEngine = AVAudioEngine()
     private let padPlayers = [AVAudioPlayerNode(), AVAudioPlayerNode()]
     private let padMixers = [AVAudioMixerNode(), AVAudioMixerNode()]
     private let clickPlayer = AVAudioPlayerNode()
     private let clickMixer = AVAudioMixerNode()
-    private let format: AVAudioFormat
+    private let clickFormat: AVAudioFormat
     private let padAssetResolver: PadAssetResolving
     private var activePadIndex: Int?
     private var nextPadIndex = 0
     private var activePadKey: MusicalKey?
     private var activePadAssetName: String?
     private var clickIsActive = false
+    private var routingSummary = "Default output"
 
     var isEngineRunning: Bool {
-        engine.isRunning
+        padEngine.isRunning || clickEngine.isRunning
     }
 
     var statusSummary: String {
-        if !engine.isRunning {
+        if !isEngineRunning {
             return "Stopped"
         }
 
@@ -72,34 +76,54 @@ final class SustainAudioEngine: AudioControlling {
             active.append("Click")
         }
 
-        return active.isEmpty ? "Running" : active.joined(separator: " + ")
+        let playback = active.isEmpty ? "Running" : active.joined(separator: " + ")
+        return "\(playback) (\(routingSummary))"
     }
 
     init(padAssetResolver: PadAssetResolving = BundlePadAssetResolver()) {
         self.padAssetResolver = padAssetResolver
 
-        let hardwareFormat = engine.outputNode.inputFormat(forBus: 0)
+        let hardwareFormat = clickEngine.outputNode.inputFormat(forBus: 0)
         let sampleRate = hardwareFormat.sampleRate > 0 ? hardwareFormat.sampleRate : 44_100
         let channelCount = hardwareFormat.channelCount > 0 ? min(hardwareFormat.channelCount, 2) : 2
-        format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount)!
+        clickFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount)!
 
         for index in padPlayers.indices {
-            engine.attach(padPlayers[index])
-            engine.attach(padMixers[index])
+            padEngine.attach(padPlayers[index])
+            padEngine.attach(padMixers[index])
             padMixers[index].outputVolume = 0
-            engine.connect(padPlayers[index], to: padMixers[index], format: nil)
-            engine.connect(padMixers[index], to: engine.mainMixerNode, format: nil)
+            padEngine.connect(padPlayers[index], to: padMixers[index], format: nil)
+            padEngine.connect(padMixers[index], to: padEngine.mainMixerNode, format: nil)
         }
 
-        engine.attach(clickPlayer)
-        engine.attach(clickMixer)
+        clickEngine.attach(clickPlayer)
+        clickEngine.attach(clickMixer)
         clickMixer.outputVolume = 0.75
-        engine.connect(clickPlayer, to: clickMixer, format: format)
-        engine.connect(clickMixer, to: engine.mainMixerNode, format: format)
+        clickEngine.connect(clickPlayer, to: clickMixer, format: clickFormat)
+        clickEngine.connect(clickMixer, to: clickEngine.mainMixerNode, format: clickFormat)
     }
 
     func prepare() {
-        engine.prepare()
+        padEngine.prepare()
+        clickEngine.prepare()
+    }
+
+    func configureRouting(_ snapshot: AudioRoutingSnapshot) throws {
+        if padEngine.isRunning || clickEngine.isRunning {
+            stopAll()
+            padEngine.stop()
+            clickEngine.stop()
+        }
+
+        if let padOutputID = snapshot.padOutputID {
+            try setOutputDevice(padOutputID, on: padEngine)
+        }
+
+        if let clickOutputID = snapshot.clickOutputID {
+            try setOutputDevice(clickOutputID, on: clickEngine)
+        }
+
+        routingSummary = snapshot.summary
     }
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
@@ -126,7 +150,7 @@ final class SustainAudioEngine: AudioControlling {
             throw AudioEngineError.unreadablePadFile(asset.url)
         }
 
-        try startEngineIfNeeded()
+        try startPadEngineIfNeeded()
 
         let newIndex = nextPadIndex
         nextPadIndex = (nextPadIndex + 1) % padPlayers.count
@@ -178,7 +202,7 @@ final class SustainAudioEngine: AudioControlling {
             throw AudioEngineError.invalidBPM(bpm)
         }
 
-        try startEngineIfNeeded()
+        try startClickEngineIfNeeded()
 
         clickPlayer.stop()
         let countoff = makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1)
@@ -199,9 +223,31 @@ final class SustainAudioEngine: AudioControlling {
         stopPad()
     }
 
-    private func startEngineIfNeeded() throws {
-        if !engine.isRunning {
-            try engine.start()
+    private func startPadEngineIfNeeded() throws {
+        if !padEngine.isRunning {
+            try padEngine.start()
+        }
+    }
+
+    private func startClickEngineIfNeeded() throws {
+        if !clickEngine.isRunning {
+            try clickEngine.start()
+        }
+    }
+
+    private func setOutputDevice(_ deviceID: AudioDeviceID, on engine: AVAudioEngine) throws {
+        var deviceID = deviceID
+        let status = AudioUnitSetProperty(
+            engine.outputNode.audioUnit!,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &deviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+
+        if status != noErr {
+            throw AudioEngineError.invalidOutputFormat
         }
     }
 
@@ -226,15 +272,15 @@ final class SustainAudioEngine: AudioControlling {
         timeSignature: TimeSignature,
         measures: Int
     ) -> AVAudioPCMBuffer {
-        let sampleRate = format.sampleRate
+        let sampleRate = clickFormat.sampleRate
         let beats = max(1, timeSignature.beatsPerMeasure * measures)
         let secondsPerBeat = 60.0 / Double(bpm)
         let duration = secondsPerBeat * Double(beats)
         let frameCount = AVAudioFrameCount(sampleRate * duration)
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: clickFormat, frameCapacity: frameCount)!
         buffer.frameLength = frameCount
 
-        let channelCount = Int(format.channelCount)
+        let channelCount = Int(clickFormat.channelCount)
         let clickLength = Int(sampleRate * 0.045)
 
         for beat in 0..<beats {
@@ -279,6 +325,8 @@ final class SilentAudioEngine: AudioControlling {
     var statusSummary: String { isEngineRunning ? "Running" : "Stopped" }
 
     func prepare() {}
+
+    func configureRouting(_ snapshot: AudioRoutingSnapshot) throws {}
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
         "Found \(padPack.name) \(key.rawValue).wav"

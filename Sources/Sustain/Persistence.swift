@@ -3,6 +3,30 @@ import Foundation
 struct LibrarySnapshot: Codable, Equatable {
     var songs: [Song]
     var activeSetlist: Setlist
+    var routingSettings: AudioRoutingSettings
+
+    init(
+        songs: [Song],
+        activeSetlist: Setlist,
+        routingSettings: AudioRoutingSettings = .default
+    ) {
+        self.songs = songs
+        self.activeSetlist = activeSetlist
+        self.routingSettings = routingSettings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case songs
+        case activeSetlist
+        case routingSettings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        songs = try container.decode([Song].self, forKey: .songs)
+        activeSetlist = try container.decode(Setlist.self, forKey: .activeSetlist)
+        routingSettings = try container.decodeIfPresent(AudioRoutingSettings.self, forKey: .routingSettings) ?? .default
+    }
 }
 
 struct LocalLibraryStore {

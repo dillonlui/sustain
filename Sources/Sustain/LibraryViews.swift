@@ -1,3 +1,4 @@
+import CoreAudio
 import SwiftUI
 
 struct SongLibraryView: View {
@@ -119,13 +120,36 @@ struct AudioSetupView: View {
                 LabeledContent("Routing", value: store.routingSnapshot.summary)
                 LabeledContent("Detected Outputs", value: "\(store.routingSnapshot.outputs.count)")
 
-                ForEach(store.routingSnapshot.outputs) { output in
-                    HStack {
-                        Text(output.name)
-                        Spacer()
-                        if output.isDefault {
-                            Text("Default")
-                                .foregroundStyle(.secondary)
+                Picker("Pad Output", selection: padOutputBinding) {
+                    Text("System Default").tag(AudioDeviceID?.none)
+                    ForEach(store.routingSnapshot.outputs) { output in
+                        Text(output.isDefault ? "\(output.name) (Default)" : output.name)
+                            .tag(AudioDeviceID?.some(output.id))
+                    }
+                }
+
+                Picker("Click Output", selection: clickOutputBinding) {
+                    Text("System Default").tag(AudioDeviceID?.none)
+                    ForEach(store.routingSnapshot.outputs) { output in
+                        Text(output.isDefault ? "\(output.name) (Default)" : output.name)
+                            .tag(AudioDeviceID?.some(output.id))
+                    }
+                }
+
+                if let warning = store.routingSnapshot.warning {
+                    Label(warning, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.orange)
+                }
+
+                DisclosureGroup("Detected Devices") {
+                    ForEach(store.routingSnapshot.outputs) { output in
+                        HStack {
+                            Text(output.name)
+                            Spacer()
+                            if output.isDefault {
+                                Text("Default")
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -140,6 +164,28 @@ struct AudioSetupView: View {
         }
         .formStyle(.grouped)
         .navigationTitle("Audio Setup")
+    }
+
+    private var padOutputBinding: Binding<AudioDeviceID?> {
+        Binding {
+            store.routingSettings.padOutputID
+        } set: { outputID in
+            store.updateRouting(
+                padOutputID: outputID,
+                clickOutputID: store.routingSettings.clickOutputID
+            )
+        }
+    }
+
+    private var clickOutputBinding: Binding<AudioDeviceID?> {
+        Binding {
+            store.routingSettings.clickOutputID
+        } set: { outputID in
+            store.updateRouting(
+                padOutputID: store.routingSettings.padOutputID,
+                clickOutputID: outputID
+            )
+        }
     }
 }
 

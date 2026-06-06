@@ -21,7 +21,7 @@ Day 1 originally proved the engine with generated audio. The current implementat
 - The engine loads the matching WAV with `AVAudioFile`.
 - Click and countoff are generated as scheduled PCM buffers.
 - Pad transitions use two player nodes with mixer-volume fades.
-- Click and pad currently route to the default system output.
+- Click and pad use separate engine instances and can be assigned separate output devices.
 
 This proves the file-backed pad path, but it is not yet the final user-imported pad library. The bundled WAVs are development/sample assets.
 
@@ -46,7 +46,7 @@ SwiftData or SQLite should wait until the editing model gets more complex.
 
 The next technical spike should focus on real audio devices:
 
-- Independent pad and click output routing.
+- Real-hardware verification of independent pad and click output routing.
 - Device disconnect and reconnect behavior.
 - Sleep/wake recovery.
 - User-imported WAV pad packs.
@@ -55,4 +55,4 @@ The next technical spike should focus on real audio devices:
 
 ## Current Guardrail
 
-Do not add more production features until the app can route pad and click independently on real hardware and survive basic device changes.
+Do not add more production features until the app can prove independent routing on real hardware and survive basic device changes.

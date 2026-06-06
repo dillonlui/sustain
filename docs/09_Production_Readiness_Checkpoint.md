@@ -10,13 +10,16 @@ The app now has the first production-shaped audio path:
 - Pad transitions use two player nodes and mixer fades.
 - Click and countoff are generated from BPM and time signature.
 - macOS output devices are enumerated through Core Audio.
-- System Check warns when pad and click share the same output.
+- Pad and click now use separate AVAudioEngine instances.
+- Audio Setup can select separate pad and click output devices.
+- Routing selections persist across relaunch.
+- System Check warns when pad and click resolve to the same output.
 
 ## What Is Still Prototype
 
 - Bundled WAVs are development sample assets, not the final pad library.
 - User-imported pad packs do not exist yet.
-- Pad and click are not independently routed.
+- Independent routing is implemented structurally but has not been validated on multiple real hardware outputs.
 - Device disconnect/reconnect recovery is not implemented.
 - Sleep/wake recovery is not implemented.
 - Long-running timing stability has not been measured.
@@ -24,13 +27,15 @@ The app now has the first production-shaped audio path:
 
 ## Next Production Spikes
 
-### 1. Independent Routing
+### 1. Hardware Routing Verification
 
-Prove whether Sustain should use:
+The app now uses the intended two-engine architecture:
 
-- One engine with advanced output unit configuration.
-- Two AVAudioEngine instances, one for pad and one for click.
-- A lower-level Core Audio/AUHAL approach.
+- One AVAudioEngine for pads.
+- One AVAudioEngine for click/countoff.
+- Each engine attempts to set its own Core Audio output device.
+
+This still needs to be proven on real hardware.
 
 Success criteria:
 
@@ -38,6 +43,10 @@ Success criteria:
 - Click can play through a different selected output.
 - The app detects when a selected output disappears.
 - Playback failure is visible and does not silently lie to the user.
+
+Fallback decision:
+
+- If AVAudioEngine output-device assignment proves unreliable, move the output layer to a lower-level Core Audio/AUHAL implementation.
 
 ### 2. User Pad Library
 
