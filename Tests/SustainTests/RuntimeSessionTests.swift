@@ -51,6 +51,16 @@ struct RuntimeSessionTests {
         #expect(audio.clickStartCount == clickStarts)
     }
 
+    @Test func stopClearsAudioStatus() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.startCuedSong()
+        store.stop()
+
+        #expect(store.audioStatus == "Stopped")
+    }
+
     @Test func setlistOverridesPersistToJSON() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
@@ -330,7 +340,9 @@ struct RuntimeSessionTests {
 
 @MainActor
 private final class RecordingAudioEngine: AudioControlling {
-    var isEngineRunning = false
+    private var padIsActive = false
+    private var clickIsActive = false
+    var isEngineRunning: Bool { padIsActive || clickIsActive }
     var padStartCount = 0
     var clickStartCount = 0
     var stopAllCount = 0
@@ -356,22 +368,27 @@ private final class RecordingAudioEngine: AudioControlling {
 
     func startPad(for key: MusicalKey, padPack: PadPack) throws {
         padStartCount += 1
-        isEngineRunning = true
+        padIsActive = true
     }
 
-    func stopPad() {}
+    func stopPad() {
+        padIsActive = false
+    }
 
     func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool) throws {
         clickStartCount += 1
         clickIncludesCountoffHistory.append(includesCountoff)
-        isEngineRunning = true
+        clickIsActive = true
     }
 
-    func stopClick() {}
+    func stopClick() {
+        clickIsActive = false
+    }
 
     func stopAll() {
         stopAllCount += 1
-        isEngineRunning = false
+        padIsActive = false
+        clickIsActive = false
     }
 }
 

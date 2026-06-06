@@ -60,10 +60,6 @@ final class SustainAudioEngine: AudioControlling {
     }
 
     var statusSummary: String {
-        if !isEngineRunning {
-            return "Stopped"
-        }
-
         var active: [String] = []
         if let activePadKey {
             if let activePadAssetName {
@@ -76,8 +72,11 @@ final class SustainAudioEngine: AudioControlling {
             active.append("Click")
         }
 
-        let playback = active.isEmpty ? "Running" : active.joined(separator: " + ")
-        return "\(playback) (\(routingSummary))"
+        if active.isEmpty {
+            return isEngineRunning ? "Idle (\(routingSummary))" : "Stopped"
+        }
+
+        return "\(active.joined(separator: " + ")) (\(routingSummary))"
     }
 
     init(padAssetResolver: PadAssetResolving = BundlePadAssetResolver()) {
@@ -323,7 +322,9 @@ final class SustainAudioEngine: AudioControlling {
 
 @MainActor
 final class SilentAudioEngine: AudioControlling {
-    var isEngineRunning = false
+    private var padIsActive = false
+    private var clickIsActive = false
+    var isEngineRunning: Bool { padIsActive || clickIsActive }
     var statusSummary: String { isEngineRunning ? "Running" : "Stopped" }
 
     func prepare() {}
@@ -339,21 +340,26 @@ final class SilentAudioEngine: AudioControlling {
     }
 
     func startPad(for key: MusicalKey, padPack: PadPack) throws {
-        isEngineRunning = true
+        padIsActive = true
     }
 
-    func stopPad() {}
+    func stopPad() {
+        padIsActive = false
+    }
 
     func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool) throws {
         guard bpm > 0 else {
             throw AudioEngineError.invalidBPM(bpm)
         }
-        isEngineRunning = true
+        clickIsActive = true
     }
 
-    func stopClick() {}
+    func stopClick() {
+        clickIsActive = false
+    }
 
     func stopAll() {
-        isEngineRunning = false
+        padIsActive = false
+        clickIsActive = false
     }
 }
