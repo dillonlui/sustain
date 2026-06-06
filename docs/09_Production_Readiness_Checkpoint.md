@@ -27,7 +27,7 @@ The app now has the first production-shaped audio path:
 - Independent routing is implemented structurally but has not been validated on multiple real hardware outputs.
 - Device disconnect recovery is implemented at the app-state level through Core Audio listener-driven routing refresh.
 - Device reconnect recovery has not been validated on real hardware.
-- Sleep/wake recovery is not implemented.
+- Wake recovery now triggers an app-level routing recheck, but sleep/wake behavior has not been validated on real hardware.
 - Long-running timing stability has not been measured.
 - Audio scheduling is still coordinated partly by UI/runtime tasks.
 
