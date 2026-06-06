@@ -204,6 +204,44 @@ struct RuntimeSessionTests {
         #expect(asset.displayName == "Warm/Db.wav")
     }
 
+    @Test func padPackImporterReportsMissingKeys() throws {
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainPadImportSource-\(UUID().uuidString)", isDirectory: true)
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainPadImportDestination-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data().write(to: source.appendingPathComponent("C.wav", isDirectory: false))
+        try Data().write(to: source.appendingPathComponent("Db Major.mp3", isDirectory: false))
+        let importer = PadPackImporter(destinationRoot: destination)
+
+        let result = try importer.inspectFolder(source, name: "Warm")
+
+        #expect(result.padPack.name == "Warm")
+        #expect(result.padPack.folderName == source.lastPathComponent)
+        #expect(result.padPack.availableKeys == [.c, .db])
+        #expect(result.missingKeys.contains(.d))
+        #expect(!result.missingKeys.contains(.c))
+        #expect(!result.missingKeys.contains(.db))
+    }
+
+    @Test func padPackImporterCopiesFolderForResolver() throws {
+        let source = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainPadImportSource-\(UUID().uuidString)", isDirectory: true)
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainPadImportDestination-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try Data().write(to: source.appendingPathComponent("G.wav", isDirectory: false))
+        let importer = PadPackImporter(destinationRoot: destination)
+
+        let result = try importer.importFolder(source, name: "Warm/Big")
+        let resolver = FileSystemPadAssetResolver(rootDirectory: destination)
+        let asset = try #require(resolver.asset(for: result.padPack, key: .g))
+
+        #expect(result.padPack.name == "Warm/Big")
+        #expect(result.padPack.folderName == "Warm-Big")
+        #expect(asset.displayName == "Warm/Big/G.wav")
+    }
+
     @Test func sharedOutputRoutingWarnsButDoesNotBlockPlayback() {
         let store = AppStore.preview()
 
