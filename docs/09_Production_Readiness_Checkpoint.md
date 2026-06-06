@@ -4,7 +4,7 @@
 
 The app now has the first production-shaped audio path:
 
-- Pads are real WAV files bundled with the app.
+- Pads are real MP3 files bundled with the app.
 - Pad lookup is based on pad pack and musical key.
 - Missing pad files block playback during system check.
 - Pad transitions use two player nodes and mixer fades.
@@ -17,7 +17,7 @@ The app now has the first production-shaped audio path:
 
 ## What Is Still Prototype
 
-- Bundled WAVs are development sample assets, not the final pad library.
+- Bundled MP3s are development sample assets, not the final pad library.
 - User-imported pad packs do not exist yet.
 - Independent routing is implemented structurally but has not been validated on multiple real hardware outputs.
 - Device disconnect/reconnect recovery is not implemented.

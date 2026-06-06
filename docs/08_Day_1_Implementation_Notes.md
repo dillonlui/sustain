@@ -7,7 +7,7 @@ The app now has a working technical foundation for the first live-service loop:
 - Live store loads from local JSON persistence or falls back to seed data.
 - Setlist key and BPM overrides save to `Library.json`.
 - Live Service controls call an audio controller instead of only flipping UI state.
-- Bundled WAV pad audio loops indefinitely.
+- Bundled MP3 pad audio loops indefinitely.
 - Generated click audio follows song BPM.
 - Click always starts with a countoff state before moving to playing.
 - Failed transition validation preserves the currently playing entry.
@@ -15,15 +15,15 @@ The app now has a working technical foundation for the first live-service loop:
 
 ## Audio Approach
 
-Day 1 originally proved the engine with generated audio. The current implementation now plays bundled WAV pad files:
+Day 1 originally proved the engine with generated audio. The current implementation now plays bundled MP3 pad files:
 
-- Pads are resolved from `Resources/Pads/<PadPack>/<Key>.wav`.
-- The engine loads the matching WAV with `AVAudioFile`.
+- Pads are resolved from `Resources/Pads/<Key> Major.mp3`.
+- The engine loads the matching MP3 with `AVAudioFile`.
 - Click and countoff are generated as scheduled PCM buffers.
 - Pad transitions use two player nodes with mixer-volume fades.
 - Click and pad use separate engine instances and can be assigned separate output devices.
 
-This proves the file-backed pad path, but it is not yet the final user-imported pad library. The bundled WAVs are development/sample assets.
+This proves the file-backed pad path, but it is not yet the final user-imported pad library. The bundled MP3s are development/sample assets.
 
 ## Persistence Approach
 
