@@ -5,38 +5,180 @@ struct SongLibraryView: View {
     @EnvironmentObject private var store: AppStore
 
     var body: some View {
-        Table(store.songs) {
-            TableColumn("Title") { song in
-                Text(song.title)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Song Library")
+                        .font(.largeTitle.weight(.semibold))
+                    Text(store.persistenceStatus)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("Add Song", systemImage: "plus") {
+                    _ = store.addSong()
+                }
+                .buttonStyle(.borderedProminent)
             }
-            TableColumn("Key") { song in
-                Text(song.defaultKey.rawValue)
-            }
-            TableColumn("BPM") { song in
-                Text("\(song.defaultBPM)")
-            }
-            TableColumn("Time") { song in
-                Text(song.timeSignature.description)
-            }
-            TableColumn("Pad Source") { song in
-                Text(song.padPack.name)
+            .padding([.horizontal, .top], 24)
+            .padding(.bottom, 8)
+
+            List(store.songs) { song in
+                HStack(alignment: .center, spacing: 14) {
+                    TextField("Title", text: titleBinding(for: song.id))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(minWidth: 180)
+
+                    Picker("Key", selection: keyBinding(for: song.id)) {
+                        ForEach(MusicalKey.allCases) { key in
+                            Text(key.rawValue).tag(key)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 82)
+
+                    Stepper(
+                        "\(song.defaultBPM) BPM",
+                        value: bpmBinding(for: song.id),
+                        in: 40...220
+                    )
+                    .frame(width: 140)
+
+                    Picker("Time", selection: timeSignatureBinding(for: song.id)) {
+                        ForEach(TimeSignature.common, id: \.self) { timeSignature in
+                            Text(timeSignature.description).tag(timeSignature)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 92)
+
+                    Picker("Pad Source", selection: padPackBinding(for: song.id)) {
+                        ForEach(store.padPacks) { padPack in
+                            Text(padPack.name).tag(padPack.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(minWidth: 150)
+
+                    Button("Add to Setlist", systemImage: "text.badge.plus") {
+                        _ = store.addSongToSetlist(song.id)
+                    }
+                }
+                .padding(.vertical, 6)
             }
         }
         .navigationTitle("Song Library")
+    }
+
+    private func song(_ songID: Song.ID) -> Song? {
+        store.songs.first { $0.id == songID }
+    }
+
+    private func updateSong(_ songID: Song.ID, configure: (Song) -> Song) {
+        guard let current = song(songID) else { return }
+        let updated = configure(current)
+        store.updateSong(
+            songID,
+            title: updated.title,
+            defaultKey: updated.defaultKey,
+            defaultBPM: updated.defaultBPM,
+            timeSignature: updated.timeSignature,
+            padPackID: updated.padPack.id
+        )
+    }
+
+    private func titleBinding(for songID: Song.ID) -> Binding<String> {
+        Binding {
+            song(songID)?.title ?? ""
+        } set: { title in
+            updateSong(songID) { song in
+                var song = song
+                song.title = title
+                return song
+            }
+        }
+    }
+
+    private func keyBinding(for songID: Song.ID) -> Binding<MusicalKey> {
+        Binding {
+            song(songID)?.defaultKey ?? .c
+        } set: { key in
+            updateSong(songID) { song in
+                var song = song
+                song.defaultKey = key
+                return song
+            }
+        }
+    }
+
+    private func bpmBinding(for songID: Song.ID) -> Binding<Int> {
+        Binding {
+            song(songID)?.defaultBPM ?? 72
+        } set: { bpm in
+            updateSong(songID) { song in
+                var song = song
+                song.defaultBPM = bpm
+                return song
+            }
+        }
+    }
+
+    private func timeSignatureBinding(for songID: Song.ID) -> Binding<TimeSignature> {
+        Binding {
+            song(songID)?.timeSignature ?? .fourFour
+        } set: { timeSignature in
+            updateSong(songID) { song in
+                var song = song
+                song.timeSignature = timeSignature
+                return song
+            }
+        }
+    }
+
+    private func padPackBinding(for songID: Song.ID) -> Binding<PadPack.ID> {
+        Binding {
+            song(songID)?.padPack.id ?? store.padPacks.first?.id ?? PadPack.bundled.id
+        } set: { padPackID in
+            updateSong(songID) { song in
+                var song = song
+                song.padPack = store.padPacks.first { $0.id == padPackID } ?? song.padPack
+                return song
+            }
+        }
     }
 }
 
 struct SetlistBuilderView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var selectedSongID: Song.ID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(store.activeSetlist.title)
-                    .font(.largeTitle.weight(.semibold))
-                Text(store.persistenceStatus)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .bottom, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(store.activeSetlist.title)
+                        .font(.largeTitle.weight(.semibold))
+                    Text(store.persistenceStatus)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Picker("Song", selection: selectedSongBinding) {
+                    Text("Choose Song").tag(Song.ID?.none)
+                    ForEach(store.songs) { song in
+                        Text(song.title).tag(Song.ID?.some(song.id))
+                    }
+                }
+                .frame(width: 220)
+
+                Button("Add", systemImage: "plus") {
+                    addSelectedSongToSetlist()
+                }
+                .disabled(selectedSongBinding.wrappedValue == nil)
             }
             .padding([.horizontal, .top], 24)
             .padding(.bottom, 8)
@@ -76,12 +218,42 @@ struct SetlistBuilderView: View {
                             store.cue(entryID: entry.id)
                         }
                         .disabled(store.runtime.cuedEntryID == entry.id)
+
+                        Button("Remove", systemImage: "trash") {
+                            store.removeSetlistEntry(entry.id)
+                        }
+                        .disabled(store.runtime.playingEntryID == entry.id)
+                    }
+                    .padding(.vertical, 8)
+                } else {
+                    HStack(spacing: 14) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text("Missing song reference")
+                            .font(.headline)
+                        Spacer()
+                        Button("Remove", systemImage: "trash") {
+                            store.removeSetlistEntry(entry.id)
+                        }
                     }
                     .padding(.vertical, 8)
                 }
             }
         }
         .navigationTitle("Setlist")
+    }
+
+    private var selectedSongBinding: Binding<Song.ID?> {
+        Binding {
+            selectedSongID ?? store.songs.first?.id
+        } set: { songID in
+            selectedSongID = songID
+        }
+    }
+
+    private func addSelectedSongToSetlist() {
+        guard let songID = selectedSongBinding.wrappedValue else { return }
+        _ = store.addSongToSetlist(songID)
     }
 
     private func keyBinding(for entryID: SetlistEntry.ID, song: Song) -> Binding<MusicalKey> {
