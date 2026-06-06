@@ -30,14 +30,19 @@ struct SetlistBuilderView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(store.activeSetlist.title)
-                .font(.largeTitle.weight(.semibold))
-                .padding([.horizontal, .top], 24)
-                .padding(.bottom, 8)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(store.activeSetlist.title)
+                    .font(.largeTitle.weight(.semibold))
+                Text(store.persistenceStatus)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .padding([.horizontal, .top], 24)
+            .padding(.bottom, 8)
 
             List(store.activeSetlist.entries) { entry in
                 if let song = store.song(for: entry) {
-                    HStack(spacing: 16) {
+                    HStack(alignment: .center, spacing: 16) {
                         Image(systemName: store.runtime.cuedEntryID == entry.id ? "arrow.forward.circle.fill" : "circle")
                             .foregroundStyle(store.runtime.cuedEntryID == entry.id ? Color.sustainSage : .secondary)
 
@@ -51,10 +56,25 @@ struct SetlistBuilderView: View {
 
                         Spacer()
 
-                        Button("Cue") {
-                            store.runtime.cuedEntryID = entry.id
-                            store.runtime.lastMessage = "Cued \(song.title)"
+                        Picker("Key", selection: keyBinding(for: entry.id, song: song)) {
+                            ForEach(MusicalKey.allCases) { key in
+                                Text(key.rawValue).tag(key)
+                            }
                         }
+                        .labelsHidden()
+                        .frame(width: 86)
+
+                        Stepper(
+                            "\(store.entry(id: entry.id)?.resolvedBPM(for: song) ?? song.defaultBPM) BPM",
+                            value: bpmBinding(for: entry.id, song: song),
+                            in: 40...220
+                        )
+                        .frame(width: 148)
+
+                        Button("Cue", systemImage: "arrow.forward.circle") {
+                            store.cue(entryID: entry.id)
+                        }
+                        .disabled(store.runtime.cuedEntryID == entry.id)
                     }
                     .padding(.vertical, 8)
                 }
@@ -62,22 +82,57 @@ struct SetlistBuilderView: View {
         }
         .navigationTitle("Setlist")
     }
+
+    private func keyBinding(for entryID: SetlistEntry.ID, song: Song) -> Binding<MusicalKey> {
+        Binding {
+            store.entry(id: entryID)?.resolvedKey(for: song) ?? song.defaultKey
+        } set: { key in
+            let entry = store.entry(id: entryID)
+            store.updateEntry(
+                entryID,
+                keyOverride: key == song.defaultKey ? nil : key,
+                bpmOverride: entry?.bpmOverride
+            )
+        }
+    }
+
+    private func bpmBinding(for entryID: SetlistEntry.ID, song: Song) -> Binding<Int> {
+        Binding {
+            store.entry(id: entryID)?.resolvedBPM(for: song) ?? song.defaultBPM
+        } set: { bpm in
+            let entry = store.entry(id: entryID)
+            store.updateEntry(
+                entryID,
+                keyOverride: entry?.keyOverride,
+                bpmOverride: bpm == song.defaultBPM ? nil : bpm
+            )
+        }
+    }
 }
 
 struct AudioSetupView: View {
+    @EnvironmentObject private var store: AppStore
+
     var body: some View {
         Form {
             Section("Outputs") {
-                Picker("Pad Output", selection: .constant("Default Output")) {
-                    Text("Default Output").tag("Default Output")
-                }
+                LabeledContent("Routing", value: store.routingSnapshot.summary)
+                LabeledContent("Detected Outputs", value: "\(store.routingSnapshot.outputs.count)")
 
-                Picker("Click Output", selection: .constant("Default Output")) {
-                    Text("Default Output").tag("Default Output")
+                ForEach(store.routingSnapshot.outputs) { output in
+                    HStack {
+                        Text(output.name)
+                        Spacer()
+                        if output.isDefault {
+                            Text("Default")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
 
             Section("Engine") {
+                LabeledContent("Status", value: store.audioStatus)
                 LabeledContent("Pad Playback", value: "Looping WAV files")
                 LabeledContent("Click", value: "Generated from BPM")
                 LabeledContent("Countoff", value: "Required before click")
@@ -118,6 +173,15 @@ struct SystemCheckView: View {
                 }
                 .padding(16)
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+            }
+
+            GroupBox("Runtime") {
+                VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("Audio", value: store.audioStatus)
+                    LabeledContent("Routing", value: store.routingSnapshot.summary)
+                    LabeledContent("Library", value: store.persistenceStatus)
+                }
+                .padding(.vertical, 4)
             }
 
             Spacer()

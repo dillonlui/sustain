@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct SustainApp: App {
-    @StateObject private var store = AppStore.preview()
+    @StateObject private var store = AppStore.live()
 
     var body: some Scene {
         WindowGroup {

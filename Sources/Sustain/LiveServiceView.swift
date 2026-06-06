@@ -64,6 +64,11 @@ struct LiveServiceView: View {
                 StateTile(label: "Session", value: store.runtime.playbackPhase.rawValue, systemImage: "dot.radiowaves.left.and.right")
                 StateTile(label: "Cue", value: cuePositionText, systemImage: "arrow.forward.circle")
             }
+
+            GridRow {
+                StateTile(label: "Audio", value: store.audioStatus, systemImage: "speaker.wave.2")
+                StateTile(label: "Library", value: store.persistenceStatus, systemImage: "externaldrive")
+            }
         }
     }
 
@@ -77,6 +82,7 @@ struct LiveServiceView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .disabled(store.cuedEntry == nil)
 
             Button {
                 store.cuePreviousSong()
@@ -85,6 +91,7 @@ struct LiveServiceView: View {
                     .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
+            .disabled(store.activeSetlist.entries.isEmpty)
 
             Button {
                 store.cueNextSong()
@@ -93,6 +100,7 @@ struct LiveServiceView: View {
                     .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
+            .disabled(store.activeSetlist.entries.isEmpty)
 
             Button(role: .destructive) {
                 store.stop()
@@ -101,6 +109,7 @@ struct LiveServiceView: View {
                     .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
+            .disabled(store.runtime.playbackPhase == .noSongPlaying)
         }
     }
 
@@ -109,18 +118,22 @@ struct LiveServiceView: View {
             Button("Start Click", systemImage: "metronome") {
                 store.startClick()
             }
+            .disabled(store.runtime.playbackPhase == .noSongPlaying || store.runtime.clickState != .off)
 
             Button("Stop Click", systemImage: "speaker.slash") {
                 store.stopClick()
             }
+            .disabled(store.runtime.clickState == .off)
 
             Button("Start Pad", systemImage: "waveform") {
                 store.startPad()
             }
+            .disabled(store.runtime.playbackPhase == .noSongPlaying || store.runtime.padState == .playing)
 
             Button("Stop Pad", systemImage: "pause.circle") {
                 store.stopPad()
             }
+            .disabled(store.runtime.padState == .off)
         }
         .buttonStyle(.bordered)
         .controlSize(.regular)

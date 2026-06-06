@@ -11,7 +11,12 @@ let package = Package(
         .executable(name: "Sustain", targets: ["Sustain"])
     ],
     targets: [
-        .executableTarget(name: "Sustain"),
+        .executableTarget(
+            name: "Sustain",
+            resources: [
+                .copy("Resources")
+            ]
+        ),
         .testTarget(
             name: "SustainTests",
             dependencies: ["Sustain"]
