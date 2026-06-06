@@ -227,6 +227,38 @@ struct RuntimeSessionTests {
         #expect(audio.stopAllCount == 0)
     }
 
+    @Test func hardwareChangeStopsRehearsalWhenSelectedOutputDisappears() {
+        let audio = RecordingAudioEngine()
+        let provider = MutableAudioRoutingProvider(snapshotValue: .previewDefault)
+        let monitor = NoopAudioHardwareMonitor()
+        let store = AppStore.preview(
+            audioEngine: audio,
+            audioRoutingProvider: provider,
+            audioHardwareMonitor: monitor
+        )
+
+        store.startRehearsePad(key: .g)
+        store.startRehearseClick()
+
+        provider.snapshotValue = AudioRoutingSnapshot(
+            outputs: [
+                AudioOutputDevice(id: 1, name: "Preview Output", isDefault: true)
+            ],
+            padOutputID: 1,
+            padOutputName: "Preview Output",
+            clickOutputID: 1,
+            clickOutputName: "Preview Output",
+            independentRoutingEnabled: false,
+            missingSelectionMessages: ["Selected pad output is unavailable."]
+        )
+        monitor.simulateChange()
+
+        #expect(store.rehearse.padState == .off)
+        #expect(store.rehearse.clickState == .off)
+        #expect(store.rehearse.lastMessage == "Selected pad output is unavailable.")
+        #expect(audio.stopAllCount == 1)
+    }
+
     @Test func routingSelectionPersistsToJSON() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainRoutingTests-\(UUID().uuidString)", isDirectory: true)

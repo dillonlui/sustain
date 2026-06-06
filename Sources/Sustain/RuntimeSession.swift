@@ -560,6 +560,9 @@ final class AppStore: ObservableObject {
         runtime.padState = .off
         runtime.playingEntryID = nil
         runtime.playbackPhase = .noSongPlaying
+        rehearse.clickState = .off
+        rehearse.padState = .off
+        rehearse.lastMessage = routingSnapshot.missingSelectionMessages.joined(separator: " ")
         runtime.lastMessage = routingSnapshot.missingSelectionMessages.joined(separator: " ")
         refreshAudioStatus()
     }
