@@ -753,9 +753,13 @@ final class AppStore: ObservableObject {
     }
 
     private func setlistReadinessWarnings(excluding cuedEntryID: SetlistEntry.ID) -> [String] {
-        activeSetlist.entries.flatMap { entry -> [String] in
-            guard entry.id != cuedEntryID, let song = song(for: entry) else {
+        activeSetlist.entries.enumerated().flatMap { index, entry -> [String] in
+            guard entry.id != cuedEntryID else {
                 return []
+            }
+
+            guard let song = song(for: entry) else {
+                return ["Setlist entry \(index + 1): references a missing song."]
             }
 
             var warnings: [String] = []

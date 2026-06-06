@@ -74,6 +74,19 @@ struct RuntimeSessionTests {
         #expect(store.systemCheck.messages.contains("Warning: King of Kings: needs a valid BPM."))
     }
 
+    @Test func systemCheckWarnsAboutMissingSongReferencesLaterInSetlist() {
+        let snapshot = AppStore.seedSnapshot()
+        var activeSetlist = snapshot.activeSetlist
+        activeSetlist.entries.append(SetlistEntry(songID: UUID()))
+        let store = AppStore(songs: snapshot.songs, activeSetlist: activeSetlist)
+
+        store.runSystemCheck()
+
+        #expect(store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.warnings.contains("Setlist entry 4: references a missing song."))
+        #expect(store.systemCheck.messages.contains("Warning: Setlist entry 4: references a missing song."))
+    }
+
     @Test func clickStartupFailureDoesNotStartNewPadDuringTransition() {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)
