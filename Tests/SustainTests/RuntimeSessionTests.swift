@@ -223,6 +223,38 @@ struct RuntimeSessionTests {
         #expect(store.runtime.lastMessage == "Stop playback before removing the playing song")
     }
 
+    @Test func activeSetlistTitlePersistsToJSON() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let store = AppStore.preview(libraryStore: libraryStore)
+
+        store.updateActiveSetlistTitle("Sunday Night")
+
+        let loaded = try #require(try libraryStore.loadLibrary())
+        #expect(loaded.activeSetlist.title == "Sunday Night")
+    }
+
+    @Test func clearingSetlistRemovesEntriesAndCue() {
+        let store = AppStore.preview()
+
+        store.clearSetlist()
+
+        #expect(store.activeSetlist.entries.isEmpty)
+        #expect(store.runtime.cuedEntryID == nil)
+        #expect(store.runtime.lastMessage == "Cleared setlist")
+    }
+
+    @Test func clearingSetlistDuringPlaybackIsBlocked() {
+        let store = AppStore.preview()
+
+        store.startCuedSong()
+        store.clearSetlist()
+
+        #expect(!store.activeSetlist.entries.isEmpty)
+        #expect(store.runtime.lastMessage == "Stop playback before clearing the setlist")
+    }
+
     @Test func librarySnapshotRequiresUsableSetlist() {
         let snapshot = AppStore.seedSnapshot()
 

@@ -485,6 +485,29 @@ final class AppStore: ObservableObject {
         saveLibrary()
     }
 
+    func updateActiveSetlistTitle(_ title: String) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else {
+            persistenceStatus = "Setlist title cannot be blank"
+            return
+        }
+
+        activeSetlist.title = trimmedTitle
+        saveLibrary()
+    }
+
+    func clearSetlist() {
+        guard runtime.playbackPhase == .noSongPlaying else {
+            runtime.lastMessage = "Stop playback before clearing the setlist"
+            return
+        }
+
+        activeSetlist.entries.removeAll()
+        runtime.cuedEntryID = nil
+        runtime.lastMessage = "Cleared setlist"
+        saveLibrary()
+    }
+
     func updateEntry(
         _ entryID: SetlistEntry.ID,
         keyOverride: MusicalKey?,

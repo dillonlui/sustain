@@ -158,8 +158,9 @@ struct SetlistBuilderView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .bottom, spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(store.activeSetlist.title)
+                    TextField("Setlist Title", text: setlistTitleBinding)
                         .font(.largeTitle.weight(.semibold))
+                        .textFieldStyle(.plain)
                     Text(store.persistenceStatus)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -179,6 +180,11 @@ struct SetlistBuilderView: View {
                     addSelectedSongToSetlist()
                 }
                 .disabled(selectedSongBinding.wrappedValue == nil)
+
+                Button("Clear", systemImage: "trash") {
+                    store.clearSetlist()
+                }
+                .disabled(store.activeSetlist.entries.isEmpty || store.runtime.playbackPhase != .noSongPlaying)
             }
             .padding([.horizontal, .top], 24)
             .padding(.bottom, 8)
@@ -248,6 +254,14 @@ struct SetlistBuilderView: View {
             selectedSongID ?? store.songs.first?.id
         } set: { songID in
             selectedSongID = songID
+        }
+    }
+
+    private var setlistTitleBinding: Binding<String> {
+        Binding {
+            store.activeSetlist.title
+        } set: { title in
+            store.updateActiveSetlistTitle(title)
         }
     }
 
