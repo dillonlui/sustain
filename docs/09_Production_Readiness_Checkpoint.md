@@ -26,7 +26,8 @@ The app now has the first production-shaped audio path:
 - User-imported pad packs do not exist yet.
 - Independent routing is implemented structurally but has not been validated on multiple real hardware outputs.
 - Device disconnect recovery is implemented at the app-state level through Core Audio listener-driven routing refresh.
-- Device reconnect recovery has not been validated on real hardware.
+- Device reconnect recovery can rebind selected outputs by saved device name when Core Audio assigns a new device ID.
+- Device reconnect recovery has not been validated across multiple real hardware combinations.
 - Wake recovery now triggers an app-level routing recheck, but sleep/wake behavior has not been validated on real hardware.
 - Long-running timing stability has not been measured.
 - Audio scheduling is still coordinated partly by UI/runtime tasks.
@@ -52,6 +53,7 @@ Success criteria:
 - Output-device assignment failures block playback.
 - Default-output changes during playback stop audio and prompt instead of allowing silent route drift.
 - Reconnect behavior restores a safe, understandable routing state.
+- Bluetooth-style reconnects that change Core Audio device IDs recover by matching the saved output name when possible.
 
 Fallback decision:
 
