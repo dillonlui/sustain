@@ -11,7 +11,6 @@ Song:
   defaultKey
   defaultBPM
   timeSignature
-  padPack
 ```
 
 Example:
@@ -21,7 +20,6 @@ title: Goodness of God
 defaultKey: G
 defaultBPM: 72
 timeSignature: 6/8
-padPack: Warm
 ```
 
 ---
@@ -52,15 +50,16 @@ SetlistEntry:
 
 ---
 
-## Pad Pack
+## Included Pad Library
 
-Folder-based pad asset collection.
+V1 uses one included pad bundle only. Each supported musical key maps to one included audio file.
 
 ```text
-Warm/
-├── C.wav
-├── D.wav
-├── E.wav
+Resources/Pads/
+├── C Major.mp3
+├── Db Major.mp3
+├── D Major.mp3
+└── ...
 ```
 
 ---

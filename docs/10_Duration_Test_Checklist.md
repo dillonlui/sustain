@@ -9,6 +9,7 @@ Use this before calling the audio path production-reliable. The goal is to prove
 - Select separate pad and click outputs in Sustain when available.
 - Run System Check and resolve blocking messages before starting.
 - Start with Activity Monitor visible for Sustain CPU and memory.
+- Optional but recommended: record the app output during the run so timing can be inspected afterward.
 
 ## 30-Minute Run
 
@@ -18,6 +19,27 @@ Use this before calling the audio path production-reliable. The goal is to prove
 - Cue the next song at least twice during the run.
 - Stop and restart click at least once.
 - Stop and restart pad at least once.
+
+## Drift Check
+
+Use one of these methods so the test does not rely only on human perception:
+
+- Best: route the click output into a recorder or DAW and record the full run. Keep the click isolated if possible.
+- Good: record the speaker/headphone output with QuickTime, Voice Memos, or another simple recorder.
+- Minimum: record the first 60 seconds and the last 60 seconds of the run.
+
+After recording:
+
+- Run the analyzer:
+
+```sh
+swift scripts/AnalyzeClickRecording.swift --file /path/to/click-recording.wav --bpm 72
+```
+
+- Confirm the result is `PASS`.
+- If the analyzer fails, inspect the waveform near the beginning and end.
+- Count beats across a known span, such as 60 seconds, as a manual cross-check.
+- Treat missing clicks, doubled clicks, stutters, sudden volume changes, or obvious tempo changes as failures.
 
 ## Hardware Events
 
@@ -50,3 +72,13 @@ For each run, record:
 - Total run length.
 - CPU and memory range.
 - Failures, prompts, or unexpected output changes.
+
+## Completed Timing Runs
+
+- BlackHole click recording, 72 BPM, 7342.336 seconds: PASS.
+- Detected clicks: 8805.
+- Observed BPM: 72.002.
+- Mean jitter: 0.033 ms.
+- Worst jitter: 0.091 ms.
+- Missing beats: 0.
+- Extra/doubled beats: 0.

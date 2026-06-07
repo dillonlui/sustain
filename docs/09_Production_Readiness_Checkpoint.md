@@ -4,8 +4,8 @@
 
 The app now has the first production-shaped audio path:
 
-- Pads are real MP3 files bundled with the app.
-- Pad lookup is based on pad pack and musical key.
+- Pads are real MP3 files included with the app.
+- Pad lookup is based on the active musical key in the single included pad bundle.
 - Missing pad files block playback during system check.
 - System Check warns about missing pad assets elsewhere in the active setlist.
 - System Check warns about invalid BPMs elsewhere in the active setlist.
@@ -17,10 +17,8 @@ The app now has the first production-shaped audio path:
 - Audio Setup can select separate pad and click output devices.
 - Routing selections persist across relaunch.
 - Persisted libraries are validated at launch and unusable setlists fall back to seed data.
-- The audio layer can resolve non-bundled pad packs from the app's local Pad Packs directory.
-- A pad pack importer service can inspect folders, report missing keys, and copy usable packs into app storage.
-- Imported pad pack metadata persists in the saved library catalog.
-- Songs can be created, edited, assigned to a pad source, and added to the active setlist.
+- Legacy pad-pack metadata is normalized back to the included bundle on load.
+- Songs can be created, edited, and added to the active setlist.
 - The active setlist can be renamed and cleared when playback is stopped.
 - Setlist entries can be removed when they are not actively playing.
 - System Check warns when pad and click resolve to the same output.
@@ -33,16 +31,13 @@ The app now has the first production-shaped audio path:
 
 ## What Is Still Prototype
 
-- Bundled MP3s are development sample assets, not the final pad library.
-- User-imported pad pack UI does not exist yet, and may not be needed for v1 if bundled/default pad assets are enough.
-- Imported pad pack validation exists in the backend but is not surfaced in the UI yet.
 - Song and setlist editing is functional but intentionally unpolished.
 - Independent routing is implemented structurally but has not been validated on multiple real hardware outputs.
 - Device disconnect recovery is implemented at the app-state level through Core Audio listener-driven routing refresh.
 - Device reconnect recovery can rebind selected outputs by saved device name when Core Audio assigns a new device ID.
 - Device reconnect recovery has not been validated across multiple real hardware combinations.
 - Wake recovery now triggers an app-level routing recheck, but sleep/wake behavior has not been validated on real hardware.
-- Long-running timing stability has not been measured.
+- Long-running click timing has passed a two-hour BlackHole recording/analyzer run.
 - Audio scheduling is still coordinated partly by UI/runtime tasks.
 
 ## Next Production Spikes
@@ -73,27 +68,18 @@ Fallback decision:
 
 - If AVAudioEngine output-device assignment proves unreliable, move the output layer to a lower-level Core Audio/AUHAL implementation.
 
-### 2. User Pad Library
+### 2. Included Pad Library
 
-Add folder import for pad packs.
-
-Expected folder shape:
-
-```text
-Warm/
-├── C.wav
-├── Db.wav
-├── D.wav
-└── ...
-```
+The included pad tracks are the real v1 pad library, not demo assets.
 
 Success criteria:
 
-- Import validation is surfaced clearly in the UI.
-- Missing keys are shown clearly before saving.
-- Imported songs use folder-backed pad assets during System Check and playback.
-- Imported files persist across relaunch.
-- System Check validates the cued song against imported files.
+- Included pad tracks are present for every supported key.
+- System Check validates included pad tracks before playback.
+- The pad track artist/creator is credited before v1 release:
+  - In code where the included asset catalog/source is defined.
+  - In the repository README.
+  - On any future landing page or public website for Sustain.
 
 ### 3. Duration Test
 
@@ -103,11 +89,16 @@ Use [10_Duration_Test_Checklist.md](10_Duration_Test_Checklist.md) to keep the r
 
 Observe:
 
-- Click drift.
 - Audio glitches.
 - Memory growth.
 - CPU usage.
 - Behavior when display sleeps.
+
+Current timing result:
+
+- A 2-hour click recording through BlackHole passed automated analysis at 72 BPM.
+- Analyzer result: 72.002 observed BPM, 0.033 ms mean jitter, 0.091 ms worst jitter, 0 missing beats, 0 extra/doubled beats.
+- Remaining duration-test work is focused on full app behavior during interaction, pad continuity, CPU/memory, display sleep, and real hardware routing.
 
 ### 4. Listener Validation
 

@@ -12,8 +12,8 @@ struct LibrarySnapshot: Codable, Equatable {
         activeSetlist: Setlist,
         routingSettings: AudioRoutingSettings = .default
     ) {
-        self.songs = songs
-        self.padPacks = padPacks ?? Self.defaultPadPacks(from: songs)
+        self.songs = Self.normalizedSongs(songs)
+        self.padPacks = [Self.includedPadPack(from: padPacks)]
         self.activeSetlist = activeSetlist
         self.routingSettings = routingSettings
     }
@@ -27,8 +27,10 @@ struct LibrarySnapshot: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        songs = try container.decode([Song].self, forKey: .songs)
-        padPacks = try container.decodeIfPresent([PadPack].self, forKey: .padPacks) ?? Self.defaultPadPacks(from: songs)
+        let decodedSongs = try container.decode([Song].self, forKey: .songs)
+        let decodedPadPacks = try container.decodeIfPresent([PadPack].self, forKey: .padPacks)
+        songs = Self.normalizedSongs(decodedSongs)
+        padPacks = [Self.includedPadPack(from: decodedPadPacks)]
         activeSetlist = try container.decode(Setlist.self, forKey: .activeSetlist)
         routingSettings = try container.decodeIfPresent(AudioRoutingSettings.self, forKey: .routingSettings) ?? .default
     }
@@ -38,14 +40,21 @@ struct LibrarySnapshot: Codable, Equatable {
         return !songs.isEmpty && activeSetlist.entries.contains { songIDs.contains($0.songID) }
     }
 
-    private static func defaultPadPacks(from songs: [Song]) -> [PadPack] {
-        var padPacks = [PadPack.bundled]
-
-        for song in songs where !padPacks.contains(song.padPack) {
-            padPacks.append(song.padPack)
+    private static func normalizedSongs(_ songs: [Song]) -> [Song] {
+        songs.map { song in
+            Song(
+                id: song.id,
+                title: song.title,
+                defaultKey: song.defaultKey,
+                defaultBPM: song.defaultBPM,
+                timeSignature: song.timeSignature,
+                padPack: .bundled
+            )
         }
+    }
 
-        return padPacks
+    private static func includedPadPack(from padPacks: [PadPack]?) -> PadPack {
+        .bundled
     }
 }
 
@@ -92,24 +101,19 @@ struct LocalLibraryStore {
         return directory
     }
 
-    func padPacksDirectory() throws -> URL {
-        let directory = try applicationSupportDirectory().appendingPathComponent("Pad Packs", isDirectory: true)
-
-        if !fileManager.fileExists(atPath: directory.path) {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
-
-        return directory
-    }
-
     func loadLibrary() throws -> LibrarySnapshot? {
         let url = try libraryURL()
         guard fileManager.fileExists(atPath: url.path) else {
             return nil
         }
 
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(LibrarySnapshot.self, from: data)
+        do {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(LibrarySnapshot.self, from: data)
+        } catch {
+            try? quarantineLibrary(at: url)
+            throw error
+        }
     }
 
     func saveLibrary(_ snapshot: LibrarySnapshot) throws {
@@ -122,5 +126,18 @@ struct LocalLibraryStore {
 
     private func libraryURL() throws -> URL {
         try applicationSupportDirectory().appendingPathComponent("Library.json", isDirectory: false)
+    }
+
+    private func quarantineLibrary(at url: URL) throws {
+        guard fileManager.fileExists(atPath: url.path) else { return }
+
+        let timestamp = ISO8601DateFormatter()
+            .string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let backupURL = url
+            .deletingLastPathComponent()
+            .appendingPathComponent("Library.invalid-\(timestamp).json", isDirectory: false)
+
+        try fileManager.moveItem(at: url, to: backupURL)
     }
 }

@@ -110,8 +110,8 @@ final class AppStore: ObservableObject {
         persistenceStatus: String = "Using seed library",
         countoffDurationMultiplier: Double = 1.0
     ) {
-        self.songs = songs
-        self.padPacks = padPacks ?? Self.defaultPadPacks(from: songs)
+        self.songs = normalizedIncludedBundleSongs(songs)
+        self.padPacks = [PadPack.bundled]
         self.activeSetlist = activeSetlist
         self.audioEngine = audioEngine
         self.libraryStore = libraryStore
@@ -196,7 +196,7 @@ final class AppStore: ObservableObject {
             return
         }
 
-        refreshRoutingSnapshot()
+        prepareCurrentAudioRoutingForStart()
         let validation = validate(entry: cuedEntry, song: cuedSong)
         guard validation.canStartPlayback else {
             systemCheck = validation
@@ -314,6 +314,7 @@ final class AppStore: ObservableObject {
     func startRehearsePad(key: MusicalKey) {
         stopLiveSessionForRehearsal()
         rehearse.selectedKey = key
+        prepareCurrentAudioRoutingForStart()
 
         do {
             try audioEngine.startPad(for: key, padPack: .bundled)
@@ -335,6 +336,7 @@ final class AppStore: ObservableObject {
 
     func startRehearseClick() {
         stopLiveSessionForRehearsal()
+        prepareCurrentAudioRoutingForStart()
 
         do {
             try audioEngine.startClick(
@@ -429,11 +431,6 @@ final class AppStore: ObservableObject {
             persistenceStatus = "Could not update song"
             return
         }
-        guard let padPack = padPacks.first(where: { $0.id == padPackID }) else {
-            persistenceStatus = "Could not update song pad source"
-            return
-        }
-
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         songs[songIndex] = Song(
             id: songID,
@@ -441,7 +438,7 @@ final class AppStore: ObservableObject {
             defaultKey: defaultKey,
             defaultBPM: min(220, max(40, defaultBPM)),
             timeSignature: timeSignature,
-            padPack: padPack
+            padPack: .bundled
         )
         saveLibrary()
     }
@@ -523,37 +520,6 @@ final class AppStore: ObservableObject {
         saveLibrary()
     }
 
-    func importPadPack(from sourceURL: URL, name: String? = nil) {
-        guard let libraryStore else {
-            persistenceStatus = "Pad pack import requires local library storage"
-            return
-        }
-
-        do {
-            let importer = PadPackImporter(destinationRoot: try libraryStore.padPacksDirectory())
-            let result = try importer.importFolder(sourceURL, name: name)
-            upsertPadPack(result.padPack)
-            saveLibrary()
-
-            if result.missingKeys.isEmpty {
-                persistenceStatus = "Imported pad pack \(result.padPack.name)"
-            } else {
-                let missing = result.missingKeys.map(\.rawValue).joined(separator: ", ")
-                persistenceStatus = "Imported pad pack \(result.padPack.name). Missing keys: \(missing)"
-            }
-        } catch {
-            persistenceStatus = "Pad pack import failed: \(error.localizedDescription)"
-        }
-    }
-
-    private func upsertPadPack(_ padPack: PadPack) {
-        if let index = padPacks.firstIndex(where: { $0.folderName == padPack.folderName }) {
-            padPacks[index] = padPack
-        } else {
-            padPacks.append(padPack)
-        }
-    }
-
     func updateRouting(padOutputID: AudioDeviceID?, clickOutputID: AudioDeviceID?) {
         stopAudioForManualRoutingChangeIfNeeded()
         routingSettings = AudioRoutingSettings(
@@ -565,6 +531,11 @@ final class AppStore: ObservableObject {
         routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
         configureAudioRouting()
         saveLibrary()
+    }
+
+    func refreshAudioDiagnostics() {
+        refreshRoutingSnapshot()
+        runtime.lastMessage = "Audio diagnostics refreshed"
     }
 
     private func stopAudioForManualRoutingChangeIfNeeded() {
@@ -729,6 +700,16 @@ final class AppStore: ObservableObject {
             runtime.lastMessage = audioRoutingFailureMessage ?? "Audio routing failed"
         }
         refreshAudioStatus()
+    }
+
+    private func prepareCurrentAudioRoutingForStart() {
+        refreshRoutingSnapshot()
+
+        guard !audioEngine.isEngineRunning else {
+            return
+        }
+
+        configureAudioRouting()
     }
 
     private func refreshAudioStatus() {
@@ -975,8 +956,7 @@ extension AppStore {
     }
 
     private static func liveAudioEngine(libraryStore: LocalLibraryStore) -> SustainAudioEngine {
-        let padPacksDirectory = try? libraryStore.padPacksDirectory()
-        return SustainAudioEngine(padAssetResolver: DefaultPadAssetResolver(fileSystemRoot: padPacksDirectory))
+        SustainAudioEngine()
     }
 
     static func preview(
@@ -1024,19 +1004,23 @@ extension AppStore {
         )
     }
 
-    private static func defaultPadPacks(from songs: [Song]) -> [PadPack] {
-        var padPacks = [PadPack.bundled]
-
-        for song in songs where !padPacks.contains(song.padPack) {
-            padPacks.append(song.padPack)
-        }
-
-        return padPacks
-    }
 }
 
 private extension Array {
     subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+private func normalizedIncludedBundleSongs(_ songs: [Song]) -> [Song] {
+    songs.map { song in
+        Song(
+            id: song.id,
+            title: song.title,
+            defaultKey: song.defaultKey,
+            defaultBPM: song.defaultBPM,
+            timeSignature: song.timeSignature,
+            padPack: .bundled
+        )
     }
 }

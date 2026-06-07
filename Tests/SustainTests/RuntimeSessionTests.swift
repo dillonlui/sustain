@@ -58,8 +58,8 @@ struct RuntimeSessionTests {
         store.runSystemCheck()
 
         #expect(store.systemCheck.canStartPlayback)
-        #expect(store.systemCheck.warnings.contains("Holy Forever: Missing bundled pad Bb.mp3"))
-        #expect(store.systemCheck.messages.contains("Warning: Holy Forever: Missing bundled pad Bb.mp3"))
+        #expect(store.systemCheck.warnings.contains("Holy Forever: Missing included pad Bb.mp3"))
+        #expect(store.systemCheck.messages.contains("Warning: Holy Forever: Missing included pad Bb.mp3"))
     }
 
     @Test func systemCheckWarnsAboutInvalidBPMLaterInSetlist() {
@@ -146,37 +146,32 @@ struct RuntimeSessionTests {
         #expect(loadedEntry.bpmOverride == 88)
     }
 
-    @Test func importedPadPackPersistsToJSON() throws {
+    @Test func corruptLibraryIsQuarantinedOnLoadFailure() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
-        let source = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SustainPadImportSource-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
-        try Data().write(to: source.appendingPathComponent("G.wav", isDirectory: false))
         let libraryStore = LocalLibraryStore(directoryOverride: directory)
-        let store = AppStore.preview(libraryStore: libraryStore)
+        let libraryURL = try libraryStore.applicationSupportDirectory()
+            .appendingPathComponent("Library.json", isDirectory: false)
+        try Data("{not-json".utf8).write(to: libraryURL)
 
-        store.importPadPack(from: source, name: "Warm")
-
-        let loaded = try #require(try libraryStore.loadLibrary())
-        let imported = try #require(loaded.padPacks.first { $0.name == "Warm" })
-
-        #expect(imported.folderName == "Warm")
-        #expect(imported.availableKeys == [.g])
-        #expect(store.persistenceStatus == "Imported pad pack Warm. Missing keys: C, Db, D, Eb, E, F, Gb, Ab, A, Bb, B")
+        do {
+            _ = try libraryStore.loadLibrary()
+            Issue.record("Expected corrupt library load to fail")
+        } catch {
+            let files = try FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil
+            )
+            #expect(!FileManager.default.fileExists(atPath: libraryURL.path))
+            #expect(files.contains { $0.lastPathComponent.hasPrefix("Library.invalid-") })
+        }
     }
 
     @Test func songAssignmentWorkflowPersistsSongAndSetlistEntry() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
         let libraryStore = LocalLibraryStore(directoryOverride: directory)
-        let warmPadPack = PadPack(
-            name: "Warm",
-            folderName: "Warm",
-            availableKeys: Set(MusicalKey.allCases)
-        )
         let store = AppStore.preview(libraryStore: libraryStore)
-        store.padPacks.append(warmPadPack)
 
         let songID = store.addSong()
         store.updateSong(
@@ -185,7 +180,7 @@ struct RuntimeSessionTests {
             defaultKey: .bb,
             defaultBPM: 82,
             timeSignature: .sixEight,
-            padPackID: warmPadPack.id
+            padPackID: PadPack.bundled.id
         )
         let entryID = try #require(store.addSongToSetlist(songID))
 
@@ -196,8 +191,31 @@ struct RuntimeSessionTests {
         #expect(loadedSong.defaultKey == .bb)
         #expect(loadedSong.defaultBPM == 82)
         #expect(loadedSong.timeSignature == .sixEight)
-        #expect(loadedSong.padPack == warmPadPack)
+        #expect(loadedSong.padPack == .bundled)
         #expect(loaded.activeSetlist.entries.contains { $0.id == entryID && $0.songID == songID })
+    }
+
+    @Test func legacyPadPacksNormalizeToIncludedBundle() throws {
+        let legacyPadPack = PadPack(
+            name: "Legacy Pad Pack",
+            folderName: "Legacy Pad Pack",
+            availableKeys: [.g]
+        )
+        let legacySong = Song(
+            title: "Legacy Song",
+            defaultKey: .g,
+            defaultBPM: 72,
+            timeSignature: .fourFour,
+            padPack: legacyPadPack
+        )
+        let snapshot = LibrarySnapshot(
+            songs: [legacySong],
+            padPacks: [legacyPadPack],
+            activeSetlist: Setlist(title: "Legacy", entries: [SetlistEntry(songID: legacySong.id)])
+        )
+
+        #expect(snapshot.songs.first?.padPack == .bundled)
+        #expect(snapshot.padPacks == [.bundled])
     }
 
     @Test func addingFirstSetlistEntryCuesIt() throws {
@@ -275,81 +293,12 @@ struct RuntimeSessionTests {
         #expect(!missingSongSetlist.hasUsableSetlist)
     }
 
-    @Test func bundledPadResolverFindsBundledPadFiles() throws {
+    @Test func includedPadResolverFindsIncludedPadFiles() throws {
         let resolver = BundlePadAssetResolver()
 
         let asset = try #require(resolver.asset(for: .bundled, key: .g))
         #expect(asset.url.lastPathComponent == "G Major.mp3")
-    }
-
-    @Test func bundledPadResolverIgnoresFolderBackedPadPacks() {
-        let resolver = BundlePadAssetResolver()
-        let padPack = PadPack(
-            name: "Warm",
-            folderName: "Warm",
-            availableKeys: Set(MusicalKey.allCases)
-        )
-
-        #expect(resolver.asset(for: padPack, key: .g) == nil)
-    }
-
-    @Test func fileSystemPadResolverFindsFolderBackedPadFiles() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SustainPadResolverTests-\(UUID().uuidString)", isDirectory: true)
-        let packDirectory = root.appendingPathComponent("Warm", isDirectory: true)
-        try FileManager.default.createDirectory(at: packDirectory, withIntermediateDirectories: true)
-        let fileURL = packDirectory.appendingPathComponent("Db.wav", isDirectory: false)
-        try Data().write(to: fileURL)
-        let resolver = FileSystemPadAssetResolver(rootDirectory: root)
-        let padPack = PadPack(
-            name: "Warm",
-            folderName: "Warm",
-            availableKeys: Set(MusicalKey.allCases)
-        )
-
-        let asset = try #require(resolver.asset(for: padPack, key: .db))
-
-        #expect(asset.url == fileURL)
-        #expect(asset.displayName == "Warm/Db.wav")
-    }
-
-    @Test func padPackImporterReportsMissingKeys() throws {
-        let source = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SustainPadImportSource-\(UUID().uuidString)", isDirectory: true)
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SustainPadImportDestination-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
-        try Data().write(to: source.appendingPathComponent("C.wav", isDirectory: false))
-        try Data().write(to: source.appendingPathComponent("Db Major.mp3", isDirectory: false))
-        try Data().write(to: source.appendingPathComponent("D.txt", isDirectory: false))
-        let importer = PadPackImporter(destinationRoot: destination)
-
-        let result = try importer.inspectFolder(source, name: "Warm")
-
-        #expect(result.padPack.name == "Warm")
-        #expect(result.padPack.folderName == source.lastPathComponent)
-        #expect(result.padPack.availableKeys == [.c, .db])
-        #expect(result.missingKeys.contains(.d))
-        #expect(!result.missingKeys.contains(.c))
-        #expect(!result.missingKeys.contains(.db))
-    }
-
-    @Test func padPackImporterCopiesFolderForResolver() throws {
-        let source = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SustainPadImportSource-\(UUID().uuidString)", isDirectory: true)
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SustainPadImportDestination-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
-        try Data().write(to: source.appendingPathComponent("G.wav", isDirectory: false))
-        let importer = PadPackImporter(destinationRoot: destination)
-
-        let result = try importer.importFolder(source, name: "Warm/Big")
-        let resolver = FileSystemPadAssetResolver(rootDirectory: destination)
-        let asset = try #require(resolver.asset(for: result.padPack, key: .g))
-
-        #expect(result.padPack.name == "Warm/Big")
-        #expect(result.padPack.folderName == "Warm-Big")
-        #expect(asset.displayName == "Warm/Big/G.wav")
+        #expect(asset.displayName == "G Major.mp3")
     }
 
     @Test func sharedOutputRoutingWarnsButDoesNotBlockPlayback() {
@@ -414,6 +363,18 @@ struct RuntimeSessionTests {
         #expect(snapshot.padOutputName == "Dillon's AirPods")
         #expect(snapshot.clickOutputID == 20)
         #expect(snapshot.missingSelectionMessages.isEmpty)
+    }
+
+    @Test func audioOutputDiagnosticSummaryIncludesChannelsAndSampleRate() {
+        let output = AudioOutputDevice(
+            id: 10,
+            name: "Scarlett 4i4",
+            isDefault: false,
+            outputChannelCount: 4,
+            nominalSampleRate: 48_000
+        )
+
+        #expect(output.diagnosticSummary == "4 output channels @ 48000 Hz")
     }
 
     @Test func unavailablePadOutputBlocksPlayback() {
@@ -483,6 +444,33 @@ struct RuntimeSessionTests {
         #expect(!store.systemCheck.canStartPlayback)
         #expect(audio.padStartCount == 0)
         #expect(audio.clickStartCount == 0)
+    }
+
+    @Test func startSongConfiguresRefreshedRoutingBeforePlayback() {
+        let audio = RecordingAudioEngine()
+        let provider = MutableAudioRoutingProvider(snapshotValue: .previewDefault)
+        let store = AppStore.preview(audioEngine: audio, audioRoutingProvider: provider)
+        let startupConfigureCount = audio.configureRoutingCount
+
+        provider.snapshotValue = AudioRoutingSnapshot(
+            outputs: [
+                AudioOutputDevice(id: 11, name: "Pads Bus", isDefault: true),
+                AudioOutputDevice(id: 12, name: "Click Bus", isDefault: false)
+            ],
+            padOutputID: 11,
+            padOutputName: "Pads Bus",
+            clickOutputID: 12,
+            clickOutputName: "Click Bus",
+            independentRoutingEnabled: true
+        )
+
+        store.startCuedSong()
+
+        #expect(audio.configureRoutingCount == startupConfigureCount + 1)
+        #expect(audio.lastConfiguredSnapshot?.padOutputID == 11)
+        #expect(audio.lastConfiguredSnapshot?.clickOutputID == 12)
+        #expect(audio.padStartCount == 1)
+        #expect(audio.clickStartCount == 1)
     }
 
     @Test func hardwareChangeStopsPlaybackWhenSelectedOutputDisappears() {
@@ -982,7 +970,7 @@ struct RuntimeSessionTests {
         #expect(audio.clickIncludesCountoffHistory == [true, false])
     }
 
-    @Test func rehearsePadSelectionStartsBundledPad() {
+    @Test func rehearsePadSelectionStartsIncludedPad() {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)
 
@@ -1003,6 +991,8 @@ private final class RecordingAudioEngine: AudioControlling {
     var clickStartCount = 0
     var stopAllCount = 0
     var clickIncludesCountoffHistory: [Bool] = []
+    var configureRoutingCount = 0
+    var lastConfiguredSnapshot: AudioRoutingSnapshot?
     var missingPadKeys: Set<MusicalKey>
     var shouldFailPadStart = false
     var shouldFailClickStart = false
@@ -1016,13 +1006,15 @@ private final class RecordingAudioEngine: AudioControlling {
     func prepare() {}
 
     func configureRouting(_ snapshot: AudioRoutingSnapshot) throws {
+        configureRoutingCount += 1
+        lastConfiguredSnapshot = snapshot
         if shouldFailConfigureRouting {
             throw AudioEngineError.invalidOutputFormat
         }
     }
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
-        missingPadKeys.contains(key) ? "Missing bundled pad \(key.rawValue).mp3" : "Found \(key.rawValue).mp3"
+        missingPadKeys.contains(key) ? "Missing included pad \(key.rawValue).mp3" : "Found \(key.rawValue).mp3"
     }
 
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool {

@@ -41,11 +41,11 @@ struct PadPack: Codable, Identifiable, Equatable, Hashable {
     }
 
     var isBundled: Bool {
-        name == Self.bundled.name && folderName == Self.bundled.folderName
+        folderName == Self.bundled.folderName
     }
 
     static let bundled = PadPack(
-        name: "Bundled Pads",
+        name: "Included Pads",
         folderName: "Pads",
         availableKeys: Set(MusicalKey.allCases)
     )

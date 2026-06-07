@@ -19,6 +19,15 @@ struct AudioOutputDevice: Identifiable, Equatable {
     var id: AudioDeviceID
     var name: String
     var isDefault: Bool
+    var outputChannelCount: Int = 0
+    var nominalSampleRate: Double? = nil
+
+    var diagnosticSummary: String {
+        let channels = outputChannelCount == 1 ? "1 output channel" : "\(outputChannelCount) output channels"
+        guard let nominalSampleRate else { return channels }
+
+        return "\(channels) @ \(Int(nominalSampleRate.rounded())) Hz"
+    }
 }
 
 struct AudioRoutingSnapshot: Equatable {
@@ -159,7 +168,9 @@ struct CoreAudioRoutingProvider: AudioRoutingProviding {
             AudioOutputDevice(
                 id: deviceID,
                 name: name(for: deviceID),
-                isDefault: deviceID == defaultID
+                isDefault: deviceID == defaultID,
+                outputChannelCount: outputChannelCount(for: deviceID),
+                nominalSampleRate: nominalSampleRate(for: deviceID)
             )
         }
     }
@@ -231,6 +242,51 @@ struct CoreAudioRoutingProvider: AudioRoutingProviding {
         var size: UInt32 = 0
 
         return AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr && size > 0
+    }
+
+    private func outputChannelCount(for deviceID: AudioDeviceID) -> Int {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamConfiguration,
+            mScope: kAudioDevicePropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+
+        guard AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size) == noErr else {
+            return 0
+        }
+
+        let rawPointer = UnsafeMutableRawPointer.allocate(
+            byteCount: Int(size),
+            alignment: MemoryLayout<AudioBufferList>.alignment
+        )
+        defer { rawPointer.deallocate() }
+        let bufferListPointer = rawPointer.bindMemory(to: AudioBufferList.self, capacity: 1)
+
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, bufferListPointer) == noErr else {
+            return 0
+        }
+
+        let bufferList = UnsafeMutableAudioBufferListPointer(bufferListPointer)
+        return bufferList.reduce(0) { total, buffer in
+            total + Int(buffer.mNumberChannels)
+        }
+    }
+
+    private func nominalSampleRate(for deviceID: AudioDeviceID) -> Double? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyNominalSampleRate,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var sampleRate = Float64()
+        var size = UInt32(MemoryLayout<Float64>.size)
+
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &sampleRate) == noErr else {
+            return nil
+        }
+
+        return sampleRate
     }
 
     private func name(for deviceID: AudioDeviceID) -> String {

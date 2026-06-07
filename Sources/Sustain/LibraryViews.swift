@@ -54,13 +54,9 @@ struct SongLibraryView: View {
                     .labelsHidden()
                     .frame(width: 92)
 
-                    Picker("Pad Source", selection: padPackBinding(for: song.id)) {
-                        ForEach(store.padPacks) { padPack in
-                            Text(padPack.name).tag(padPack.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(minWidth: 150)
+                    Label("Included Pads", systemImage: "waveform")
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 140, alignment: .leading)
 
                     Button("Add to Setlist", systemImage: "text.badge.plus") {
                         _ = store.addSongToSetlist(song.id)
@@ -85,7 +81,7 @@ struct SongLibraryView: View {
             defaultKey: updated.defaultKey,
             defaultBPM: updated.defaultBPM,
             timeSignature: updated.timeSignature,
-            padPackID: updated.padPack.id
+            padPackID: PadPack.bundled.id
         )
     }
 
@@ -137,17 +133,6 @@ struct SongLibraryView: View {
         }
     }
 
-    private func padPackBinding(for songID: Song.ID) -> Binding<PadPack.ID> {
-        Binding {
-            song(songID)?.padPack.id ?? store.padPacks.first?.id ?? PadPack.bundled.id
-        } set: { padPackID in
-            updateSong(songID) { song in
-                var song = song
-                song.padPack = store.padPacks.first { $0.id == padPackID } ?? song.padPack
-                return song
-            }
-        }
-    }
 }
 
 struct SetlistBuilderView: View {
@@ -329,15 +314,25 @@ struct AudioSetupView: View {
 
                 DisclosureGroup("Detected Devices") {
                     ForEach(store.routingSnapshot.outputs) { output in
-                        HStack {
-                            Text(output.name)
-                            Spacer()
-                            if output.isDefault {
-                                Text("Default")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                        AudioDeviceDiagnosticRow(output: output)
                     }
+                }
+            }
+
+            Section("Diagnostics") {
+                Button("Refresh Devices", systemImage: "arrow.clockwise") {
+                    store.refreshAudioDiagnostics()
+                }
+
+                LabeledContent("Pad Device ID", value: deviceIDText(store.routingSnapshot.padOutputID))
+                LabeledContent("Click Device ID", value: deviceIDText(store.routingSnapshot.clickOutputID))
+
+                if let padOutput = output(id: store.routingSnapshot.padOutputID) {
+                    LabeledContent("Pad Device", value: padOutput.diagnosticSummary)
+                }
+
+                if let clickOutput = output(id: store.routingSnapshot.clickOutputID) {
+                    LabeledContent("Click Device", value: clickOutput.diagnosticSummary)
                 }
             }
 
@@ -372,6 +367,38 @@ struct AudioSetupView: View {
                 clickOutputID: outputID
             )
         }
+    }
+
+    private func output(id: AudioDeviceID?) -> AudioOutputDevice? {
+        guard let id else { return nil }
+        return store.routingSnapshot.outputs.first { $0.id == id }
+    }
+
+    private func deviceIDText(_ id: AudioDeviceID?) -> String {
+        id.map(String.init) ?? "System Default"
+    }
+}
+
+private struct AudioDeviceDiagnosticRow: View {
+    var output: AudioOutputDevice
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(output.name)
+                    .font(.headline)
+                Spacer()
+                if output.isDefault {
+                    Text("Default")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Text("ID \(output.id) · \(output.diagnosticSummary)")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
     }
 }
 

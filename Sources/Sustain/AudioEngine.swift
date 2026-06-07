@@ -5,6 +5,7 @@ import Foundation
 enum AudioEngineError: LocalizedError {
     case invalidBPM(Int)
     case invalidOutputFormat
+    case outputDeviceAssignmentFailed(deviceID: AudioDeviceID, status: OSStatus)
     case missingPadFile(pack: String, key: MusicalKey)
     case unreadablePadFile(URL)
 
@@ -14,6 +15,8 @@ enum AudioEngineError: LocalizedError {
             "BPM must be greater than zero. Received \(bpm)."
         case .invalidOutputFormat:
             "The system output format is not available."
+        case .outputDeviceAssignmentFailed(let deviceID, let status):
+            "Could not assign output device \(deviceID). Core Audio status: \(status)."
         case .missingPadFile(let pack, let key):
             "\(pack) does not include a pad for \(key.rawValue)."
         case .unreadablePadFile(let url):
@@ -54,6 +57,9 @@ final class SustainAudioEngine: AudioControlling {
     private var activePadAssetName: String?
     private var clickIsActive = false
     private var routingSummary = "Default output"
+    private var padFadeTasks: [Task<Void, Never>?] = [nil, nil]
+    private var padStopTasks: [Task<Void, Never>?] = [nil, nil]
+    private var padGenerations = [0, 0]
 
     var isEngineRunning: Bool {
         padEngine.isRunning || clickEngine.isRunning
@@ -131,7 +137,7 @@ final class SustainAudioEngine: AudioControlling {
         }
 
         if padPack.isBundled {
-            return "Missing bundled pad \(key.rawValue).mp3"
+            return "Missing included pad \(key.rawValue).mp3"
         }
 
         return "\(padPack.name) does not include a pad for \(key.rawValue)."
@@ -162,21 +168,21 @@ final class SustainAudioEngine: AudioControlling {
         let mixer = padMixers[newIndex]
         let oldIndex = activePadIndex
 
+        cancelPadTasks(at: newIndex)
+        padGenerations[newIndex] += 1
         player.stop()
         mixer.outputVolume = 0
         player.scheduleBuffer(try makeLoopingBuffer(from: audioFile), at: nil, options: .loops)
         player.play()
 
-        fade(mixer: mixer, to: 0.42, duration: 1.25)
+        fade(mixer: mixer, at: newIndex, to: 0.42, duration: 1.25)
 
         if let oldIndex, oldIndex != newIndex {
             let oldPlayer = padPlayers[oldIndex]
             let oldMixer = padMixers[oldIndex]
-            fade(mixer: oldMixer, to: 0, duration: 1.25)
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 1_250_000_000)
-                oldPlayer.stop()
-            }
+            let generation = nextPadGeneration(at: oldIndex)
+            fade(mixer: oldMixer, at: oldIndex, to: 0, duration: 1.25)
+            scheduleStop(player: oldPlayer, at: oldIndex, generation: generation, after: 1.25)
         }
 
         activePadIndex = newIndex
@@ -189,11 +195,9 @@ final class SustainAudioEngine: AudioControlling {
 
         let player = padPlayers[activePadIndex]
         let mixer = padMixers[activePadIndex]
-        fade(mixer: mixer, to: 0, duration: 1.0)
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-            player.stop()
-        }
+        let generation = nextPadGeneration(at: activePadIndex)
+        fade(mixer: mixer, at: activePadIndex, to: 0, duration: 1.0)
+        scheduleStop(player: player, at: activePadIndex, generation: generation, after: 1.0)
 
         self.activePadIndex = nil
         activePadKey = nil
@@ -225,7 +229,7 @@ final class SustainAudioEngine: AudioControlling {
 
     func stopAll() {
         stopClick()
-        stopPad()
+        stopPadsImmediately()
     }
 
     private func startPadEngineIfNeeded() throws {
@@ -252,24 +256,65 @@ final class SustainAudioEngine: AudioControlling {
         )
 
         if status != noErr {
-            throw AudioEngineError.invalidOutputFormat
+            throw AudioEngineError.outputDeviceAssignmentFailed(deviceID: deviceID, status: status)
         }
     }
 
-    private func fade(mixer: AVAudioMixerNode, to target: Float, duration: TimeInterval) {
+    private func fade(mixer: AVAudioMixerNode, at index: Int, to target: Float, duration: TimeInterval) {
+        padFadeTasks[index]?.cancel()
         let start = mixer.outputVolume
         let steps = 24
 
-        for step in 1...steps {
-            let progress = Float(step) / Float(steps)
-            let volume = start + (target - start) * progress
-            let delay = UInt64(duration * Double(step) / Double(steps) * 1_000_000_000)
-
-            Task { @MainActor in
+        padFadeTasks[index] = Task { @MainActor in
+            for step in 1...steps {
+                let progress = Float(step) / Float(steps)
+                let volume = start + (target - start) * progress
+                let delay = UInt64(duration / Double(steps) * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled else { return }
                 mixer.outputVolume = volume
             }
         }
+    }
+
+    private func scheduleStop(
+        player: AVAudioPlayerNode,
+        at index: Int,
+        generation: Int,
+        after duration: TimeInterval
+    ) {
+        padStopTasks[index]?.cancel()
+        padStopTasks[index] = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            guard !Task.isCancelled, padGenerations[index] == generation else { return }
+            player.stop()
+        }
+    }
+
+    private func nextPadGeneration(at index: Int) -> Int {
+        cancelPadTasks(at: index)
+        padGenerations[index] += 1
+        return padGenerations[index]
+    }
+
+    private func cancelPadTasks(at index: Int) {
+        padFadeTasks[index]?.cancel()
+        padStopTasks[index]?.cancel()
+        padFadeTasks[index] = nil
+        padStopTasks[index] = nil
+    }
+
+    private func stopPadsImmediately() {
+        for index in padPlayers.indices {
+            cancelPadTasks(at: index)
+            padGenerations[index] += 1
+            padPlayers[index].stop()
+            padMixers[index].outputVolume = 0
+        }
+
+        activePadIndex = nil
+        activePadKey = nil
+        activePadAssetName = nil
     }
 
     private func makeClickBuffer(
