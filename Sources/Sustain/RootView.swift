@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var store: AppStore
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
 
     var body: some View {
         ZStack {
@@ -16,6 +17,7 @@ struct RootView: View {
             .background(.clear)
         }
         .tint(SustainColor.accent)
+        .preferredColorScheme((AppAppearance(rawValue: appearanceRaw) ?? .system).colorScheme)
         .alert(item: $store.audioRouteChangePrompt) { prompt in
             Alert(
                 title: Text("Audio Output Change Detected"),
@@ -142,16 +144,12 @@ private struct SidebarRow: View {
                     .font(.callout.weight(.medium))
                 Spacer()
             }
-            .foregroundStyle(isSelected ? Color.sustainNearBlack : SustainColor.textSecondary)
+            .foregroundStyle(isSelected ? Color.primary : SustainColor.textSecondary)
             .padding(.horizontal, SustainSpace.md)
             .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: SustainRadius.control, style: .continuous)
                     .fill(rowFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: SustainRadius.control, style: .continuous)
-                    .stroke(rowStroke, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -162,15 +160,8 @@ private struct SidebarRow: View {
 
     private var rowFill: Color {
         if isSelected {
-            return SustainColor.accent.opacity(0.88)
+            return SustainColor.accent.opacity(0.15)
         }
-        return SustainColor.accent.opacity(isHovering ? 0.13 : 0.04)
-    }
-
-    private var rowStroke: Color {
-        if isSelected {
-            return Color.sustainIvory.opacity(0.32)
-        }
-        return SustainColor.accent.opacity(isHovering ? 0.24 : 0.08)
+        return isHovering ? Color.primary.opacity(0.06) : .clear
     }
 }

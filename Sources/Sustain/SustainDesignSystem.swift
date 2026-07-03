@@ -16,15 +16,22 @@ enum SustainColor {
     static let textSecondary = Color.secondary
     static let textTertiary = Color(nsColor: .tertiaryLabelColor)
 
-    static let accent = Color.accentColor
-    static let accentSoft = Color.accentColor.opacity(0.14)
+    /// Sustain's brand accent — a refined sage, slightly brighter on dark and deeper on
+    /// light so it reads as a selection/active color in both appearances. Applied as the
+    /// app-wide tint so native controls adopt it. Restraint comes from using it rarely.
+    static let accent = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(srgbRed: 0.52, green: 0.63, blue: 0.47, alpha: 1)
+            : NSColor(srgbRed: 0.34, green: 0.45, blue: 0.32, alpha: 1)
+    })
+    static let accentSoft = accent.opacity(0.14)
 
     /// A single interaction accent carries all "active/selected" state — pad, click, and
     /// ready all resolve to it, so on/off reads as accent-vs-neutral rather than as
     /// competing hues. Warning/destructive stay distinct because they signal danger.
-    static let padActive = Color.accentColor
-    static let clickActive = Color.accentColor
-    static let ready = Color.accentColor
+    static let padActive = accent
+    static let clickActive = accent
+    static let ready = accent
     static let warning = Color.orange
     static let destructive = Color.red
 
@@ -204,7 +211,7 @@ struct SustainSectionHeader: View {
     var body: some View {
         HStack(spacing: SustainSpace.sm) {
             Image(systemName: systemImage)
-                .foregroundStyle(tint)
+                .foregroundStyle(.secondary)
             Text(title)
                 .font(.headline)
             Spacer()
