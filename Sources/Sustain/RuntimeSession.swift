@@ -6,7 +6,6 @@ enum AppScreen: String, CaseIterable, Identifiable {
     case live = "Live Service"
     case rehearse = "Rehearse"
     case songs = "Song Library"
-    case setlist = "Setlist"
     case audio = "Audio Setup"
     case check = "System Check"
 
@@ -68,8 +67,10 @@ struct AudioRouteChangePrompt: Identifiable, Equatable {
     var detectedOutputName: String
     var previousPadOutputID: AudioDeviceID?
     var previousPadOutputName: String
+    var previousPadOutputChannel: AudioOutputChannelSelection
     var previousClickOutputID: AudioDeviceID?
     var previousClickOutputName: String
+    var previousClickOutputChannel: AudioOutputChannelSelection
     var message: String
 }
 
@@ -86,6 +87,9 @@ final class AppStore: ObservableObject {
     @Published var persistenceStatus: String
     @Published var routingSettings: AudioRoutingSettings
     @Published var routingSnapshot: AudioRoutingSnapshot
+    @Published var padVolume: Double
+    @Published var clickVolume: Double
+    @Published var clickSettings: ClickSettings
     @Published var audioRouteChangePrompt: AudioRouteChangePrompt?
 
     private let audioEngine: AudioControlling
@@ -107,6 +111,9 @@ final class AppStore: ObservableObject {
         audioHardwareMonitor: AudioHardwareMonitoring = NoopAudioHardwareMonitor(),
         powerStateMonitor: PowerStateMonitoring = NoopPowerStateMonitor(),
         routingSettings: AudioRoutingSettings = .default,
+        padVolume: Double = 0.42,
+        clickVolume: Double = 0.75,
+        clickSettings: ClickSettings = .default,
         persistenceStatus: String = "Using seed library",
         countoffDurationMultiplier: Double = 1.0
     ) {
@@ -119,11 +126,16 @@ final class AppStore: ObservableObject {
         self.audioHardwareMonitor = audioHardwareMonitor
         self.powerStateMonitor = powerStateMonitor
         self.routingSettings = routingSettings
+        self.padVolume = min(1, max(0, padVolume))
+        self.clickVolume = min(1, max(0, clickVolume))
+        self.clickSettings = clickSettings
         self.audioStatus = audioEngine.statusSummary
         self.persistenceStatus = persistenceStatus
         self.routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
         self.countoffDurationMultiplier = countoffDurationMultiplier
         runtime.cuedEntryID = activeSetlist.entries.first?.id
+        audioEngine.setPadVolume(self.padVolume)
+        audioEngine.setClickVolume(self.clickVolume)
         configureAudioRouting()
         audioHardwareMonitor.start { [weak self] in
             self?.handleAudioHardwareChanged()
@@ -219,7 +231,12 @@ final class AppStore: ObservableObject {
                 runtime.padState = .fadingOut
             }
 
-            try audioEngine.startClick(bpm: bpm, timeSignature: cuedSong.timeSignature, includesCountoff: true)
+            try audioEngine.startClick(
+                bpm: bpm,
+                timeSignature: cuedSong.timeSignature,
+                includesCountoff: true,
+                settings: clickSettings
+            )
             try audioEngine.startPad(for: key, padPack: cuedSong.padPack)
             runtime.padState = .playing
             runtime.playingEntryID = cuedEntry.id
@@ -269,7 +286,12 @@ final class AppStore: ObservableObject {
         let bpm = playingEntry.resolvedBPM(for: song)
 
         do {
-            try audioEngine.startClick(bpm: bpm, timeSignature: song.timeSignature, includesCountoff: true)
+            try audioEngine.startClick(
+                bpm: bpm,
+                timeSignature: song.timeSignature,
+                includesCountoff: true,
+                settings: clickSettings
+            )
             beginCountoff(for: playingEntry.id, songTitle: song.title, bpm: bpm, timeSignature: song.timeSignature)
             runtime.lastMessage = "Countoff started for \(song.title)"
             refreshAudioStatus()
@@ -342,7 +364,8 @@ final class AppStore: ObservableObject {
             try audioEngine.startClick(
                 bpm: rehearse.bpm,
                 timeSignature: rehearse.timeSignature,
-                includesCountoff: rehearse.countoffEnabled
+                includesCountoff: rehearse.countoffEnabled,
+                settings: clickSettings
             )
 
             if rehearse.countoffEnabled {
@@ -375,15 +398,49 @@ final class AppStore: ObservableObject {
             return
         }
 
+        restartActiveRehearseClickIfNeeded(message: "Click updated to \(rehearse.bpm) BPM")
+    }
+
+    func setRehearseTimeSignature(_ timeSignature: TimeSignature) {
+        rehearse.timeSignature = timeSignature
+
+        guard rehearse.clickState != .off else { return }
+        restartActiveRehearseClickIfNeeded(message: "Click updated to \(timeSignature.description)")
+    }
+
+    func setRehearseCountoffEnabled(_ isEnabled: Bool) {
+        rehearse.countoffEnabled = isEnabled
+        rehearse.lastMessage = isEnabled ? "Countoff enabled" : "Countoff disabled"
+    }
+
+    func setClickAccentMode(_ accentMode: ClickAccentMode) {
+        clickSettings.accentMode = accentMode
+        rehearse.lastMessage = "\(accentMode.rawValue) click selected"
+        runtime.lastMessage = "\(accentMode.rawValue) click selected"
+        restartActiveRehearseClickIfNeeded(message: "Click accent updated")
+        saveLibrary()
+    }
+
+    func setCountoffSound(_ countoffSound: CountoffSound) {
+        clickSettings.countoffSound = countoffSound
+        rehearse.lastMessage = "\(countoffSound.rawValue) countoff selected"
+        runtime.lastMessage = "\(countoffSound.rawValue) countoff selected"
+        saveLibrary()
+    }
+
+    private func restartActiveRehearseClickIfNeeded(message: String) {
+        guard rehearse.clickState != .off else { return }
+
         do {
             clickStateTask?.cancel()
             try audioEngine.startClick(
                 bpm: rehearse.bpm,
                 timeSignature: rehearse.timeSignature,
-                includesCountoff: false
+                includesCountoff: false,
+                settings: clickSettings
             )
             rehearse.clickState = .playing
-            rehearse.lastMessage = "Click updated to \(rehearse.bpm) BPM"
+            rehearse.lastMessage = message
             refreshAudioStatus()
         } catch {
             rehearse.lastMessage = error.localizedDescription
@@ -391,16 +448,22 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func setRehearseTimeSignature(_ timeSignature: TimeSignature) {
-        rehearse.timeSignature = timeSignature
-
-        guard rehearse.clickState != .off else { return }
-        setRehearseBPM(rehearse.bpm)
+    func setPadVolume(_ volume: Double) {
+        padVolume = min(1, max(0, volume))
+        audioEngine.setPadVolume(padVolume)
+        rehearse.lastMessage = "Pad volume set to \(Int((padVolume * 100).rounded()))%"
+        runtime.lastMessage = "Pad volume set to \(Int((padVolume * 100).rounded()))%"
+        refreshAudioStatus()
+        saveLibrary()
     }
 
-    func setRehearseCountoffEnabled(_ isEnabled: Bool) {
-        rehearse.countoffEnabled = isEnabled
-        rehearse.lastMessage = isEnabled ? "Countoff enabled" : "Countoff disabled"
+    func setClickVolume(_ volume: Double) {
+        clickVolume = min(1, max(0, volume))
+        audioEngine.setClickVolume(clickVolume)
+        rehearse.lastMessage = "Click volume set to \(Int((clickVolume * 100).rounded()))%"
+        runtime.lastMessage = "Click volume set to \(Int((clickVolume * 100).rounded()))%"
+        refreshAudioStatus()
+        saveLibrary()
     }
 
     @discardableResult
@@ -520,13 +583,20 @@ final class AppStore: ObservableObject {
         saveLibrary()
     }
 
-    func updateRouting(padOutputID: AudioDeviceID?, clickOutputID: AudioDeviceID?) {
+    func updateRouting(
+        padOutputID: AudioDeviceID?,
+        clickOutputID: AudioDeviceID?,
+        padOutputChannel: AudioOutputChannelSelection? = nil,
+        clickOutputChannel: AudioOutputChannelSelection? = nil
+    ) {
         stopAudioForManualRoutingChangeIfNeeded()
         routingSettings = AudioRoutingSettings(
             padOutputID: padOutputID,
             padOutputName: outputName(for: padOutputID),
+            padOutputChannel: padOutputChannel,
             clickOutputID: clickOutputID,
-            clickOutputName: outputName(for: clickOutputID)
+            clickOutputName: outputName(for: clickOutputID),
+            clickOutputChannel: clickOutputChannel
         )
         routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
         configureAudioRouting()
@@ -552,8 +622,10 @@ final class AppStore: ObservableObject {
         routingSettings = AudioRoutingSettings(
             padOutputID: prompt.previousPadOutputID,
             padOutputName: prompt.previousPadOutputName,
+            padOutputChannel: prompt.previousPadOutputChannel == .stereo ? nil : prompt.previousPadOutputChannel,
             clickOutputID: prompt.previousClickOutputID,
-            clickOutputName: prompt.previousClickOutputName
+            clickOutputName: prompt.previousClickOutputName,
+            clickOutputChannel: prompt.previousClickOutputChannel == .stereo ? nil : prompt.previousClickOutputChannel
         )
         routingSnapshot = audioRoutingProvider.snapshot(settings: routingSettings)
         configureAudioRouting()
@@ -566,7 +638,9 @@ final class AppStore: ObservableObject {
         audioRouteChangePrompt = nil
         updateRouting(
             padOutputID: prompt.detectedOutputID,
-            clickOutputID: prompt.detectedOutputID
+            clickOutputID: prompt.detectedOutputID,
+            padOutputChannel: nil,
+            clickOutputChannel: nil
         )
         runtime.lastMessage = "Switched audio outputs to \(prompt.detectedOutputName)"
     }
@@ -682,7 +756,10 @@ final class AppStore: ObservableObject {
                     songs: songs,
                     padPacks: padPacks,
                     activeSetlist: activeSetlist,
-                    routingSettings: routingSettings
+                    routingSettings: routingSettings,
+                    padVolume: padVolume,
+                    clickVolume: clickVolume,
+                    clickSettings: clickSettings
                 )
             )
             persistenceStatus = "Library saved"
@@ -737,6 +814,7 @@ final class AppStore: ObservableObject {
                 currentName: routingSettings.padOutputName,
                 resolvedName: routingSnapshot.padOutputName
             ),
+            padOutputChannel: routingSettings.padOutputChannel,
             clickOutputID: normalizedOutputID(
                 currentID: routingSettings.clickOutputID,
                 resolvedID: routingSnapshot.clickOutputID
@@ -745,7 +823,8 @@ final class AppStore: ObservableObject {
                 currentID: routingSettings.clickOutputID,
                 currentName: routingSettings.clickOutputName,
                 resolvedName: routingSnapshot.clickOutputName
-            )
+            ),
+            clickOutputChannel: routingSettings.clickOutputChannel
         )
 
         if normalized != routingSettings {
@@ -830,8 +909,10 @@ final class AppStore: ObservableObject {
             detectedOutputName: detectedOutput.name,
             previousPadOutputID: previousSnapshot.padOutputID,
             previousPadOutputName: previousSnapshot.padOutputName,
+            previousPadOutputChannel: previousSnapshot.padOutputChannel,
             previousClickOutputID: previousSnapshot.clickOutputID,
             previousClickOutputName: previousSnapshot.clickOutputName,
+            previousClickOutputChannel: previousSnapshot.clickOutputChannel,
             message: "Audio output change detected. Keep your current Sustain routing, or switch pad and click to \(detectedOutput.name)."
         )
     }
@@ -922,6 +1003,9 @@ extension AppStore {
                     audioHardwareMonitor: CoreAudioHardwareMonitor(),
                     powerStateMonitor: MacPowerStateMonitor(),
                     routingSettings: snapshot.routingSettings,
+                    padVolume: snapshot.padVolume,
+                    clickVolume: snapshot.clickVolume,
+                    clickSettings: snapshot.clickSettings,
                     persistenceStatus: "Library loaded"
                 )
             }
@@ -937,6 +1021,9 @@ extension AppStore {
                 audioHardwareMonitor: CoreAudioHardwareMonitor(),
                 powerStateMonitor: MacPowerStateMonitor(),
                 routingSettings: snapshot.routingSettings,
+                padVolume: snapshot.padVolume,
+                clickVolume: snapshot.clickVolume,
+                clickSettings: snapshot.clickSettings,
                 persistenceStatus: "Seed library saved"
             )
         } catch {
@@ -950,6 +1037,9 @@ extension AppStore {
                 audioHardwareMonitor: CoreAudioHardwareMonitor(),
                 powerStateMonitor: MacPowerStateMonitor(),
                 routingSettings: snapshot.routingSettings,
+                padVolume: snapshot.padVolume,
+                clickVolume: snapshot.clickVolume,
+                clickSettings: snapshot.clickSettings,
                 persistenceStatus: "Using seed library: \(error.localizedDescription)"
             )
         }
@@ -978,6 +1068,9 @@ extension AppStore {
             audioHardwareMonitor: audioHardwareMonitor,
             powerStateMonitor: powerStateMonitor,
             routingSettings: snapshot.routingSettings,
+            padVolume: snapshot.padVolume,
+            clickVolume: snapshot.clickVolume,
+            clickSettings: snapshot.clickSettings,
             countoffDurationMultiplier: countoffDurationMultiplier
         )
     }

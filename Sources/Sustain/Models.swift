@@ -25,9 +25,35 @@ struct TimeSignature: Codable, Equatable, Hashable, CustomStringConvertible {
         "\(beatsPerMeasure)/\(beatUnit)"
     }
 
-    static let common = [fourFour, sixEight]
+    static let common = [twoFour, threeFour, fourFour, fiveFour, sixEight, nineEight, twelveEight]
+    static let twoFour = TimeSignature(beatsPerMeasure: 2, beatUnit: 4)
+    static let threeFour = TimeSignature(beatsPerMeasure: 3, beatUnit: 4)
     static let fourFour = TimeSignature(beatsPerMeasure: 4, beatUnit: 4)
+    static let fiveFour = TimeSignature(beatsPerMeasure: 5, beatUnit: 4)
     static let sixEight = TimeSignature(beatsPerMeasure: 6, beatUnit: 8)
+    static let nineEight = TimeSignature(beatsPerMeasure: 9, beatUnit: 8)
+    static let twelveEight = TimeSignature(beatsPerMeasure: 12, beatUnit: 8)
+}
+
+enum ClickAccentMode: String, CaseIterable, Codable, Identifiable {
+    case none = "No Accent"
+    case downbeat = "Downbeat"
+
+    var id: String { rawValue }
+}
+
+enum CountoffSound: String, CaseIterable, Codable, Identifiable {
+    case counted = "Count"
+    case click = "Click"
+
+    var id: String { rawValue }
+}
+
+struct ClickSettings: Codable, Equatable {
+    var accentMode: ClickAccentMode
+    var countoffSound: CountoffSound
+
+    static let `default` = ClickSettings(accentMode: .none, countoffSound: .counted)
 }
 
 struct PadPack: Codable, Identifiable, Equatable, Hashable {

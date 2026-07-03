@@ -9,8 +9,9 @@ struct SustainApp: App {
             RootView()
                 .environmentObject(store)
                 .frame(minWidth: 1080, minHeight: 700)
+                .preferredColorScheme(.dark)
         }
-        .windowStyle(.titleBar)
+        .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Run System Check") {

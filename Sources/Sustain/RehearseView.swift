@@ -8,180 +8,256 @@ struct RehearseView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
 
             HStack(alignment: .top, spacing: 24) {
                 padPanel
-                    .frame(minWidth: 320, idealWidth: 360, maxWidth: 400)
+                    .frame(minWidth: 340, idealWidth: 380, maxWidth: 420)
 
                 clickPanel
                     .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(28)
+            .padding(SustainSpace.screen)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .navigationTitle("Rehearse")
+        .sustainScreenBackground(.rehearse)
     }
 
     private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Rehearse")
-                    .font(.largeTitle.weight(.semibold))
-                Text("Free play pads and click")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
+        SustainScreenHeader(title: "Rehearse", subtitle: "Free play pads, click, countoff, and live levels") {
             VStack(alignment: .trailing, spacing: 4) {
                 Text(store.audioStatus)
                     .font(.callout.weight(.medium))
                 Text(store.routingSnapshot.summary)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SustainColor.textSecondary)
             }
         }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 20)
     }
 
     private var padPanel: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            sectionHeader(title: "Pads", value: store.rehearse.padState.rawValue, image: "waveform")
+        SustainPanel(material: .regularMaterial, isActive: store.rehearse.padState == .playing) {
+            VStack(alignment: .leading, spacing: SustainSpace.lg) {
+                SustainSectionHeader(
+                    title: "Pads",
+                    value: store.rehearse.padState.rawValue,
+                    systemImage: "waveform",
+                    tint: SustainColor.padActive,
+                    isActive: store.rehearse.padState == .playing
+                )
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 74), spacing: 10)], spacing: 10) {
-                ForEach(MusicalKey.allCases) { key in
-                    Button {
-                        store.startRehearsePad(key: key)
-                    } label: {
-                        VStack(spacing: 5) {
-                            Text(key.rawValue)
-                                .font(.title3.weight(.semibold))
-                            Text(store.rehearse.selectedKey == key && store.rehearse.padState == .playing ? "Playing" : "Pad")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                activePadSurface
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 74), spacing: 10)], spacing: 10) {
+                    ForEach(MusicalKey.allCases) { key in
+                        Button {
+                            store.startRehearsePad(key: key)
+                        } label: {
+                            VStack(spacing: SustainSpace.xs) {
+                                Text(key.rawValue)
+                                    .font(.title3.weight(.semibold))
+                                Text(store.rehearse.selectedKey == key && store.rehearse.padState == .playing ? "Live" : "Pad")
+                                    .font(.caption)
+                                    .foregroundStyle(SustainColor.textSecondary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 58)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 58)
+                        .sustainBorderedButton(tint: store.rehearse.selectedKey == key && store.rehearse.padState == .playing ? SustainColor.padActive : SustainColor.accent)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(store.rehearse.selectedKey == key && store.rehearse.padState == .playing ? Color.sustainSage : nil)
                 }
-            }
 
-            Button(role: .destructive) {
-                store.stopRehearsePad()
-            } label: {
-                Label("Stop Pad", systemImage: "stop.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .controlSize(.large)
-            .disabled(store.rehearse.padState == .off)
+                Button(role: .destructive) {
+                    store.stopRehearsePad()
+                } label: {
+                    Label("Stop Pad", systemImage: "stop.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+                .disabled(store.rehearse.padState == .off)
 
-            messageStrip
+                messageStrip
+            }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var clickPanel: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            sectionHeader(title: "Click", value: store.rehearse.clickState.rawValue, image: "metronome")
+        SustainPanel(material: .regularMaterial, isActive: store.rehearse.clickState != .off) {
+            VStack(alignment: .leading, spacing: 22) {
+                SustainSectionHeader(
+                    title: "Click",
+                    value: store.rehearse.clickState.rawValue,
+                    systemImage: "metronome",
+                    tint: SustainColor.clickActive,
+                    isActive: store.rehearse.clickState != .off
+                )
 
-            HStack(alignment: .center, spacing: 18) {
-                Button {
-                    if store.rehearse.clickState == .off {
-                        store.startRehearseClick()
-                    } else {
-                        store.stopRehearseClick()
+                HStack(alignment: .center, spacing: 18) {
+                    Button {
+                        if store.rehearse.clickState == .off {
+                            store.startRehearseClick()
+                        } else {
+                            store.stopRehearseClick()
+                        }
+                    } label: {
+                        Label(
+                            store.rehearse.clickState == .off ? "Play Click" : "Pause Click",
+                            systemImage: store.rehearse.clickState == .off ? "play.fill" : "pause.fill"
+                        )
+                        .frame(minWidth: 148)
                     }
-                } label: {
-                    Label(
-                        store.rehearse.clickState == .off ? "Play Click" : "Pause Click",
-                        systemImage: store.rehearse.clickState == .off ? "play.fill" : "pause.fill"
+                    .sustainProminentButton(tint: SustainColor.clickActive)
+                    .controlSize(.large)
+
+                    LitToggleButton(
+                        title: "Countoff",
+                        systemImage: "timer",
+                        tint: SustainColor.clickActive,
+                        isOn: countoffBinding
                     )
-                    .frame(minWidth: 148)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
 
-                Toggle("Countoff", isOn: countoffBinding)
-                    .toggleStyle(.switch)
-
-                Picker("Time", selection: timeSignatureBinding) {
-                    Text("4/4").tag(TimeSignature.fourFour)
-                    Text("6/8").tag(TimeSignature.sixEight)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 148)
-            }
-
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    Text("\(store.rehearse.bpm)")
-                        .font(.system(size: 84, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .frame(minWidth: 150, alignment: .leading)
-
-                    Text("BPM")
-                        .font(.title2.weight(.medium))
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Stepper("Tempo", value: bpmBinding, in: tempoRange, step: 1)
-                        .labelsHidden()
+                    Picker("Time", selection: timeSignatureBinding) {
+                        ForEach(TimeSignature.common, id: \.self) { timeSignature in
+                            Text(timeSignature.description).tag(timeSignature)
+                        }
+                    }
+                    .frame(width: 124)
                 }
 
-                Slider(value: bpmSliderBinding, in: Double(tempoRange.lowerBound)...Double(tempoRange.upperBound), step: 1)
+                HStack(spacing: 18) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Accent")
+                            .font(.caption)
+                            .foregroundStyle(SustainColor.textSecondary)
+                        Picker("Accent", selection: clickAccentModeBinding) {
+                            ForEach(ClickAccentMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 220)
+                    }
 
-                HStack {
-                    Text("\(tempoRange.lowerBound)")
-                    Spacer()
-                    Text("Drag or step to update live")
-                    Spacer()
-                    Text("\(tempoRange.upperBound)")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Countoff")
+                            .font(.caption)
+                            .foregroundStyle(SustainColor.textSecondary)
+                        Picker("Countoff Sound", selection: countoffSoundBinding) {
+                            ForEach(CountoffSound.allCases) { sound in
+                                Text(sound.rawValue).tag(sound)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 180)
+                    }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
 
-            HStack(spacing: 14) {
-                RehearseStateTile(label: "Pad", value: activePadText, systemImage: "waveform")
-                RehearseStateTile(label: "Click", value: clickText, systemImage: "metronome")
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .firstTextBaseline, spacing: 16) {
+                        Text("\(store.rehearse.bpm)")
+                            .font(.system(size: 84, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .frame(minWidth: 150, alignment: .leading)
+
+                        Text("BPM")
+                            .font(.title2.weight(.medium))
+                            .foregroundStyle(SustainColor.textSecondary)
+
+                        Spacer()
+
+                        Stepper("Tempo", value: bpmBinding, in: tempoRange, step: 1)
+                            .labelsHidden()
+                    }
+
+                    Slider(value: bpmSliderBinding, in: Double(tempoRange.lowerBound)...Double(tempoRange.upperBound), step: 1)
+                        .tint(SustainColor.clickActive)
+
+                    HStack {
+                        Text("\(tempoRange.lowerBound)")
+                        Spacer()
+                        Text("Drag or step to update live")
+                        Spacer()
+                        Text("\(tempoRange.upperBound)")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(SustainColor.textSecondary)
+                }
+
+                volumeConsole
+
+                HStack(spacing: SustainSpace.lg) {
+                    RehearseStateTile(label: "Pad", value: activePadText, systemImage: "waveform", tint: SustainColor.padActive, isActive: store.rehearse.padState == .playing)
+                    RehearseStateTile(label: "Click", value: clickText, systemImage: "metronome", tint: SustainColor.clickActive, isActive: store.rehearse.clickState != .off)
+                }
             }
         }
-        .padding(22)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var activePadSurface: some View {
+        ZStack(alignment: .leading) {
+            AudioPatternView(tint: SustainColor.padActive, isActive: store.rehearse.padState == .playing)
+                .frame(height: 82)
+
+            HStack {
+                VStack(alignment: .leading, spacing: SustainSpace.xs) {
+                    Text(store.rehearse.selectedKey.rawValue)
+                        .font(SustainType.display)
+                        .monospacedDigit()
+                    Text(store.rehearse.padState == .playing ? "Pad signal active" : "Select a pad key")
+                        .font(.callout)
+                        .foregroundStyle(SustainColor.textSecondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.title2)
+                    .foregroundStyle(store.rehearse.padState == .playing ? SustainColor.padActive : SustainColor.textTertiary)
+            }
+            .padding(SustainSpace.lg)
+        }
+        .background(SustainColor.accentSoft, in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous)
+                .stroke(SustainColor.padActive.opacity(store.rehearse.padState == .playing ? 0.4 : 0.14), lineWidth: 1)
+        )
+    }
+
+    private var volumeConsole: some View {
+        VStack(alignment: .leading, spacing: SustainSpace.md) {
+            Text("Channels")
+                .font(.headline)
+
+            HStack(spacing: SustainSpace.lg) {
+                ChannelFader(
+                    title: "Pad",
+                    subtitle: "Atmosphere level",
+                    systemImage: "waveform",
+                    tint: SustainColor.padActive,
+                    isActive: store.rehearse.padState == .playing,
+                    value: padVolumeBinding
+                )
+
+                ChannelFader(
+                    title: "Click",
+                    subtitle: "Guide level",
+                    systemImage: "metronome",
+                    tint: SustainColor.clickActive,
+                    isActive: store.rehearse.clickState != .off,
+                    value: clickVolumeBinding
+                )
+            }
+        }
     }
 
     private var messageStrip: some View {
         HStack(spacing: 10) {
             Image(systemName: "info.circle")
-                .foregroundStyle(Color.sustainSage)
+                .foregroundStyle(SustainColor.accent)
             Text(store.rehearse.lastMessage)
                 .font(.callout)
             Spacer()
         }
         .padding(14)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-    }
-
-    private func sectionHeader(title: String, value: String, image: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: image)
-                .foregroundStyle(Color.sustainSage)
-            Text(title)
-                .font(.title2.weight(.semibold))
-            Spacer()
-            Text(value)
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.secondary)
-        }
     }
 
     private var activePadText: String {
@@ -223,24 +299,58 @@ struct RehearseView: View {
             store.setRehearseTimeSignature(timeSignature)
         }
     }
+
+    private var clickAccentModeBinding: Binding<ClickAccentMode> {
+        Binding {
+            store.clickSettings.accentMode
+        } set: { accentMode in
+            store.setClickAccentMode(accentMode)
+        }
+    }
+
+    private var countoffSoundBinding: Binding<CountoffSound> {
+        Binding {
+            store.clickSettings.countoffSound
+        } set: { countoffSound in
+            store.setCountoffSound(countoffSound)
+        }
+    }
+
+    private var padVolumeBinding: Binding<Double> {
+        Binding {
+            store.padVolume
+        } set: { volume in
+            store.setPadVolume(volume)
+        }
+    }
+
+    private var clickVolumeBinding: Binding<Double> {
+        Binding {
+            store.clickVolume
+        } set: { volume in
+            store.setClickVolume(volume)
+        }
+    }
 }
 
 private struct RehearseStateTile: View {
     var label: String
     var value: String
     var systemImage: String
+    var tint: Color
+    var isActive: Bool
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.title2)
-                .foregroundStyle(Color.sustainSage)
+                .foregroundStyle(tint)
                 .frame(width: 30)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(label)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(SustainColor.textSecondary)
                 Text(value)
                     .font(.headline)
             }
@@ -250,5 +360,9 @@ private struct RehearseStateTile: View {
         .padding(16)
         .frame(maxWidth: .infinity, minHeight: 78)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isActive ? tint.opacity(0.4) : SustainColor.separator, lineWidth: 1)
+        )
     }
 }

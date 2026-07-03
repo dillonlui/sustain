@@ -69,4 +69,5 @@ extension Color {
     static let sustainMoss = Color(red: 0.227, green: 0.290, blue: 0.224)
     static let sustainSage = Color(red: 0.659, green: 0.745, blue: 0.604)
     static let sustainIvory = Color(red: 0.945, green: 0.937, blue: 0.902)
+    static let sustainMutedGold = Color(red: 0.863, green: 0.796, blue: 0.541)
 }

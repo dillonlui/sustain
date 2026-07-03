@@ -5,17 +5,26 @@ struct LibrarySnapshot: Codable, Equatable {
     var padPacks: [PadPack]
     var activeSetlist: Setlist
     var routingSettings: AudioRoutingSettings
+    var padVolume: Double
+    var clickVolume: Double
+    var clickSettings: ClickSettings
 
     init(
         songs: [Song],
         padPacks: [PadPack]? = nil,
         activeSetlist: Setlist,
-        routingSettings: AudioRoutingSettings = .default
+        routingSettings: AudioRoutingSettings = .default,
+        padVolume: Double = 0.42,
+        clickVolume: Double = 0.75,
+        clickSettings: ClickSettings = .default
     ) {
         self.songs = Self.normalizedSongs(songs)
         self.padPacks = [Self.includedPadPack(from: padPacks)]
         self.activeSetlist = activeSetlist
         self.routingSettings = routingSettings
+        self.padVolume = Self.clampedVolume(padVolume)
+        self.clickVolume = Self.clampedVolume(clickVolume)
+        self.clickSettings = clickSettings
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -23,6 +32,9 @@ struct LibrarySnapshot: Codable, Equatable {
         case padPacks
         case activeSetlist
         case routingSettings
+        case padVolume
+        case clickVolume
+        case clickSettings
     }
 
     init(from decoder: Decoder) throws {
@@ -33,6 +45,9 @@ struct LibrarySnapshot: Codable, Equatable {
         padPacks = [Self.includedPadPack(from: decodedPadPacks)]
         activeSetlist = try container.decode(Setlist.self, forKey: .activeSetlist)
         routingSettings = try container.decodeIfPresent(AudioRoutingSettings.self, forKey: .routingSettings) ?? .default
+        padVolume = Self.clampedVolume(try container.decodeIfPresent(Double.self, forKey: .padVolume) ?? 0.42)
+        clickVolume = Self.clampedVolume(try container.decodeIfPresent(Double.self, forKey: .clickVolume) ?? 0.75)
+        clickSettings = try container.decodeIfPresent(ClickSettings.self, forKey: .clickSettings) ?? .default
     }
 
     var hasUsableSetlist: Bool {
@@ -55,6 +70,10 @@ struct LibrarySnapshot: Codable, Equatable {
 
     private static func includedPadPack(from padPacks: [PadPack]?) -> PadPack {
         .bundled
+    }
+
+    private static func clampedVolume(_ volume: Double) -> Double {
+        min(1, max(0, volume))
     }
 }
 

@@ -33,6 +33,29 @@ struct RuntimeSessionTests {
         #expect(store.runtime.lastMessage == "Click playing for Goodness of God")
     }
 
+    @Test func clickSettingsDefaultToCountedUnaccentedClick() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.startCuedSong()
+
+        #expect(audio.clickSettingsHistory.last == .default)
+        #expect(audio.clickSettingsHistory.last?.accentMode == ClickAccentMode.none)
+        #expect(audio.clickSettingsHistory.last?.countoffSound == .counted)
+    }
+
+    @Test func updatingRehearseClickAccentRestartsActiveClick() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.startRehearseClick()
+        store.setClickAccentMode(.downbeat)
+
+        #expect(audio.clickStartCount == 2)
+        #expect(audio.clickSettingsHistory.last?.accentMode == .downbeat)
+        #expect(audio.clickIncludesCountoffHistory.last == false)
+    }
+
     @Test func invalidTransitionDoesNotDestroyPlayingState() {
         let audio = RecordingAudioEngine(missingPadKeys: [.bb])
         let store = AppStore.preview(audioEngine: audio)
@@ -331,6 +354,53 @@ struct RuntimeSessionTests {
         #expect(store.systemCheck.canStartPlayback)
         #expect(store.systemCheck.warnings.isEmpty)
         #expect(store.routingSnapshot.independentRoutingEnabled)
+    }
+
+    @Test func sameDeviceChannelSplitClearsSharedOutputWarning() {
+        let resolver = AudioRoutingResolver()
+        let snapshot = resolver.snapshot(
+            settings: AudioRoutingSettings(
+                padOutputID: 10,
+                padOutputName: "Scarlett 2i2",
+                padOutputChannel: .output1,
+                clickOutputID: 10,
+                clickOutputName: "Scarlett 2i2",
+                clickOutputChannel: .output2
+            ),
+            outputs: [
+                AudioOutputDevice(
+                    id: 10,
+                    name: "Scarlett 2i2",
+                    isDefault: true,
+                    outputChannelCount: 2,
+                    nominalSampleRate: 48_000
+                )
+            ]
+        )
+
+        #expect(snapshot.independentRoutingEnabled)
+        #expect(snapshot.warning == nil)
+        #expect(snapshot.padRouteName == "Scarlett 2i2 Output 1 / Left")
+        #expect(snapshot.clickRouteName == "Scarlett 2i2 Output 2 / Right")
+    }
+
+    @Test func unavailableChannelSelectionBlocksPlayback() {
+        let resolver = AudioRoutingResolver()
+        let snapshot = resolver.snapshot(
+            settings: AudioRoutingSettings(
+                padOutputID: 10,
+                padOutputName: "Mono Output",
+                padOutputChannel: .output2,
+                clickOutputID: 10,
+                clickOutputName: "Mono Output"
+            ),
+            outputs: [
+                AudioOutputDevice(id: 10, name: "Mono Output", isDefault: true, outputChannelCount: 1)
+            ]
+        )
+
+        #expect(!snapshot.independentRoutingEnabled)
+        #expect(snapshot.missingSelectionMessages == ["Selected pad output channel is unavailable."])
     }
 
     @Test func routingConfigurationFailureBlocksPlayback() {
@@ -908,6 +978,45 @@ struct RuntimeSessionTests {
         #expect(loaded.routingSettings.clickOutputName == "Click Bus")
     }
 
+    @Test func channelRoutingSelectionPersistsToJSON() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainChannelRoutingTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let provider = StaticAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [
+                    AudioOutputDevice(
+                        id: 11,
+                        name: "Scarlett 2i2",
+                        isDefault: true,
+                        outputChannelCount: 2
+                    )
+                ],
+                padOutputID: 11,
+                padOutputName: "Scarlett 2i2",
+                clickOutputID: 11,
+                clickOutputName: "Scarlett 2i2",
+                independentRoutingEnabled: true,
+                padOutputChannel: .output1,
+                clickOutputChannel: .output2
+            )
+        )
+        let store = AppStore.preview(libraryStore: libraryStore, audioRoutingProvider: provider)
+
+        store.updateRouting(
+            padOutputID: 11,
+            clickOutputID: 11,
+            padOutputChannel: .output1,
+            clickOutputChannel: .output2
+        )
+
+        let loaded = try #require(try libraryStore.loadLibrary())
+        #expect(loaded.routingSettings.padOutputID == 11)
+        #expect(loaded.routingSettings.padOutputChannel == .output1)
+        #expect(loaded.routingSettings.clickOutputID == 11)
+        #expect(loaded.routingSettings.clickOutputChannel == .output2)
+    }
+
     @Test func manualRoutingChangeStopsLivePlayback() {
         let audio = RecordingAudioEngine()
         let provider = StaticAudioRoutingProvider(
@@ -970,6 +1079,26 @@ struct RuntimeSessionTests {
         #expect(audio.clickIncludesCountoffHistory == [true, false])
     }
 
+    @Test func audioChannelVolumesApplyAndPersist() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainVolumeTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio, libraryStore: libraryStore)
+
+        store.setPadVolume(0.64)
+        store.setClickVolume(0.28)
+
+        #expect(store.padVolume == 0.64)
+        #expect(store.clickVolume == 0.28)
+        #expect(audio.lastPadVolume == 0.64)
+        #expect(audio.lastClickVolume == 0.28)
+
+        let loaded = try #require(try libraryStore.loadLibrary())
+        #expect(loaded.padVolume == 0.64)
+        #expect(loaded.clickVolume == 0.28)
+    }
+
     @Test func rehearsePadSelectionStartsIncludedPad() {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)
@@ -991,8 +1120,11 @@ private final class RecordingAudioEngine: AudioControlling {
     var clickStartCount = 0
     var stopAllCount = 0
     var clickIncludesCountoffHistory: [Bool] = []
+    var clickSettingsHistory: [ClickSettings] = []
     var configureRoutingCount = 0
     var lastConfiguredSnapshot: AudioRoutingSnapshot?
+    var lastPadVolume = 0.42
+    var lastClickVolume = 0.75
     var missingPadKeys: Set<MusicalKey>
     var shouldFailPadStart = false
     var shouldFailClickStart = false
@@ -1033,9 +1165,10 @@ private final class RecordingAudioEngine: AudioControlling {
         padIsActive = false
     }
 
-    func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool) throws {
+    func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool, settings: ClickSettings) throws {
         clickStartCount += 1
         clickIncludesCountoffHistory.append(includesCountoff)
+        clickSettingsHistory.append(settings)
         if shouldFailClickStart {
             throw AudioEngineError.invalidOutputFormat
         }
@@ -1044,6 +1177,14 @@ private final class RecordingAudioEngine: AudioControlling {
 
     func stopClick() {
         clickIsActive = false
+    }
+
+    func setPadVolume(_ volume: Double) {
+        lastPadVolume = volume
+    }
+
+    func setClickVolume(_ volume: Double) {
+        lastClickVolume = volume
     }
 
     func stopAll() {

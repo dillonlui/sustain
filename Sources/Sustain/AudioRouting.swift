@@ -1,17 +1,65 @@
 import CoreAudio
 import Foundation
 
+enum AudioOutputChannelSelection: String, CaseIterable, Codable, Identifiable {
+    case stereo
+    case output1
+    case output2
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .stereo: "Stereo 1-2"
+        case .output1: "Output 1 / Left"
+        case .output2: "Output 2 / Right"
+        }
+    }
+
+    var requiredChannelCount: Int {
+        switch self {
+        case .stereo, .output1: 1
+        case .output2: 2
+        }
+    }
+
+    var isExclusiveMono: Bool {
+        switch self {
+        case .stereo: false
+        case .output1, .output2: true
+        }
+    }
+
+    var pan: Float {
+        switch self {
+        case .stereo: 0
+        case .output1: -1
+        case .output2: 1
+        }
+    }
+
+    func isAvailable(on output: AudioOutputDevice?) -> Bool {
+        guard let output else { return false }
+        if self == .stereo { return true }
+        return output.outputChannelCount >= requiredChannelCount
+    }
+}
+
 struct AudioRoutingSettings: Codable, Equatable {
     var padOutputID: AudioDeviceID?
     var padOutputName: String? = nil
+    var padOutputChannel: AudioOutputChannelSelection? = nil
     var clickOutputID: AudioDeviceID?
     var clickOutputName: String? = nil
+    var clickOutputChannel: AudioOutputChannelSelection? = nil
 
     static let `default` = AudioRoutingSettings(
         padOutputID: nil,
         padOutputName: nil,
+        padOutputChannel: nil,
         clickOutputID: nil,
-        clickOutputName: nil
+        clickOutputName: nil,
+        clickOutputChannel: nil
     )
 }
 
@@ -38,10 +86,20 @@ struct AudioRoutingSnapshot: Equatable {
     var clickOutputName: String
     var independentRoutingEnabled: Bool
     var missingSelectionMessages: [String] = []
+    var padOutputChannel: AudioOutputChannelSelection = .stereo
+    var clickOutputChannel: AudioOutputChannelSelection = .stereo
+
+    var padRouteName: String {
+        routeName(outputName: padOutputName, channel: padOutputChannel)
+    }
+
+    var clickRouteName: String {
+        routeName(outputName: clickOutputName, channel: clickOutputChannel)
+    }
 
     var summary: String {
         if independentRoutingEnabled {
-            return "Pad: \(padOutputName) | Click: \(clickOutputName)"
+            return "Pad: \(padRouteName) | Click: \(clickRouteName)"
         }
 
         return "Pad and click share \(padOutputName)"
@@ -53,6 +111,10 @@ struct AudioRoutingSnapshot: Equatable {
         }
 
         return independentRoutingEnabled ? nil : "Pad and click are currently sharing the same output."
+    }
+
+    private func routeName(outputName: String, channel: AudioOutputChannelSelection) -> String {
+        channel == .stereo ? outputName : "\(outputName) \(channel.displayName)"
     }
 
     static let unavailable = AudioRoutingSnapshot(
@@ -95,15 +157,23 @@ struct AudioRoutingResolver {
             outputs: outputs,
             fallback: defaultOutput
         )
+        let padOutputChannel = settings.padOutputChannel ?? .stereo
+        let clickOutputChannel = settings.clickOutputChannel ?? .stereo
 
         var missingSelectionMessages: [String] = []
         if settings.padOutputID != nil,
            padOutput == nil || isFallbackOutput(padOutput, fallback: defaultOutput, name: settings.padOutputName) {
             missingSelectionMessages.append("Selected pad output is unavailable.")
         }
+        if padOutput != nil, !padOutputChannel.isAvailable(on: padOutput) {
+            missingSelectionMessages.append("Selected pad output channel is unavailable.")
+        }
         if settings.clickOutputID != nil,
            clickOutput == nil || isFallbackOutput(clickOutput, fallback: defaultOutput, name: settings.clickOutputName) {
             missingSelectionMessages.append("Selected click output is unavailable.")
+        }
+        if clickOutput != nil, !clickOutputChannel.isAvailable(on: clickOutput) {
+            missingSelectionMessages.append("Selected click output channel is unavailable.")
         }
 
         let padOutputID = padOutput?.id
@@ -115,9 +185,27 @@ struct AudioRoutingResolver {
             padOutputName: padOutput?.name ?? "Unavailable",
             clickOutputID: clickOutputID,
             clickOutputName: clickOutput?.name ?? "Unavailable",
-            independentRoutingEnabled: padOutputID != nil && clickOutputID != nil && padOutputID != clickOutputID,
-            missingSelectionMessages: missingSelectionMessages
+            independentRoutingEnabled: isIndependentRoute(
+                padOutputID: padOutputID,
+                padChannel: padOutputChannel,
+                clickOutputID: clickOutputID,
+                clickChannel: clickOutputChannel
+            ),
+            missingSelectionMessages: missingSelectionMessages,
+            padOutputChannel: padOutputChannel,
+            clickOutputChannel: clickOutputChannel
         )
+    }
+
+    private func isIndependentRoute(
+        padOutputID: AudioDeviceID?,
+        padChannel: AudioOutputChannelSelection,
+        clickOutputID: AudioDeviceID?,
+        clickChannel: AudioOutputChannelSelection
+    ) -> Bool {
+        guard let padOutputID, let clickOutputID else { return false }
+        if padOutputID != clickOutputID { return true }
+        return padChannel.isExclusiveMono && clickChannel.isExclusiveMono && padChannel != clickChannel
     }
 
     private func resolveOutput(
