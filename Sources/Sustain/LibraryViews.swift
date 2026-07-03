@@ -270,12 +270,7 @@ struct AudioSetupView: View {
                 }
 
                 if let warning = store.routingSnapshot.warning {
-                    Label(warning, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(SustainColor.warning)
-                        .padding(SustainSpace.md)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(SustainColor.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
+                    SustainInlineNotice(message: warning, kind: .warning)
                 }
             }
         }
@@ -381,8 +376,7 @@ struct AudioSetupView: View {
                 )
 
                 if store.routingSnapshot.outputs.isEmpty {
-                    Label("No audio outputs detected.", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(SustainColor.warning)
+                    SustainInlineNotice(message: "No audio outputs detected.", kind: .warning)
                 } else {
                     VStack(alignment: .leading, spacing: SustainSpace.sm) {
                         ForEach(store.routingSnapshot.outputs) { output in

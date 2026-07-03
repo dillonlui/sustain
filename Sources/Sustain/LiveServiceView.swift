@@ -616,9 +616,13 @@ private struct MissingLiveSetlistEntryRow: View {
                 .foregroundStyle(SustainColor.warning)
                 .frame(width: 32)
 
-            Label("Missing song reference", systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
-                .foregroundStyle(SustainColor.warning)
+            HStack(spacing: SustainSpace.sm) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(SustainColor.warning)
+                Text("Missing song reference")
+                    .foregroundStyle(.primary)
+            }
+            .font(.headline)
 
             Spacer()
 

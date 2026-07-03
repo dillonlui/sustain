@@ -35,8 +35,8 @@ enum SustainColor {
     static let padActive = accent
     static let clickActive = accent
     static let ready = accent
-    static let warning = Color.orange
-    static let destructive = Color.red
+    static let warning = Color(nsColor: .systemOrange)
+    static let destructive = Color(nsColor: .systemRed)
 
     static let separator = Color(nsColor: .separatorColor)
     static let focusRing = Color.accentColor.opacity(0.55)
@@ -262,6 +262,48 @@ struct MetadataChip: View {
         .padding(.horizontal, SustainSpace.sm)
         .padding(.vertical, 4)
         .background(.quaternary, in: Capsule())
+    }
+}
+
+// MARK: - Notices
+
+/// Inline caution/error banner following the native pattern: the color lives on the
+/// icon, the message text stays at full (primary) contrast, on a subtle tinted chip.
+struct SustainInlineNotice: View {
+    enum Kind {
+        case warning
+        case error
+
+        var tint: Color {
+            switch self {
+            case .warning: SustainColor.warning
+            case .error: SustainColor.destructive
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .warning: "exclamationmark.triangle.fill"
+            case .error: "xmark.octagon.fill"
+            }
+        }
+    }
+
+    var message: String
+    var kind: Kind = .warning
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: SustainSpace.sm) {
+            Image(systemName: kind.systemImage)
+                .foregroundStyle(kind.tint)
+            Text(message)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 0)
+        }
+        .font(.callout)
+        .padding(SustainSpace.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(kind.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
     }
 }
 
