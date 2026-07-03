@@ -137,13 +137,14 @@ final class SpeechCountoffVoiceRenderer: CountoffVoiceRendering, @unchecked Send
         let capacity = AVAudioFrameCount(Double(totalSourceFrames) * ratio) + 4_096
         guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return nil }
 
-        // The input block is invoked synchronously on this thread during `convert`,
-        // so the mutable cursor is not actually shared across concurrent execution.
+        // The input block is invoked synchronously on this thread during `convert`, so
+        // this state is not actually shared across concurrent execution.
+        nonisolated(unsafe) let sourcePieces = pieces
         nonisolated(unsafe) var index = 0
         var error: NSError?
         let status = converter.convert(to: output, error: &error) { _, statusPointer in
-            if index < pieces.count {
-                let next = pieces[index]
+            if index < sourcePieces.count {
+                let next = sourcePieces[index]
                 index += 1
                 statusPointer.pointee = .haveData
                 return next

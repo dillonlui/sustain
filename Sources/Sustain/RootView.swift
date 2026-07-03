@@ -66,79 +66,33 @@ private struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            VStack {
-                Spacer()
-                TopographicFieldView(tint: SustainColor.accent, animated: false)
-                    .frame(height: 190)
-                    .opacity(0.30)
-                    .mask(
-                        LinearGradient(
-                            colors: [.clear, .black.opacity(0.5), .black],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            }
-            .allowsHitTesting(false)
+        VStack(alignment: .leading, spacing: SustainSpace.xl) {
+            BrandHeader()
+                .padding(.top, SustainSpace.xl)
 
-            VStack(alignment: .leading, spacing: SustainSpace.xl) {
-                BrandHeader()
-                    .padding(.top, SustainSpace.screen + SustainSpace.xl)
+            VStack(alignment: .leading, spacing: SustainSpace.sm) {
+                Text("Service")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, SustainSpace.sm)
 
-                VStack(alignment: .leading, spacing: SustainSpace.sm) {
-                    Text("Service")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(SustainColor.textTertiary)
-                        .padding(.horizontal, SustainSpace.sm)
-
-                    ForEach(AppScreen.allCases) { screen in
-                        SidebarRow(
-                            title: screen.rawValue,
-                            systemImage: icon(for: screen),
-                            isSelected: store.selectedScreen == screen
-                        ) {
-                            withAnimation(.smooth(duration: 0.2)) {
-                                store.selectedScreen = screen
-                            }
+                ForEach(AppScreen.allCases) { screen in
+                    SidebarRow(
+                        title: screen.rawValue,
+                        systemImage: icon(for: screen),
+                        isSelected: store.selectedScreen == screen
+                    ) {
+                        withAnimation(.smooth(duration: 0.2)) {
+                            store.selectedScreen = screen
                         }
                     }
                 }
-
-                Spacer()
             }
-            .padding(.horizontal, SustainSpace.lg)
-            .padding(.bottom, SustainSpace.xl)
 
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            SustainColor.separator.opacity(0.08),
-                            SustainColor.glassHighlight.opacity(0.16)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .frame(width: 1)
+            Spacer()
         }
-        .background {
-            Rectangle()
-                .fill(Color.sustainNearBlack.opacity(0.86))
-                .overlay(
-                    LinearGradient(
-                        colors: [
-                            SustainColor.accent.opacity(0.025),
-                            Color.clear,
-                            SustainColor.clickActive.opacity(0.018)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-        }
-        .ignoresSafeArea(.container, edges: .top)
+        .padding(.horizontal, SustainSpace.lg)
+        .padding(.vertical, SustainSpace.lg)
         .navigationSplitViewColumnWidth(min: 220, ideal: 240)
     }
 
