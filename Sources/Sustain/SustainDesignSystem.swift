@@ -20,9 +20,12 @@ enum SustainColor {
     /// light so it reads as a selection/active color in both appearances. Applied as the
     /// app-wide tint so native controls adopt it. Restraint comes from using it rarely.
     static let accent = Color(nsColor: NSColor(name: nil) { appearance in
+        // Both variants keep ≥4.5:1 contrast against white so white text on the accent
+        // (e.g. the prominent transport button) passes WCAG AA. Dark is a touch lighter
+        // to lift off a dark background; light is deeper for presence on white.
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? NSColor(srgbRed: 0.52, green: 0.63, blue: 0.47, alpha: 1)
-            : NSColor(srgbRed: 0.34, green: 0.45, blue: 0.32, alpha: 1)
+            ? NSColor(srgbRed: 0.37, green: 0.48, blue: 0.34, alpha: 1)
+            : NSColor(srgbRed: 0.31, green: 0.42, blue: 0.29, alpha: 1)
     })
     static let accentSoft = accent.opacity(0.14)
 
