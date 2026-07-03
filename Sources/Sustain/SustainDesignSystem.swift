@@ -17,12 +17,14 @@ enum SustainColor {
     static let textTertiary = Color(nsColor: .tertiaryLabelColor)
 
     static let accent = Color.accentColor
-    static let accentSoft = Color.accentColor.opacity(0.15)
+    static let accentSoft = Color.accentColor.opacity(0.14)
 
-    /// State semantics: pad/playing = green, click = amber, ready = green.
-    static let padActive = Color.green
-    static let clickActive = Color.orange
-    static let ready = Color.green
+    /// A single interaction accent carries all "active/selected" state — pad, click, and
+    /// ready all resolve to it, so on/off reads as accent-vs-neutral rather than as
+    /// competing hues. Warning/destructive stay distinct because they signal danger.
+    static let padActive = Color.accentColor
+    static let clickActive = Color.accentColor
+    static let ready = Color.accentColor
     static let warning = Color.orange
     static let destructive = Color.red
 
@@ -249,7 +251,7 @@ struct MetadataChip: View {
         }
         .padding(.horizontal, SustainSpace.sm)
         .padding(.vertical, 4)
-        .background(tint.opacity(0.12), in: Capsule())
+        .background(.quaternary, in: Capsule())
     }
 }
 
