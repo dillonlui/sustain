@@ -276,6 +276,19 @@ struct RuntimeSessionTests {
         #expect(loaded.activeSetlist.title == "Sunday Night")
     }
 
+    @Test func cueingPreloadsPadForCuedSong() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+
+        let before = audio.preloadedKeys.count
+        store.cueNextSong()
+
+        let cued = try #require(store.cuedEntry)
+        let song = try #require(store.song(for: cued))
+        #expect(audio.preloadedKeys.count > before)
+        #expect(audio.preloadedKeys.last == cued.resolvedKey(for: song))
+    }
+
     @Test func movingSetlistEntryReordersAndPersists() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainReorderTests-\(UUID().uuidString)", isDirectory: true)
@@ -1193,6 +1206,7 @@ private final class RecordingAudioEngine: AudioControlling {
     var lastPadVolume = 0.42
     var lastClickVolume = 0.75
     var missingPadKeys: Set<MusicalKey>
+    var preloadedKeys: [MusicalKey] = []
     var shouldFailPadStart = false
     var shouldFailClickStart = false
     var shouldFailConfigureRouting = false
@@ -1218,6 +1232,10 @@ private final class RecordingAudioEngine: AudioControlling {
 
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool {
         !missingPadKeys.contains(key)
+    }
+
+    func preloadPad(for key: MusicalKey, padPack: PadPack) {
+        preloadedKeys.append(key)
     }
 
     func startPad(for key: MusicalKey, padPack: PadPack) throws {

@@ -34,6 +34,7 @@ protocol AudioControlling: AnyObject {
     func configureRouting(_ snapshot: AudioRoutingSnapshot) throws
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool
+    func preloadPad(for key: MusicalKey, padPack: PadPack)
     func startPad(for key: MusicalKey, padPack: PadPack) throws
     func stopPad()
     func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool, settings: ClickSettings) throws
@@ -41,6 +42,12 @@ protocol AudioControlling: AnyObject {
     func setPadVolume(_ volume: Double)
     func setClickVolume(_ volume: Double)
     func stopAll()
+}
+
+extension AudioControlling {
+    /// Optional: engines that decode real files override this to warm a cache off the
+    /// main thread. No-op by default.
+    func preloadPad(for key: MusicalKey, padPack: PadPack) {}
 }
 
 @MainActor
@@ -71,6 +78,8 @@ final class SustainAudioEngine: AudioControlling {
     private var padFadeTasks: [Task<Void, Never>?] = [nil, nil]
     private var padStopTasks: [Task<Void, Never>?] = [nil, nil]
     private var padGenerations = [0, 0]
+    private let padBufferCache = PadBufferCache()
+    private let padDecodeQueue = DispatchQueue(label: "com.sustain.pad-decode", qos: .userInitiated)
 
     var isEngineRunning: Bool {
         padEngine.isRunning || clickEngine.isRunning
@@ -167,17 +176,26 @@ final class SustainAudioEngine: AudioControlling {
         padAssetResolver.asset(for: padPack, key: key) != nil
     }
 
+    /// Decodes the cued pad ahead of time on a background queue so pressing Start does
+    /// not stall the main thread on a multi-MB file read/decode.
+    func preloadPad(for key: MusicalKey, padPack: PadPack) {
+        guard let asset = padAssetResolver.asset(for: padPack, key: key) else { return }
+        guard !padBufferCache.contains(asset.url) else { return }
+
+        let cache = padBufferCache
+        padDecodeQueue.async {
+            guard let file = try? AVAudioFile(forReading: asset.url),
+                  let buffer = try? Self.makeLoopingBuffer(from: file) else { return }
+            cache.store(buffer, for: asset.url)
+        }
+    }
+
     func startPad(for key: MusicalKey, padPack: PadPack) throws {
         guard let asset = padAssetResolver.asset(for: padPack, key: key) else {
             throw AudioEngineError.missingPadFile(pack: padPack.name, key: key)
         }
 
-        let audioFile: AVAudioFile
-        do {
-            audioFile = try AVAudioFile(forReading: asset.url)
-        } catch {
-            throw AudioEngineError.unreadablePadFile(asset.url)
-        }
+        let buffer = try loadPadBuffer(for: asset.url)
 
         try startPadEngineIfNeeded()
 
@@ -193,7 +211,7 @@ final class SustainAudioEngine: AudioControlling {
         player.stop()
         player.pan = padOutputChannel.pan
         mixer.outputVolume = 0
-        player.scheduleBuffer(try makeLoopingBuffer(from: audioFile), at: nil, options: .loops)
+        player.scheduleBuffer(buffer, at: nil, options: .loops)
         player.play()
 
         fade(mixer: mixer, at: newIndex, to: padVolume, duration: 1.25)
@@ -494,7 +512,26 @@ final class SustainAudioEngine: AudioControlling {
         }
     }
 
-    private func makeLoopingBuffer(from file: AVAudioFile) throws -> AVAudioPCMBuffer {
+    private func loadPadBuffer(for url: URL) throws -> AVAudioPCMBuffer {
+        if let cached = padBufferCache.buffer(for: url) {
+            return cached
+        }
+
+        let file: AVAudioFile
+        do {
+            file = try AVAudioFile(forReading: url)
+        } catch {
+            throw AudioEngineError.unreadablePadFile(url)
+        }
+
+        let buffer = try Self.makeLoopingBuffer(from: file)
+        padBufferCache.store(buffer, for: url)
+        return buffer
+    }
+
+    /// Reads a file fully into a PCM buffer. `nonisolated` so it can run on the pad
+    /// decode queue as well as the main actor.
+    nonisolated static func makeLoopingBuffer(from file: AVAudioFile) throws -> AVAudioPCMBuffer {
         guard let buffer = AVAudioPCMBuffer(
             pcmFormat: file.processingFormat,
             frameCapacity: AVAudioFrameCount(file.length)
@@ -504,6 +541,31 @@ final class SustainAudioEngine: AudioControlling {
 
         try file.read(into: buffer)
         return buffer
+    }
+}
+
+/// Thread-safe cache of decoded pad buffers keyed by file URL. Buffers are immutable
+/// once decoded, so sharing them across player nodes and calls is safe.
+private final class PadBufferCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffers: [URL: AVAudioPCMBuffer] = [:]
+
+    func buffer(for url: URL) -> AVAudioPCMBuffer? {
+        lock.lock()
+        defer { lock.unlock() }
+        return buffers[url]
+    }
+
+    func contains(_ url: URL) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return buffers[url] != nil
+    }
+
+    func store(_ buffer: AVAudioPCMBuffer, for url: URL) {
+        lock.lock()
+        buffers[url] = buffer
+        lock.unlock()
     }
 }
 

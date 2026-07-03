@@ -145,6 +145,7 @@ final class AppStore: ObservableObject {
         powerStateMonitor.start { [weak self] in
             self?.handleSystemWake()
         }
+        preloadCuedPad()
     }
 
     var playingEntry: SetlistEntry? {
@@ -180,6 +181,7 @@ final class AppStore: ObservableObject {
 
         runtime.cuedEntryID = activeSetlist.entries[nextIndex].id
         runtime.lastMessage = "Cued next song"
+        preloadCuedPad()
     }
 
     func cuePreviousSong() {
@@ -192,6 +194,7 @@ final class AppStore: ObservableObject {
 
         runtime.cuedEntryID = activeSetlist.entries[activeSetlist.entries.index(before: index)].id
         runtime.lastMessage = "Cued previous song"
+        preloadCuedPad()
     }
 
     func cue(entryID: SetlistEntry.ID) {
@@ -202,6 +205,7 @@ final class AppStore: ObservableObject {
 
         runtime.cuedEntryID = entryID
         runtime.lastMessage = "Cued \(song.title)"
+        preloadCuedPad()
     }
 
     func startCuedSong() {
@@ -526,6 +530,7 @@ final class AppStore: ObservableObject {
 
         runtime.lastMessage = "Added \(song.title) to setlist"
         saveLibrary()
+        preloadCuedPad()
         return entry.id
     }
 
@@ -591,6 +596,7 @@ final class AppStore: ObservableObject {
         activeSetlist.entries[index].keyOverride = keyOverride
         activeSetlist.entries[index].bpmOverride = bpmOverride
         saveLibrary()
+        preloadCuedPad()
     }
 
     func updateRouting(
@@ -765,6 +771,11 @@ final class AppStore: ObservableObject {
     private func clearCountoff() {
         runtime.countoffBeat = nil
         runtime.countoffTotal = nil
+    }
+
+    private func preloadCuedPad() {
+        guard let cuedEntry, let song = song(for: cuedEntry) else { return }
+        audioEngine.preloadPad(for: cuedEntry.resolvedKey(for: song), padPack: song.padPack)
     }
 
     private func countoffDuration(bpm: Int, timeSignature: TimeSignature) -> TimeInterval {
