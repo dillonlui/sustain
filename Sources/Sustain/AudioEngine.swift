@@ -53,6 +53,11 @@ final class SustainAudioEngine: AudioControlling {
     private let clickMixer = AVAudioMixerNode()
     private let clickFormat: AVAudioFormat
     private let padAssetResolver: PadAssetResolving
+    private let voiceRenderer: CountoffVoiceRendering?
+
+    /// Below this beat length a spoken word cannot stay intelligible, so the count-off
+    /// falls back to clicks (matching how Ableton only clicks at fast tempos).
+    private let minSpokenBeatDuration: TimeInterval = 0.33
     private var activePadIndex: Int?
     private var nextPadIndex = 0
     private var activePadKey: MusicalKey?
@@ -91,8 +96,12 @@ final class SustainAudioEngine: AudioControlling {
         return "\(active.joined(separator: " + ")) (\(routingSummary))"
     }
 
-    init(padAssetResolver: PadAssetResolving = DefaultPadAssetResolver()) {
+    init(
+        padAssetResolver: PadAssetResolving = DefaultPadAssetResolver(),
+        voiceRenderer: CountoffVoiceRendering? = SpeechCountoffVoiceRenderer()
+    ) {
         self.padAssetResolver = padAssetResolver
+        self.voiceRenderer = voiceRenderer
 
         let hardwareFormat = clickEngine.outputNode.inputFormat(forBus: 0)
         let sampleRate = hardwareFormat.sampleRate > 0 ? hardwareFormat.sampleRate : 44_100
@@ -112,6 +121,8 @@ final class SustainAudioEngine: AudioControlling {
         clickMixer.outputVolume = clickVolume
         clickEngine.connect(clickPlayer, to: clickMixer, format: clickFormat)
         clickEngine.connect(clickMixer, to: clickEngine.mainMixerNode, format: clickFormat)
+
+        voiceRenderer?.prewarm(numbers: Array(1...12), format: clickFormat)
     }
 
     func prepare() {
@@ -372,30 +383,35 @@ final class SustainAudioEngine: AudioControlling {
         let buffer = AVAudioPCMBuffer(pcmFormat: clickFormat, frameCapacity: frameCount)!
         buffer.frameLength = frameCount
 
-        let channelCount = Int(clickFormat.channelCount)
-        let clickLength = Int(sampleRate * 0.045)
-
         for beat in 0..<beats {
             let startFrame = Int(Double(beat) * secondsPerBeat * sampleRate)
             let accented = settings.accentMode == .downbeat && beat % timeSignature.beatsPerMeasure == 0
-            let frequency = accented ? 1_760.0 : 1_200.0
-            let amplitude = accented ? 0.78 : 0.48
-
-            for offset in 0..<clickLength {
-                let frame = startFrame + offset
-                guard frame < Int(frameCount) else { break }
-
-                let t = Double(offset) / sampleRate
-                let envelope = exp(-55.0 * t)
-                let sample = Float(sin(2.0 * .pi * frequency * t) * envelope * amplitude)
-
-                for channel in 0..<channelCount {
-                    buffer.floatChannelData?[channel][frame] += sample
-                }
-            }
+            writeClickTone(into: buffer, startFrame: startFrame, accented: accented)
         }
 
         return buffer
+    }
+
+    private func writeClickTone(into buffer: AVAudioPCMBuffer, startFrame: Int, accented: Bool) {
+        let sampleRate = clickFormat.sampleRate
+        let channelCount = Int(clickFormat.channelCount)
+        let frameCount = Int(buffer.frameLength)
+        let clickLength = Int(sampleRate * 0.045)
+        let frequency = accented ? 1_760.0 : 1_200.0
+        let amplitude = accented ? 0.78 : 0.48
+
+        for offset in 0..<clickLength {
+            let frame = startFrame + offset
+            guard frame < frameCount else { break }
+
+            let t = Double(offset) / sampleRate
+            let envelope = exp(-55.0 * t)
+            let sample = Float(sin(2.0 * .pi * frequency * t) * envelope * amplitude)
+
+            for channel in 0..<channelCount {
+                buffer.floatChannelData?[channel][frame] += sample
+            }
+        }
     }
 
     private func makeCountoffBuffer(
@@ -410,79 +426,71 @@ final class SustainAudioEngine: AudioControlling {
         let sampleRate = clickFormat.sampleRate
         let beats = max(1, timeSignature.beatsPerMeasure)
         let secondsPerBeat = 60.0 / Double(bpm)
+
+        // At fast tempos a spoken word cannot stay intelligible within a beat, so fall
+        // back to the click count-off rather than a garbled voice.
+        guard secondsPerBeat >= minSpokenBeatDuration else {
+            return makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
+        }
+
         let duration = secondsPerBeat * Double(beats)
         let frameCount = AVAudioFrameCount(sampleRate * duration)
         let buffer = AVAudioPCMBuffer(pcmFormat: clickFormat, frameCapacity: frameCount)!
         buffer.frameLength = frameCount
+        zeroBuffer(buffer)
 
+        let slotFrames = Int(secondsPerBeat * sampleRate)
         for beat in 0..<beats {
-            addCountSyllable(
-                beatNumber: beat + 1,
-                startFrame: Int(Double(beat) * secondsPerBeat * sampleRate),
-                maxDuration: secondsPerBeat * 0.72,
-                to: buffer
-            )
+            let startFrame = Int(Double(beat) * secondsPerBeat * sampleRate)
+
+            if let word = voiceRenderer?.renderedWord(for: beat + 1, format: clickFormat) {
+                copyWord(word, into: buffer, at: startFrame, maxFrames: slotFrames)
+            } else {
+                // Voice unavailable — keep every beat audible with a click.
+                let accented = settings.accentMode == .downbeat && beat == 0
+                writeClickTone(into: buffer, startFrame: startFrame, accented: accented)
+            }
         }
 
         return buffer
     }
 
-    private func addCountSyllable(
-        beatNumber: Int,
-        startFrame: Int,
-        maxDuration: TimeInterval,
-        to buffer: AVAudioPCMBuffer
+    private func copyWord(
+        _ word: AVAudioPCMBuffer,
+        into buffer: AVAudioPCMBuffer,
+        at startFrame: Int,
+        maxFrames: Int
     ) {
-        let sampleRate = clickFormat.sampleRate
-        let frameCount = Int(buffer.frameLength)
+        guard let source = word.floatChannelData, let destination = buffer.floatChannelData else { return }
+
         let channelCount = Int(clickFormat.channelCount)
-        let duration = min(0.34, max(0.18, maxDuration))
-        let syllableLength = Int(sampleRate * duration)
-        let profile = countSyllableProfile(for: beatNumber)
+        let sourceChannelCount = max(1, Int(word.format.channelCount))
+        let bufferFrames = Int(buffer.frameLength)
+        let available = min(maxFrames, bufferFrames - startFrame)
+        let copyCount = min(Int(word.frameLength), available)
+        guard copyCount > 0 else { return }
 
-        for offset in 0..<syllableLength {
+        // Short fade at the trim boundary so a word cut off at the beat edge doesn't pop.
+        let fadeFrames = min(copyCount, Int(clickFormat.sampleRate * 0.008))
+        for offset in 0..<copyCount {
+            var envelope: Float = 1
+            if fadeFrames > 0, offset > copyCount - fadeFrames {
+                envelope = Float(copyCount - offset) / Float(fadeFrames)
+            }
+
             let frame = startFrame + offset
-            guard frame < frameCount else { break }
-
-            let progress = Double(offset) / Double(max(1, syllableLength - 1))
-            let t = Double(offset) / sampleRate
-            let attack = min(1.0, progress / 0.08)
-            let release = min(1.0, (1.0 - progress) / 0.28)
-            let envelope = max(0, min(attack, release))
-            let pitch = profile.pitchStart + (profile.pitchEnd - profile.pitchStart) * progress
-            let vowel = sin(2.0 * .pi * pitch * t)
-                + 0.45 * sin(2.0 * .pi * profile.formant * t)
-                + 0.18 * sin(2.0 * .pi * profile.formant * 1.72 * t)
-            let consonant = offset < Int(sampleRate * 0.045)
-                ? sin(2.0 * .pi * profile.consonant * t) * exp(-70.0 * t)
-                : 0
-            let sample = Float((vowel * 0.28 + consonant * 0.16) * envelope)
-
             for channel in 0..<channelCount {
-                buffer.floatChannelData?[channel][frame] += sample
+                let sourceChannel = min(channel, sourceChannelCount - 1)
+                destination[channel][frame] += source[sourceChannel][offset] * envelope
             }
         }
     }
 
-    private func countSyllableProfile(for beatNumber: Int) -> (
-        pitchStart: Double,
-        pitchEnd: Double,
-        formant: Double,
-        consonant: Double
-    ) {
-        return switch ((beatNumber - 1) % 12) + 1 {
-        case 1: (185, 150, 730, 2_100)
-        case 2: (178, 142, 920, 1_850)
-        case 3: (192, 154, 780, 2_450)
-        case 4: (170, 136, 660, 1_650)
-        case 5: (184, 147, 700, 2_300)
-        case 6: (176, 141, 830, 2_700)
-        case 7: (190, 152, 760, 2_150)
-        case 8: (168, 134, 880, 2_550)
-        case 9: (181, 145, 690, 1_900)
-        case 10: (174, 139, 810, 2_050)
-        case 11: (188, 150, 740, 2_350)
-        default: (172, 138, 860, 2_600)
+    private func zeroBuffer(_ buffer: AVAudioPCMBuffer) {
+        guard let channels = buffer.floatChannelData else { return }
+        let frames = Int(buffer.frameLength)
+        for channel in 0..<Int(clickFormat.channelCount) {
+            channels[channel].update(repeating: 0, count: frames)
         }
     }
 

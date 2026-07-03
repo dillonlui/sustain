@@ -1109,6 +1109,28 @@ struct RuntimeSessionTests {
         #expect(store.rehearse.padState == .playing)
         #expect(audio.padStartCount == 1)
     }
+
+    @Test func countoffWordsCoverEverySupportedBeat() {
+        #expect(SpeechCountoffVoiceRenderer.word(for: 1) == "one")
+        #expect(SpeechCountoffVoiceRenderer.word(for: 4) == "four")
+        #expect(SpeechCountoffVoiceRenderer.word(for: 6) == "six")
+        #expect(SpeechCountoffVoiceRenderer.word(for: 12) == "twelve")
+        #expect(SpeechCountoffVoiceRenderer.word(for: 0) == nil)
+        #expect(SpeechCountoffVoiceRenderer.word(for: 13) == nil)
+    }
+
+    @Test func supportedTimeSignaturesAllMapToCountoffWords() {
+        for timeSignature in TimeSignature.common {
+            for beat in 1...timeSignature.beatsPerMeasure {
+                #expect(SpeechCountoffVoiceRenderer.word(for: beat) != nil)
+            }
+        }
+    }
+
+    // NOTE: The AVSpeechSynthesizer render path (SpeechCountoffVoiceRenderer) cannot be
+    // reliably unit-tested here — `write` delivers its buffers on the true main run loop,
+    // which the swift-testing @MainActor executor does not pump. It is verified out-of-band
+    // (scripts/ probe) and audibly in the running app. Only the pure mapping logic is tested.
 }
 
 @MainActor
