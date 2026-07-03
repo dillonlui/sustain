@@ -68,34 +68,33 @@ private struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: SustainSpace.xl) {
-            BrandHeader()
-                .padding(.top, SustainSpace.xl)
-
-            VStack(alignment: .leading, spacing: SustainSpace.sm) {
-                Text("Service")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, SustainSpace.sm)
-
+        List(selection: selectionBinding) {
+            Section("Service") {
                 ForEach(AppScreen.allCases) { screen in
-                    SidebarRow(
-                        title: screen.rawValue,
-                        systemImage: icon(for: screen),
-                        isSelected: store.selectedScreen == screen
-                    ) {
-                        withAnimation(.smooth(duration: 0.2)) {
-                            store.selectedScreen = screen
-                        }
-                    }
+                    Label(screen.rawValue, systemImage: icon(for: screen))
+                        .tag(screen)
                 }
             }
-
-            Spacer()
         }
-        .padding(.horizontal, SustainSpace.lg)
-        .padding(.vertical, SustainSpace.lg)
-        .navigationSplitViewColumnWidth(min: 220, ideal: 240)
+        .listStyle(.sidebar)
+        .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            BrandHeader()
+                .padding(.horizontal, SustainSpace.lg)
+                .padding(.top, SustainSpace.md)
+                .padding(.bottom, SustainSpace.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var selectionBinding: Binding<AppScreen?> {
+        Binding {
+            store.selectedScreen
+        } set: { newValue in
+            if let newValue {
+                store.selectedScreen = newValue
+            }
+        }
     }
 
     private func icon(for screen: AppScreen) -> String {
@@ -111,57 +110,12 @@ private struct SidebarView: View {
 
 private struct BrandHeader: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        HStack(spacing: SustainSpace.sm) {
             BrandMarkView()
-                .frame(width: 92, height: 44)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("SUSTAIN")
-                    .font(.system(.title3, design: .default, weight: .semibold))
-                    .tracking(6)
-                Text("Atmosphere. Presence. Flow.")
-                    .font(.caption)
-                    .foregroundStyle(SustainColor.textSecondary)
-            }
+                .frame(width: 34, height: 20)
+            Text("SUSTAIN")
+                .font(.headline)
+                .tracking(3)
         }
-    }
-}
-
-private struct SidebarRow: View {
-    var title: String
-    var systemImage: String
-    var isSelected: Bool
-    var action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: SustainSpace.md) {
-                Image(systemName: systemImage)
-                    .font(.callout.weight(.semibold))
-                    .frame(width: 20)
-                Text(title)
-                    .font(.callout.weight(.medium))
-                Spacer()
-            }
-            .foregroundStyle(isSelected ? Color.primary : SustainColor.textSecondary)
-            .padding(.horizontal, SustainSpace.md)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: SustainRadius.control, style: .continuous)
-                    .fill(rowFill)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .animation(.smooth(duration: 0.16), value: isHovering)
-        .animation(.smooth(duration: 0.2), value: isSelected)
-    }
-
-    private var rowFill: Color {
-        if isSelected {
-            return SustainColor.accent.opacity(0.15)
-        }
-        return isHovering ? Color.primary.opacity(0.06) : .clear
     }
 }
