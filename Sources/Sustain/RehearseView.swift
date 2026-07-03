@@ -9,15 +9,22 @@ struct RehearseView: View {
         VStack(spacing: 0) {
             header
 
-            HStack(alignment: .top, spacing: 24) {
-                padPanel
-                    .frame(minWidth: 340, idealWidth: 380, maxWidth: 420)
-
-                clickPanel
-                    .frame(maxWidth: .infinity, alignment: .top)
+            ScrollView {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: SustainSpace.xxl) {
+                        padPanel
+                            .frame(minWidth: 320, maxWidth: 420, alignment: .top)
+                        clickPanel
+                            .frame(minWidth: 460, maxWidth: .infinity, alignment: .top)
+                    }
+                    VStack(spacing: SustainSpace.xxl) {
+                        padPanel
+                        clickPanel
+                    }
+                }
+                .padding(SustainSpace.screen)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(SustainSpace.screen)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .sustainScreenBackground(.rehearse)
     }
@@ -133,7 +140,7 @@ struct RehearseView: View {
                             }
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 220)
+                        .frame(maxWidth: .infinity)
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -146,7 +153,7 @@ struct RehearseView: View {
                             }
                         }
                         .pickerStyle(.segmented)
-                        .frame(width: 180)
+                        .frame(maxWidth: .infinity)
                     }
                 }
 

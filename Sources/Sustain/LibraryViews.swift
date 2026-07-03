@@ -155,36 +155,57 @@ private struct SongLibraryRow: View {
     @Binding var timeSignature: TimeSignature
     var onAddToSetlist: () -> Void
 
+    @State private var titleDraft = ""
+
     var body: some View {
-        HStack(alignment: .center, spacing: SustainSpace.lg) {
-            VStack(alignment: .leading, spacing: SustainSpace.sm) {
-                TextField("Title", text: $title)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.headline)
-
-                HStack(spacing: SustainSpace.sm) {
-                    MetadataChip(label: "Key", value: key.rawValue, tint: SustainColor.padActive)
-                    MetadataChip(label: "BPM", value: "\(bpm)", tint: SustainColor.clickActive)
-                    MetadataChip(label: "Time", value: timeSignature.description)
-
-                    Label("Included Pads", systemImage: "waveform")
-                        .font(.caption)
-                        .foregroundStyle(SustainColor.textSecondary)
-                }
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: SustainSpace.lg) {
+                titleField
+                Spacer(minLength: SustainSpace.md)
+                controls
             }
+            VStack(alignment: .leading, spacing: SustainSpace.md) {
+                titleField
+                controls
+            }
+        }
+        .padding(SustainSpace.lg)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous)
+                .stroke(SustainColor.separator, lineWidth: 1)
+        )
+        .onAppear { titleDraft = title }
+    }
 
-            Spacer(minLength: SustainSpace.xxl)
+    private var titleField: some View {
+        VStack(alignment: .leading, spacing: SustainSpace.sm) {
+            TextField("Title", text: $titleDraft)
+                .textFieldStyle(.roundedBorder)
+                .font(.headline)
+                .onSubmit { title = titleDraft }
 
+            HStack(spacing: SustainSpace.sm) {
+                MetadataChip(label: "Key", value: key.rawValue)
+                MetadataChip(label: "BPM", value: "\(bpm)")
+                MetadataChip(label: "Time", value: timeSignature.description)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var controls: some View {
+        HStack(spacing: SustainSpace.md) {
             Picker("Key", selection: $key) {
                 ForEach(MusicalKey.allCases) { key in
                     Text(key.rawValue).tag(key)
                 }
             }
             .labelsHidden()
-            .frame(width: 82)
+            .frame(width: 84)
 
             Stepper("\(bpm) BPM", value: $bpm, in: 40...220)
-                .frame(width: 140)
+                .frame(width: 128)
 
             Picker("Time", selection: $timeSignature) {
                 ForEach(TimeSignature.common, id: \.self) { timeSignature in
@@ -198,12 +219,6 @@ private struct SongLibraryRow: View {
                 onAddToSetlist()
             }
         }
-        .padding(SustainSpace.lg)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous)
-                .stroke(SustainColor.separator, lineWidth: 1)
-        )
     }
 }
 
@@ -218,13 +233,15 @@ struct AudioSetupView: View {
                 VStack(alignment: .leading, spacing: SustainSpace.xxl) {
                     routingSummaryPanel
 
-                    HStack(alignment: .top, spacing: SustainSpace.xxl) {
+                    PanelPair {
                         padRoutePanel
+                    } second: {
                         clickRoutePanel
                     }
 
-                    HStack(alignment: .top, spacing: SustainSpace.xxl) {
+                    PanelPair {
                         diagnosticsPanel
+                    } second: {
                         enginePanel
                     }
                 }
@@ -587,8 +604,9 @@ struct SystemCheckView: View {
                 VStack(alignment: .leading, spacing: SustainSpace.xxl) {
                     readinessPanel
 
-                    HStack(alignment: .top, spacing: SustainSpace.xxl) {
+                    PanelPair {
                         checksPanel
+                    } second: {
                         runtimePanel
                     }
                 }

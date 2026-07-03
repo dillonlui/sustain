@@ -1144,6 +1144,34 @@ struct RuntimeSessionTests {
         }
     }
 
+    @Test func startingSongEntersCountoffWithBeatCount() async {
+        let store = AppStore.preview(countoffDurationMultiplier: 100)
+        store.startCuedSong()
+
+        for _ in 0..<400 where store.runtime.countoffBeat == nil {
+            try? await Task.sleep(nanoseconds: 500_000)
+        }
+
+        // First cued song is "Goodness of God" in 6/8 → six count-in beats.
+        #expect(store.runtime.clickState == .countoff)
+        #expect(store.runtime.countoffBeat == 1)
+        #expect(store.runtime.countoffTotal == 6)
+    }
+
+    @Test func stoppingDuringCountoffClearsCountoffState() async {
+        let store = AppStore.preview(countoffDurationMultiplier: 100)
+        store.startCuedSong()
+
+        for _ in 0..<400 where store.runtime.countoffBeat == nil {
+            try? await Task.sleep(nanoseconds: 500_000)
+        }
+        store.stop()
+
+        #expect(store.runtime.countoffBeat == nil)
+        #expect(store.runtime.countoffTotal == nil)
+        #expect(store.runtime.clickState == .off)
+    }
+
     // NOTE: The AVSpeechSynthesizer render path (SpeechCountoffVoiceRenderer) cannot be
     // reliably unit-tested here — `write` delivers its buffers on the true main run loop,
     // which the swift-testing @MainActor executor does not pump. It is verified out-of-band

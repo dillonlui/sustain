@@ -307,6 +307,29 @@ struct SustainInlineNotice: View {
     }
 }
 
+// MARK: - Layout
+
+/// Lays two panels side by side, falling back to a vertical stack when the container is
+/// too narrow to fit them horizontally. The basis of responsive two-column screens.
+struct PanelPair<First: View, Second: View>: View {
+    var spacing: CGFloat = SustainSpace.xxl
+    @ViewBuilder var first: First
+    @ViewBuilder var second: Second
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: spacing) {
+                first
+                second
+            }
+            VStack(spacing: spacing) {
+                first
+                second
+            }
+        }
+    }
+}
+
 // MARK: - Count-in
 
 /// Large, glanceable count-in. Shows the current beat as a big monospaced numeral with
