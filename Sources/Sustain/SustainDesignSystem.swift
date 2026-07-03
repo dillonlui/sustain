@@ -307,6 +307,50 @@ struct SustainInlineNotice: View {
     }
 }
 
+// MARK: - Count-in
+
+/// Large, glanceable count-in. Shows the current beat as a big monospaced numeral with
+/// the total beats as pips, matching the spoken "one, two, three…". Occupies a stable
+/// footprint whether or not it is counting so the performance layout never jumps.
+struct CountoffIndicator: View {
+    var beat: Int?
+    var total: Int?
+
+    var body: some View {
+        VStack(spacing: SustainSpace.sm) {
+            Text("COUNT IN")
+                .font(.caption2.weight(.semibold))
+                .tracking(2)
+                .foregroundStyle(.secondary)
+                .opacity(isCounting ? 1 : 0)
+
+            Text(beat.map(String.init) ?? "–")
+                .font(.system(size: 72, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(isCounting ? SustainColor.accent : .secondary.opacity(0.35))
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.12), value: beat)
+
+            HStack(spacing: SustainSpace.xs) {
+                ForEach(0..<max(total ?? 0, 0), id: \.self) { index in
+                    Circle()
+                        .fill((beat ?? 0) > index ? SustainColor.accent : Color.secondary.opacity(0.25))
+                        .frame(width: 6, height: 6)
+                }
+            }
+            .frame(height: 6)
+            .opacity(isCounting ? 1 : 0)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement()
+        .accessibilityLabel(isCounting ? "Count in, beat \(beat ?? 0) of \(total ?? 0)" : "")
+    }
+
+    private var isCounting: Bool {
+        beat != nil
+    }
+}
+
 // MARK: - Level controls
 
 struct ChannelFader: View {

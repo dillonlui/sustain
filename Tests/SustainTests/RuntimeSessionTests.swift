@@ -276,6 +276,23 @@ struct RuntimeSessionTests {
         #expect(loaded.activeSetlist.title == "Sunday Night")
     }
 
+    @Test func movingSetlistEntryReordersAndPersists() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainReorderTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let store = AppStore.preview(libraryStore: libraryStore)
+        let original = store.activeSetlist.entries.map(\.id)
+
+        store.moveSetlistEntry(from: IndexSet(integer: 0), to: original.count)
+
+        let reordered = store.activeSetlist.entries.map(\.id)
+        #expect(reordered.first == original[1])
+        #expect(reordered.last == original[0])
+
+        let loaded = try #require(try libraryStore.loadLibrary())
+        #expect(loaded.activeSetlist.entries.map(\.id) == reordered)
+    }
+
     @Test func clearingSetlistRemovesEntriesAndCue() {
         let store = AppStore.preview()
 

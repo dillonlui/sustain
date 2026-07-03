@@ -37,6 +37,8 @@ struct RuntimeSession: Equatable {
     var playbackPhase: PlaybackPhase = .noSongPlaying
     var padState: PadPlaybackState = .off
     var clickState: ClickPlaybackState = .off
+    var countoffBeat: Int?
+    var countoffTotal: Int?
     var lastMessage = "Ready"
 }
 
@@ -261,6 +263,7 @@ final class AppStore: ObservableObject {
 
     func stop() {
         clickStateTask?.cancel()
+        clearCountoff()
         audioEngine.stopClick()
         runtime.clickState = .off
         runtime.padState = .fadingOut
@@ -303,6 +306,7 @@ final class AppStore: ObservableObject {
 
     func stopClick() {
         clickStateTask?.cancel()
+        clearCountoff()
         audioEngine.stopClick()
         runtime.clickState = .off
         runtime.lastMessage = "Click stopped"
@@ -545,6 +549,12 @@ final class AppStore: ObservableObject {
         saveLibrary()
     }
 
+    func moveSetlistEntry(from source: IndexSet, to destination: Int) {
+        activeSetlist.entries.move(fromOffsets: source, toOffset: destination)
+        runtime.lastMessage = "Reordered setlist"
+        saveLibrary()
+    }
+
     func updateActiveSetlistTitle(_ title: String) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
@@ -672,10 +682,20 @@ final class AppStore: ObservableObject {
         clickStateTask?.cancel()
         runtime.clickState = .countoff
 
-        let duration = countoffDuration(bpm: bpm, timeSignature: timeSignature)
+        let beats = max(1, timeSignature.beatsPerMeasure)
+        let secondsPerBeat = bpm > 0 ? 60.0 / Double(bpm) : 0
+        runtime.countoffTotal = beats
         clickStateTask = Task { @MainActor in
-            let nanoseconds = UInt64(max(0, duration * countoffDurationMultiplier) * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanoseconds)
+            let perBeat = UInt64(max(0, secondsPerBeat * countoffDurationMultiplier) * 1_000_000_000)
+            for beat in 1...beats {
+                guard !Task.isCancelled,
+                      runtime.playingEntryID == entryID,
+                      runtime.clickState == .countoff else {
+                    return
+                }
+                runtime.countoffBeat = beat
+                try? await Task.sleep(nanoseconds: perBeat)
+            }
 
             guard !Task.isCancelled,
                   runtime.playingEntryID == entryID,
@@ -683,6 +703,8 @@ final class AppStore: ObservableObject {
                 return
             }
 
+            runtime.countoffBeat = nil
+            runtime.countoffTotal = nil
             runtime.clickState = .playing
             runtime.lastMessage = "Click playing for \(songTitle)"
         }
@@ -711,6 +733,7 @@ final class AppStore: ObservableObject {
         guard runtime.playbackPhase != .noSongPlaying || runtime.clickState != .off else { return }
 
         clickStateTask?.cancel()
+        clearCountoff()
         if runtime.clickState != .off {
             audioEngine.stopClick()
         }
@@ -737,6 +760,11 @@ final class AppStore: ObservableObject {
         rehearse.clickState = .off
         rehearse.padState = .off
         rehearse.lastMessage = "Rehearsal stopped"
+    }
+
+    private func clearCountoff() {
+        runtime.countoffBeat = nil
+        runtime.countoffTotal = nil
     }
 
     private func countoffDuration(bpm: Int, timeSignature: TimeSignature) -> TimeInterval {
@@ -883,6 +911,7 @@ final class AppStore: ObservableObject {
 
     private func stopAudioAfterHardwareChange(message: String) {
         clickStateTask?.cancel()
+        clearCountoff()
         audioEngine.stopAll()
         runtime.clickState = .off
         runtime.padState = .off
