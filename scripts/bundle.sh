@@ -23,7 +23,13 @@ swift build -c "$CONFIG"
 
 BIN_DIR=".build/$CONFIG"
 RES_BUNDLE="$BIN_DIR/${APP_NAME}_${APP_NAME}.bundle"
-APP="build/$APP_NAME.app"
+# The .app must live OUTSIDE ~/Documents: a bundle inside Documents makes macOS
+# prompt for "access to your Documents folder" whenever the app reads its own
+# resources, and (being ad-hoc signed) that grant resets on every rebuild.
+# Override with SUSTAIN_APP_DIR if you want it elsewhere.
+APP_DIR="${SUSTAIN_APP_DIR:-$HOME/Applications}"
+mkdir -p "$APP_DIR"
+APP="$APP_DIR/$APP_NAME.app"
 CONTENTS="$APP/Contents"
 
 echo "==> Assembling $APP"
@@ -32,8 +38,10 @@ mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 
 cp "$BIN_DIR/$APP_NAME" "$CONTENTS/MacOS/$APP_NAME"
 
-# SwiftPM's Bundle.module resolves via Bundle.main.resourceURL, which for a .app is
-# Contents/Resources — the canonical (and signable) location for the resource bundle.
+# Resources live in the standard, signable Contents/Resources location. The app
+# finds them via Bundle.sustainResources (see PadAssetResolver), which looks in
+# Contents/Resources first so it never falls back to SwiftPM's baked-in .build
+# path (that path is inside ~/Documents and would trigger a TCC prompt).
 if [ -d "$RES_BUNDLE" ]; then
     cp -R "$RES_BUNDLE" "$CONTENTS/Resources/"
 fi

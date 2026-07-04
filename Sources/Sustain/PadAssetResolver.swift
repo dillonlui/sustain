@@ -1,5 +1,26 @@
 import Foundation
 
+extension Bundle {
+    /// Resource bundle for pad audio and other packaged assets.
+    ///
+    /// SwiftPM's generated `Bundle.module` looks at `Bundle.main.bundleURL/<name>.bundle`
+    /// (the .app root, where the bundle can't be placed without breaking code signing)
+    /// and otherwise falls back to an absolute compile-time `.build` path. When the
+    /// project lives under ~/Documents that fallback triggers a macOS "access your
+    /// Documents folder" prompt on every launch. Resolve from the app's standard
+    /// `Contents/Resources` first so we never hit that fallback; fall back to
+    /// `.module` for tests and `swift run`.
+    static let sustainResources: Bundle = {
+        if let resourceURL = Bundle.main.resourceURL {
+            let candidate = resourceURL.appendingPathComponent("Sustain_Sustain.bundle")
+            if let bundle = Bundle(url: candidate) {
+                return bundle
+            }
+        }
+        return .module
+    }()
+}
+
 struct PadAsset: Equatable {
     var url: URL
     var displayName: String
@@ -29,7 +50,7 @@ struct BundlePadAssetResolver: PadAssetResolving {
         ]
 
         guard let match = candidates.compactMap({ candidate -> (URL, String)? in
-            Bundle.module.url(
+            Bundle.sustainResources.url(
                 forResource: candidate.resourceName,
                 withExtension: candidate.extension,
                 subdirectory: candidate.subdirectory
