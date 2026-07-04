@@ -13,17 +13,17 @@ struct RehearseView: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .top, spacing: SustainSpace.xxl) {
                         padPanel
-                            .frame(minWidth: 320, maxWidth: 420, alignment: .top)
+                            .frame(minWidth: 360, maxWidth: 440, alignment: .top)
                         clickPanel
-                            .frame(minWidth: 460, maxWidth: .infinity, alignment: .top)
+                            .frame(minWidth: 520, maxWidth: .infinity, alignment: .top)
                     }
                     VStack(spacing: SustainSpace.xxl) {
                         padPanel
                         clickPanel
                     }
                 }
-                .padding(SustainSpace.screen)
                 .frame(maxWidth: .infinity, alignment: .top)
+                .padding(SustainSpace.screen)
             }
         }
         .sustainScreenBackground(.rehearse)

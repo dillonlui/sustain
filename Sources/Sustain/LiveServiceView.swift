@@ -1,16 +1,48 @@
+import AppKit
 import SwiftUI
+
+/// A 1pt divider with a wider invisible hit area that drag-resizes the setlist column
+/// and shows the horizontal-resize cursor on hover.
+private struct SetlistResizeHandle: View {
+    @Binding var width: Double
+    var range: ClosedRange<Double>
+    @State private var startWidth: Double?
+
+    var body: some View {
+        Divider()
+            .overlay(
+                Color.clear
+                    .frame(width: 10)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                let base = startWidth ?? width
+                                if startWidth == nil { startWidth = width }
+                                width = min(range.upperBound, max(range.lowerBound, base + Double(value.translation.width)))
+                            }
+                            .onEnded { _ in startWidth = nil }
+                    )
+            )
+    }
+}
 
 struct LiveServiceView: View {
     @EnvironmentObject private var store: AppStore
     @State private var editingEntryID: SetlistEntry.ID?
-    @State private var titleDraft = ""
+    @AppStorage("liveSetlistWidth") private var setlistWidth = 280.0
+
+    private let setlistWidthRange = 200.0...380.0
 
     var body: some View {
         HStack(spacing: 0) {
             setlistPane
-                .frame(minWidth: 220, idealWidth: 280, maxWidth: 320)
+                .frame(width: setlistWidth)
 
-            Divider()
+            SetlistResizeHandle(width: $setlistWidth, range: setlistWidthRange)
 
             performanceSurface
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -20,7 +52,6 @@ struct LiveServiceView: View {
             SongInspectorPane(entryID: editingEntryID) { editingEntryID = nil }
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
         }
-        .onAppear { titleDraft = store.activeSetlist.title }
     }
 
     // MARK: Setlist pane
@@ -58,19 +89,16 @@ struct LiveServiceView: View {
     }
 
     private var setlistHeader: some View {
-        VStack(spacing: SustainSpace.xs) {
-            TextField("Service", text: $titleDraft)
-                .textFieldStyle(.plain)
+        VStack(alignment: .leading, spacing: SustainSpace.xs) {
+            Text(store.activeSetlist.title)
                 .font(.headline)
-                .onSubmit { store.updateActiveSetlistTitle(titleDraft) }
+                .lineLimit(1)
 
-            HStack {
-                Text("\(store.activeSetlist.entries.count) songs")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
+            Text("\(store.activeSetlist.entries.count) songs")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, SustainSpace.md)
         .padding(.vertical, SustainSpace.sm)
         .background(.bar)
@@ -230,46 +258,63 @@ struct LiveServiceView: View {
     }
 
     private var transportCluster: some View {
+        ViewThatFits(in: .horizontal) {
+            transportRow(compact: false)
+            transportRow(compact: true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func transportRow(compact: Bool) -> some View {
         HStack(spacing: SustainSpace.md) {
             Button { store.cuePreviousSong() } label: {
-                Image(systemName: "backward.fill")
-                    .frame(minWidth: 36)
+                Image(systemName: "backward.fill").frame(minWidth: 32)
             }
             .transportButtonStyle()
             .controlSize(.large)
             .disabled(store.activeSetlist.entries.isEmpty)
             .keyboardShortcut(.leftArrow, modifiers: [])
+            .help("Previous")
 
             Button { store.startCuedSong() } label: {
-                Label(startTitle, systemImage: isTransition ? "arrow.triangle.2.circlepath" : "play.fill")
-                    .frame(minWidth: 140)
+                transportLabel(startTitle, systemImage: isTransition ? "arrow.triangle.2.circlepath" : "play.fill", compact: compact, minWidth: 120)
             }
             .transportButtonStyle(prominent: true)
             .controlSize(.large)
             .tint(SustainColor.accent)
             .disabled(store.cuedEntry == nil)
             .keyboardShortcut(.return, modifiers: [])
+            .help(startTitle)
 
             Button { store.cueNextSong() } label: {
-                Image(systemName: "forward.fill")
-                    .frame(minWidth: 36)
+                Image(systemName: "forward.fill").frame(minWidth: 32)
             }
             .transportButtonStyle()
             .controlSize(.large)
             .disabled(store.activeSetlist.entries.isEmpty)
             .keyboardShortcut(.rightArrow, modifiers: [])
+            .help("Next")
 
             Button(role: .destructive) { store.stop() } label: {
-                Label("Stop", systemImage: "stop.fill")
-                    .frame(minWidth: 90)
+                transportLabel("Stop", systemImage: "stop.fill", compact: compact, minWidth: 72)
             }
             .transportButtonStyle()
             .controlSize(.large)
             .tint(SustainColor.destructive)
             .disabled(store.runtime.playbackPhase == .noSongPlaying)
             .keyboardShortcut(".", modifiers: .command)
+            .help("Stop")
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func transportLabel(_ title: String, systemImage: String, compact: Bool, minWidth: CGFloat) -> some View {
+        if compact {
+            Image(systemName: systemImage).frame(minWidth: 36)
+        } else {
+            Label(title, systemImage: systemImage).frame(minWidth: minWidth)
+        }
     }
 
     private var messageStrip: some View {
