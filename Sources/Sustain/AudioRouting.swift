@@ -103,6 +103,12 @@ struct AudioRoutingSnapshot: Equatable {
         return messages
     }
 
+    /// True when a device or channel the user explicitly selected is no longer
+    /// available. Distinct from the benign "pad and click share one output" case.
+    var hasUnavailableSelection: Bool {
+        padOutputUnavailable || padChannelUnavailable || clickOutputUnavailable || clickChannelUnavailable
+    }
+
     var isPadRouteReady: Bool {
         padOutputID != nil && !padOutputUnavailable && !padChannelUnavailable
     }

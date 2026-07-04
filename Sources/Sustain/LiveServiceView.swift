@@ -318,13 +318,23 @@ struct LiveServiceView: View {
     }
 
     private var messageStrip: some View {
-        HStack(spacing: SustainSpace.sm) {
-            Image(systemName: "info.circle")
-                .foregroundStyle(.secondary)
-            Text(store.runtime.lastMessage)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Spacer()
+        VStack(spacing: SustainSpace.sm) {
+            if store.routingSnapshot.hasUnavailableSelection {
+                SustainInlineNotice(
+                    message: store.routingSnapshot.missingSelectionMessages.joined(separator: " "),
+                    kind: .warning
+                )
+            }
+
+            HStack(spacing: SustainSpace.sm) {
+                Image(systemName: "info.circle")
+                    .foregroundStyle(.secondary)
+                Text(store.runtime.lastMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: SustainSpace.md)
+                LiveRoutingBadge(snapshot: store.routingSnapshot)
+            }
         }
     }
 
@@ -352,6 +362,36 @@ struct LiveServiceView: View {
 
     private var clickVolumeBinding: Binding<Double> {
         Binding { store.clickVolume } set: { store.setClickVolumeLive($0) }
+    }
+}
+
+// MARK: - Routing badge
+
+/// Glanceable audio-routing status for the performance surface: which output the
+/// pad/click are on, colored by health. Warns only when a selected device or
+/// channel is unavailable — a shared single output is a normal, calm state.
+private struct LiveRoutingBadge: View {
+    var snapshot: AudioRoutingSnapshot
+
+    private var hasProblem: Bool { snapshot.hasUnavailableSelection }
+
+    var body: some View {
+        HStack(spacing: SustainSpace.xs) {
+            Image(systemName: hasProblem ? "exclamationmark.triangle.fill" : "speaker.wave.2.fill")
+                .foregroundStyle(hasProblem ? SustainColor.warning : SustainColor.ready)
+            Text(snapshot.summary)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, SustainSpace.sm)
+        .padding(.vertical, 4)
+        .background(.quaternary, in: Capsule())
+        .help(hasProblem ? snapshot.missingSelectionMessages.joined(separator: " ") : "Audio routing: \(snapshot.summary)")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Audio routing")
+        .accessibilityValue(hasProblem ? snapshot.missingSelectionMessages.joined(separator: " ") : snapshot.summary)
     }
 }
 
