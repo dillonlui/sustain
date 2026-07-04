@@ -156,6 +156,7 @@ private struct SongLibraryRow: View {
     var onAddToSetlist: () -> Void
 
     @State private var titleDraft = ""
+    @FocusState private var titleFocused: Bool
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -176,6 +177,20 @@ private struct SongLibraryRow: View {
                 .stroke(SustainColor.separator, lineWidth: 1)
         )
         .onAppear { titleDraft = title }
+        .onChange(of: title) { _, newValue in
+            // Keep the draft in sync when the underlying title changes
+            // externally, but never clobber an in-progress edit.
+            if !titleFocused { titleDraft = newValue }
+        }
+    }
+
+    private func commitTitle() {
+        let trimmed = titleDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            titleDraft = title // reject empty; restore last committed value
+        } else if trimmed != title {
+            title = trimmed
+        }
     }
 
     private var titleField: some View {
@@ -183,7 +198,11 @@ private struct SongLibraryRow: View {
             TextField("Title", text: $titleDraft)
                 .textFieldStyle(.roundedBorder)
                 .font(.headline)
-                .onSubmit { title = titleDraft }
+                .focused($titleFocused)
+                .onSubmit { commitTitle() }
+                .onChange(of: titleFocused) { _, isFocused in
+                    if !isFocused { commitTitle() } // commit on click-away
+                }
 
             HStack(spacing: SustainSpace.sm) {
                 MetadataChip(label: "Key", value: key.rawValue)
