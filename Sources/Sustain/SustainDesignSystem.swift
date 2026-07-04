@@ -209,15 +209,22 @@ struct SustainScreenHeader<Trailing: View>: View {
             VStack(alignment: .leading, spacing: SustainSpace.xs) {
                 Text(title)
                     .font(.largeTitle.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
+            .layoutPriority(1)
 
-            Spacer()
+            Spacer(minLength: SustainSpace.md)
 
             trailing
+                .multilineTextAlignment(.trailing)
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, SustainSpace.screen)
         .padding(.vertical, SustainSpace.lg)
     }

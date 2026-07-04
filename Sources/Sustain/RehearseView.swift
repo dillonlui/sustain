@@ -5,28 +5,42 @@ struct RehearseView: View {
 
     private let tempoRange = 40...220
 
-    var body: some View {
-        VStack(spacing: 0) {
-            header
+    // The click panel's controls (Accent + Countoff segmented rows, tempo, faders)
+    // need ~560pt to lay out without crowding; with the pad column (~400) plus
+    // spacing and screen padding the two-column layout needs ~1040pt. Below that we
+    // stack, so panels always keep their edge margins instead of overflowing.
+    private let twoColumnMinWidth: CGFloat = 1040
 
-            ScrollView {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: SustainSpace.xxl) {
-                        padPanel
-                            .frame(minWidth: 360, maxWidth: 440, alignment: .top)
-                        clickPanel
-                            .frame(minWidth: 520, maxWidth: .infinity, alignment: .top)
-                    }
-                    VStack(spacing: SustainSpace.xxl) {
-                        padPanel
-                        clickPanel
-                    }
+    var body: some View {
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                header
+
+                ScrollView {
+                    columns(isWide: proxy.size.width >= twoColumnMinWidth)
+                        .frame(maxWidth: .infinity, alignment: .top)
+                        .padding(SustainSpace.screen)
                 }
-                .frame(maxWidth: .infinity, alignment: .top)
-                .padding(SustainSpace.screen)
             }
         }
         .sustainScreenBackground(.rehearse)
+    }
+
+    @ViewBuilder
+    private func columns(isWide: Bool) -> some View {
+        if isWide {
+            HStack(alignment: .top, spacing: SustainSpace.xxl) {
+                padPanel
+                    .frame(minWidth: 360, maxWidth: 440, alignment: .top)
+                clickPanel
+                    .frame(minWidth: 520, maxWidth: .infinity, alignment: .top)
+            }
+        } else {
+            VStack(spacing: SustainSpace.xxl) {
+                padPanel
+                clickPanel
+            }
+        }
     }
 
     private var header: some View {
@@ -34,9 +48,12 @@ struct RehearseView: View {
             VStack(alignment: .trailing, spacing: 4) {
                 Text(store.audioStatus)
                     .font(.callout.weight(.medium))
+                    .lineLimit(1)
                 Text(store.routingSnapshot.summary)
                     .font(.caption)
                     .foregroundStyle(SustainColor.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
     }
