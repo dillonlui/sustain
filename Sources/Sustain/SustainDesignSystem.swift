@@ -160,6 +160,25 @@ extension View {
     func sustainBorderedButton(tint: Color = SustainColor.accent) -> some View {
         buttonStyle(.bordered).tint(tint)
     }
+
+    /// Transport control styling: pronounced Liquid Glass on macOS 26+, falling back to
+    /// native bordered styles on earlier systems. Used for the floating transport bar.
+    @ViewBuilder
+    func transportButtonStyle(prominent: Bool = false) -> some View {
+        if #available(macOS 26, *) {
+            if prominent {
+                buttonStyle(.glassProminent)
+            } else {
+                buttonStyle(.glass)
+            }
+        } else {
+            if prominent {
+                buttonStyle(.borderedProminent)
+            } else {
+                buttonStyle(.bordered)
+            }
+        }
+    }
 }
 
 /// A native button-styled toggle with a small state dot, used for arm/enable controls.

@@ -229,6 +229,7 @@ struct LiveServiceView: View {
                 Image(systemName: "backward.fill")
                     .frame(minWidth: 36)
             }
+            .transportButtonStyle()
             .controlSize(.large)
             .disabled(store.activeSetlist.entries.isEmpty)
             .keyboardShortcut(.leftArrow, modifiers: [])
@@ -237,7 +238,7 @@ struct LiveServiceView: View {
                 Label(startTitle, systemImage: isTransition ? "arrow.triangle.2.circlepath" : "play.fill")
                     .frame(minWidth: 140)
             }
-            .buttonStyle(.borderedProminent)
+            .transportButtonStyle(prominent: true)
             .controlSize(.large)
             .tint(SustainColor.accent)
             .disabled(store.cuedEntry == nil)
@@ -247,6 +248,7 @@ struct LiveServiceView: View {
                 Image(systemName: "forward.fill")
                     .frame(minWidth: 36)
             }
+            .transportButtonStyle()
             .controlSize(.large)
             .disabled(store.activeSetlist.entries.isEmpty)
             .keyboardShortcut(.rightArrow, modifiers: [])
@@ -255,6 +257,7 @@ struct LiveServiceView: View {
                 Label("Stop", systemImage: "stop.fill")
                     .frame(minWidth: 90)
             }
+            .transportButtonStyle()
             .controlSize(.large)
             .tint(SustainColor.destructive)
             .disabled(store.runtime.playbackPhase == .noSongPlaying)
