@@ -6,12 +6,14 @@ struct LiveServiceView: View {
     @State private var titleDraft = ""
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             setlistPane
-                .frame(minWidth: 240, idealWidth: 280, maxWidth: 360)
+                .frame(minWidth: 220, idealWidth: 280, maxWidth: 320)
+
+            Divider()
 
             performanceSurface
-                .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .sustainScreenBackground(.live)
         .inspector(isPresented: inspectorPresented) {
@@ -118,14 +120,17 @@ struct LiveServiceView: View {
         VStack(spacing: SustainSpace.xl) {
             nowNextRow
 
-            CountoffIndicator(beat: store.runtime.countoffBeat, total: store.runtime.countoffTotal)
+            transportCluster
+            channelControls
 
-            Spacer(minLength: 0)
+            if store.runtime.countoffBeat != nil {
+                CountoffIndicator(beat: store.runtime.countoffBeat, total: store.runtime.countoffTotal)
+            }
 
             levelsRow
-            channelControls
-            transportCluster
             messageStrip
+
+            Spacer(minLength: 0)
         }
         .padding(SustainSpace.screen)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -134,14 +139,15 @@ struct LiveServiceView: View {
     private var nowNextRow: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: SustainSpace.lg) {
-                nowPanel
-                nextPanel
+                nowPanel.frame(minWidth: 220, maxWidth: .infinity, maxHeight: .infinity)
+                nextPanel.frame(minWidth: 220, maxWidth: .infinity, maxHeight: .infinity)
             }
             VStack(spacing: SustainSpace.lg) {
                 nowPanel
                 nextPanel
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var nowPanel: some View {
@@ -167,8 +173,8 @@ struct LiveServiceView: View {
     private var levelsRow: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: SustainSpace.lg) {
-                padFader
-                clickFader
+                padFader.frame(minWidth: 200, maxWidth: .infinity)
+                clickFader.frame(minWidth: 200, maxWidth: .infinity)
             }
             VStack(spacing: SustainSpace.lg) {
                 padFader
@@ -345,8 +351,10 @@ private struct StatePanel: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, SustainSpace.sm)
                 }
+
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 108, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 }
