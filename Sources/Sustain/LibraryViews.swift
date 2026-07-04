@@ -526,17 +526,11 @@ struct AudioSetupView: View {
     }
 
     private var isPadRouteReady: Bool {
-        guard let output = output(id: store.routingSnapshot.padOutputID) else { return false }
-        return store.routingSnapshot.padOutputChannel.isAvailable(on: output) &&
-            !store.routingSnapshot.missingSelectionMessages.contains("Selected pad output is unavailable.") &&
-            !store.routingSnapshot.missingSelectionMessages.contains("Selected pad output channel is unavailable.")
+        store.routingSnapshot.isPadRouteReady
     }
 
     private var isClickRouteReady: Bool {
-        guard let output = output(id: store.routingSnapshot.clickOutputID) else { return false }
-        return store.routingSnapshot.clickOutputChannel.isAvailable(on: output) &&
-            !store.routingSnapshot.missingSelectionMessages.contains("Selected click output is unavailable.") &&
-            !store.routingSnapshot.missingSelectionMessages.contains("Selected click output channel is unavailable.")
+        store.routingSnapshot.isClickRouteReady
     }
 }
 

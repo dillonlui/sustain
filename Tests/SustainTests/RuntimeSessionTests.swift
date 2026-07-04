@@ -488,7 +488,7 @@ struct RuntimeSessionTests {
                 clickOutputID: 2,
                 clickOutputName: "Click Bus",
                 independentRoutingEnabled: false,
-                missingSelectionMessages: ["Selected pad output is unavailable."]
+                padOutputUnavailable: true
             )
         )
         let store = AppStore.preview(audioRoutingProvider: provider)
@@ -510,7 +510,7 @@ struct RuntimeSessionTests {
                 clickOutputID: 1,
                 clickOutputName: "Main",
                 independentRoutingEnabled: false,
-                missingSelectionMessages: ["Selected click output is unavailable."]
+                clickOutputUnavailable: true
             )
         )
         let store = AppStore.preview(audioRoutingProvider: provider)
@@ -535,7 +535,7 @@ struct RuntimeSessionTests {
             clickOutputID: 1,
             clickOutputName: "Preview Output",
             independentRoutingEnabled: false,
-            missingSelectionMessages: ["Selected click output is unavailable."]
+            clickOutputUnavailable: true
         )
 
         store.startCuedSong()
@@ -594,7 +594,7 @@ struct RuntimeSessionTests {
             clickOutputID: 1,
             clickOutputName: "Preview Output",
             independentRoutingEnabled: false,
-            missingSelectionMessages: ["Selected click output is unavailable."]
+            clickOutputUnavailable: true
         )
         monitor.simulateChange()
 
@@ -750,7 +750,7 @@ struct RuntimeSessionTests {
                 clickOutputID: 3,
                 clickOutputName: "Monitor Speakers",
                 independentRoutingEnabled: false,
-                missingSelectionMessages: ["Selected pad output is unavailable."]
+                padOutputUnavailable: true
             )
         )
         let monitor = NoopAudioHardwareMonitor()
@@ -860,7 +860,7 @@ struct RuntimeSessionTests {
             clickOutputID: 1,
             clickOutputName: "Preview Output",
             independentRoutingEnabled: false,
-            missingSelectionMessages: ["Selected pad output is unavailable."]
+            padOutputUnavailable: true
         )
         monitor.simulateChange()
 
@@ -881,7 +881,7 @@ struct RuntimeSessionTests {
                 clickOutputID: 1,
                 clickOutputName: "Preview Output",
                 independentRoutingEnabled: false,
-                missingSelectionMessages: ["Selected click output is unavailable."]
+                clickOutputUnavailable: true
             )
         )
         let monitor = NoopAudioHardwareMonitor()
@@ -931,7 +931,7 @@ struct RuntimeSessionTests {
             clickOutputID: 1,
             clickOutputName: "Preview Output",
             independentRoutingEnabled: false,
-            missingSelectionMessages: ["Selected pad output is unavailable."]
+            padOutputUnavailable: true
         )
 
         powerMonitor.simulateWake()
