@@ -36,16 +36,81 @@ struct SustainApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
-            CommandGroup(after: .newItem) {
-                Button("Run System Check") {
-                    store.runSystemCheck()
-                }
-                .keyboardShortcut("k", modifiers: [.command, .shift])
-            }
+            SustainCommands(store: store)
         }
 
         Settings {
             AppSettingsView()
+        }
+    }
+}
+
+/// Menu-bar commands for live performance: transport (start/prev/next/stop,
+/// click, pad) and screen navigation, all reachable from any screen and shown
+/// with their keyboard shortcuts so performers can discover them.
+struct SustainCommands: Commands {
+    @ObservedObject var store: AppStore
+
+    private var isTransition: Bool {
+        store.runtime.playingEntryID != nil &&
+            store.runtime.cuedEntryID != store.runtime.playingEntryID
+    }
+
+    var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("Run System Check") {
+                store.runSystemCheck()
+            }
+            .keyboardShortcut("k", modifiers: [.command, .shift])
+        }
+
+        CommandMenu("Performance") {
+            Button(isTransition ? "Transition" : "Start") {
+                store.startCuedSong()
+            }
+            .keyboardShortcut(.return, modifiers: .command)
+            .disabled(store.cuedEntry == nil)
+
+            Button("Previous Song") {
+                store.cuePreviousSong()
+            }
+            .keyboardShortcut("[", modifiers: .command)
+            .disabled(store.activeSetlist.entries.isEmpty)
+
+            Button("Next Song") {
+                store.cueNextSong()
+            }
+            .keyboardShortcut("]", modifiers: .command)
+            .disabled(store.activeSetlist.entries.isEmpty)
+
+            Button("Stop") {
+                store.stop()
+            }
+            .keyboardShortcut(".", modifiers: .command)
+            .disabled(store.runtime.playbackPhase == .noSongPlaying)
+
+            Divider()
+
+            Button(store.runtime.clickState == .off ? "Start Click" : "Stop Click") {
+                store.runtime.clickState == .off ? store.startClick() : store.stopClick()
+            }
+            .keyboardShortcut("c", modifiers: [.command, .option])
+            .disabled(store.runtime.playbackPhase == .noSongPlaying)
+
+            Button(store.runtime.padState == .off ? "Start Pad" : "Stop Pad") {
+                store.runtime.padState == .off ? store.startPad() : store.stopPad()
+            }
+            .keyboardShortcut("p", modifiers: [.command, .option])
+            .disabled(store.runtime.playbackPhase == .noSongPlaying)
+        }
+
+        CommandMenu("Go") {
+            ForEach(Array(AppScreen.allCases.enumerated()), id: \.element.id) { index, screen in
+                Button(screen.rawValue) {
+                    store.selectedScreen = screen
+                }
+                .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+            }
         }
     }
 }
