@@ -32,7 +32,7 @@ struct SustainApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(store)
-                .frame(minWidth: 1080, minHeight: 700)
+                .frame(minWidth: 1200, minHeight: 700)
         }
         .windowStyle(.hiddenTitleBar)
         .commands {

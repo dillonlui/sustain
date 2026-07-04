@@ -33,9 +33,9 @@ private struct SetlistResizeHandle: View {
 struct LiveServiceView: View {
     @EnvironmentObject private var store: AppStore
     @State private var editingEntryID: SetlistEntry.ID?
-    @AppStorage("liveSetlistWidth") private var setlistWidth = 280.0
+    @AppStorage("liveSetlistWidth") private var setlistWidth = 260.0
 
-    private let setlistWidthRange = 200.0...380.0
+    private let setlistWidthRange = 200.0...340.0
 
     var body: some View {
         HStack(spacing: 0) {
@@ -50,7 +50,7 @@ struct LiveServiceView: View {
         .sustainScreenBackground(.live)
         .inspector(isPresented: inspectorPresented) {
             SongInspectorPane(entryID: editingEntryID) { editingEntryID = nil }
-                .inspectorColumnWidth(min: 260, ideal: 300, max: 380)
+                .inspectorColumnWidth(min: 240, ideal: 260, max: 320)
         }
     }
 
