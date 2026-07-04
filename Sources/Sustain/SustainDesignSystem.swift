@@ -383,6 +383,7 @@ struct ChannelFader: View {
     var tint: Color
     var isActive: Bool
     @Binding var value: Double
+    var onCommit: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: SustainSpace.sm) {
@@ -406,9 +407,11 @@ struct ChannelFader: View {
             HStack(spacing: SustainSpace.sm) {
                 LevelMeter(value: value, tint: tint, isActive: isActive)
                     .frame(width: 44, height: 16)
-                Slider(value: $value, in: 0...1)
-                    .tint(tint)
-                    .accessibilityLabel(Text("\(title) Volume"))
+                Slider(value: $value, in: 0...1) { editing in
+                    if !editing { onCommit() }
+                }
+                .tint(tint)
+                .accessibilityLabel(Text("\(title) Volume"))
             }
         }
         .padding(SustainSpace.md)

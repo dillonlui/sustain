@@ -240,7 +240,8 @@ struct RehearseView: View {
                     systemImage: "waveform",
                     tint: SustainColor.padActive,
                     isActive: store.rehearse.padState == .playing,
-                    value: padVolumeBinding
+                    value: padVolumeBinding,
+                    onCommit: { store.commitAudioLevels() }
                 )
 
                 ChannelFader(
@@ -249,7 +250,8 @@ struct RehearseView: View {
                     systemImage: "metronome",
                     tint: SustainColor.clickActive,
                     isActive: store.rehearse.clickState != .off,
-                    value: clickVolumeBinding
+                    value: clickVolumeBinding,
+                    onCommit: { store.commitAudioLevels() }
                 )
             }
         }
@@ -327,7 +329,7 @@ struct RehearseView: View {
         Binding {
             store.padVolume
         } set: { volume in
-            store.setPadVolume(volume)
+            store.setPadVolumeLive(volume)
         }
     }
 
@@ -335,7 +337,7 @@ struct RehearseView: View {
         Binding {
             store.clickVolume
         } set: { volume in
-            store.setClickVolume(volume)
+            store.setClickVolumeLive(volume)
         }
     }
 }

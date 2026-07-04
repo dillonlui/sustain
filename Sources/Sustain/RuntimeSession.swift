@@ -456,21 +456,38 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func setPadVolume(_ volume: Double) {
+    /// Applies pad volume to the engine and state without persisting — for continuous
+    /// slider drags. Call `commitAudioLevels()` on release to persist once.
+    func setPadVolumeLive(_ volume: Double) {
         padVolume = min(1, max(0, volume))
         audioEngine.setPadVolume(padVolume)
-        rehearse.lastMessage = "Pad volume set to \(Int((padVolume * 100).rounded()))%"
-        runtime.lastMessage = "Pad volume set to \(Int((padVolume * 100).rounded()))%"
+        let percent = Int((padVolume * 100).rounded())
+        rehearse.lastMessage = "Pad volume set to \(percent)%"
+        runtime.lastMessage = "Pad volume set to \(percent)%"
         refreshAudioStatus()
+    }
+
+    func setPadVolume(_ volume: Double) {
+        setPadVolumeLive(volume)
         saveLibrary()
     }
 
-    func setClickVolume(_ volume: Double) {
+    func setClickVolumeLive(_ volume: Double) {
         clickVolume = min(1, max(0, volume))
         audioEngine.setClickVolume(clickVolume)
-        rehearse.lastMessage = "Click volume set to \(Int((clickVolume * 100).rounded()))%"
-        runtime.lastMessage = "Click volume set to \(Int((clickVolume * 100).rounded()))%"
+        let percent = Int((clickVolume * 100).rounded())
+        rehearse.lastMessage = "Click volume set to \(percent)%"
+        runtime.lastMessage = "Click volume set to \(percent)%"
         refreshAudioStatus()
+    }
+
+    func setClickVolume(_ volume: Double) {
+        setClickVolumeLive(volume)
+        saveLibrary()
+    }
+
+    /// Persists the current audio levels once (called when a level slider drag ends).
+    func commitAudioLevels() {
         saveLibrary()
     }
 

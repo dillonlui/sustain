@@ -1129,6 +1129,27 @@ struct RuntimeSessionTests {
         #expect(loaded.clickVolume == 0.28)
     }
 
+    @Test func liveVolumeChangesDeferPersistenceUntilCommit() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainLevelTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let store = AppStore.preview(libraryStore: libraryStore)
+
+        store.setPadVolumeLive(0.9)
+        store.setClickVolumeLive(0.1)
+
+        #expect(store.padVolume == 0.9)
+        #expect(store.clickVolume == 0.1)
+        // Nothing has been persisted yet during the "drag".
+        #expect(try libraryStore.loadLibrary() == nil)
+
+        store.commitAudioLevels()
+
+        let loaded = try #require(try libraryStore.loadLibrary())
+        #expect(loaded.padVolume == 0.9)
+        #expect(loaded.clickVolume == 0.1)
+    }
+
     @Test func rehearsePadSelectionStartsIncludedPad() {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)

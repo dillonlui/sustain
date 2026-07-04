@@ -184,7 +184,8 @@ struct LiveServiceView: View {
             systemImage: "waveform",
             tint: SustainColor.accent,
             isActive: store.runtime.padState == .playing,
-            value: padVolumeBinding
+            value: padVolumeBinding,
+            onCommit: { store.commitAudioLevels() }
         )
     }
 
@@ -195,7 +196,8 @@ struct LiveServiceView: View {
             systemImage: "metronome",
             tint: SustainColor.accent,
             isActive: store.runtime.clickState != .off,
-            value: clickVolumeBinding
+            value: clickVolumeBinding,
+            onCommit: { store.commitAudioLevels() }
         )
     }
 
@@ -291,11 +293,11 @@ struct LiveServiceView: View {
     }
 
     private var padVolumeBinding: Binding<Double> {
-        Binding { store.padVolume } set: { store.setPadVolume($0) }
+        Binding { store.padVolume } set: { store.setPadVolumeLive($0) }
     }
 
     private var clickVolumeBinding: Binding<Double> {
-        Binding { store.clickVolume } set: { store.setClickVolume($0) }
+        Binding { store.clickVolume } set: { store.setClickVolumeLive($0) }
     }
 }
 
