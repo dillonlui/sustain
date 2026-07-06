@@ -100,7 +100,10 @@ struct LiveServiceView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, SustainSpace.md)
-        .padding(.vertical, SustainSpace.sm)
+        // The setlist List pins to the window top (ignoring the split view's top
+        // inset), so extend the header bar up and drop the title clear of the edge.
+        .padding(.top, 30)
+        .padding(.bottom, SustainSpace.sm)
         .background(.bar)
     }
 

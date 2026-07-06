@@ -15,6 +15,10 @@ struct RootView: View {
                 selectedScreen
             }
             .background(.clear)
+            // .hiddenTitleBar gives no top safe area, so content rides up under the
+            // window controls. Reserve the title-bar strip uniformly across both
+            // columns; the traffic lights then sit over the app background above.
+            .padding(.top, 34)
         }
         .tint(SustainColor.accent)
         .preferredColorScheme((AppAppearance(rawValue: appearanceRaw) ?? .system).colorScheme)
@@ -81,7 +85,9 @@ private struct SidebarView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             BrandHeader()
                 .padding(.horizontal, SustainSpace.lg)
-                .padding(.top, SustainSpace.md)
+                // Clear the traffic-light strip (the sidebar column stays full-height
+                // under the window controls even when the detail is inset).
+                .padding(.top, 50)
                 .padding(.bottom, SustainSpace.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
