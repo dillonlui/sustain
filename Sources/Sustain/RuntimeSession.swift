@@ -206,6 +206,7 @@ final class AppStore: ObservableObject {
         runtime.cuedEntryID = entryID
         runtime.lastMessage = "Cued \(song.title)"
         preloadCuedPad()
+        refreshReadiness()
     }
 
     func startCuedSong() {

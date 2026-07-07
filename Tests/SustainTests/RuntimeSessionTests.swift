@@ -1248,6 +1248,16 @@ struct RuntimeSessionTests {
         #expect(store.runtime.clickState == .off)
     }
 
+    @Test func cuingASongRefreshesReadiness() {
+        let store = AppStore.preview()
+        // Move the cue to the second entry and confirm systemCheck reflects it.
+        let second = store.activeSetlist.entries[1].id
+        store.cue(entryID: second)
+
+        #expect(store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.messages.contains { $0.hasPrefix("Ready for ") })
+    }
+
     // NOTE: The AVSpeechSynthesizer render path (SpeechCountoffVoiceRenderer) cannot be
     // reliably unit-tested here — `write` delivers its buffers on the true main run loop,
     // which the swift-testing @MainActor executor does not pump. It is verified out-of-band
