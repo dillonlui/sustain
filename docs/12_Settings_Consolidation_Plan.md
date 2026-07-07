@@ -5,7 +5,7 @@ routing + diagnostics into the native macOS **Settings** window (⌘,), and conv
 Check into an automatic, background **readiness safety-net** surfaced on the Live Service
 screen. Sidebar goes from 5 items to 3 (Live Service · Rehearse · Song Library).
 
-**Status:** Drafted, not started.
+**Status:** Implemented 2026-07-07 (see `docs/superpowers/plans/2026-07-07-settings-consolidation.md`).
 
 ---
 
