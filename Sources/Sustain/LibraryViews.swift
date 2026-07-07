@@ -534,7 +534,7 @@ struct AudioSetupView: View {
     }
 }
 
-private struct AudioDeviceDiagnosticRow: View {
+struct AudioDeviceDiagnosticRow: View {
     var output: AudioOutputDevice
 
     var body: some View {
@@ -588,7 +588,7 @@ private struct RouteSignalView: View {
     }
 }
 
-private struct DiagnosticLine: View {
+struct DiagnosticLine: View {
     var label: String
     var value: String
 

@@ -54,6 +54,7 @@ struct SustainApp: App {
 
         Settings {
             AppSettingsView()
+                .environmentObject(store)
         }
     }
 }
@@ -129,6 +130,17 @@ struct SustainCommands: Commands {
 }
 
 struct AppSettingsView: View {
+    var body: some View {
+        TabView {
+            GeneralSettingsView()
+                .tabItem { Label("General", systemImage: "gear") }
+            AudioSettingsView()
+                .tabItem { Label("Audio", systemImage: "speaker.wave.2") }
+        }
+    }
+}
+
+private struct GeneralSettingsView: View {
     @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
 
     var body: some View {
@@ -140,7 +152,7 @@ struct AppSettingsView: View {
             }
             .pickerStyle(.segmented)
         }
-        .padding(SustainSpace.xl)
-        .frame(width: 360)
+        .formStyle(.grouped)
+        .frame(width: 460, height: 120)
     }
 }
