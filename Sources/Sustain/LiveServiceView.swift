@@ -52,6 +52,7 @@ struct LiveServiceView: View {
             SongInspectorPane(entryID: editingEntryID) { editingEntryID = nil }
                 .inspectorColumnWidth(min: 240, ideal: 260, max: 320)
         }
+        .onAppear { store.refreshReadiness() }
     }
 
     // MARK: Setlist pane
@@ -320,9 +321,21 @@ struct LiveServiceView: View {
         }
     }
 
+    /// Blocking readiness messages to surface as a prominent banner — only when a genuine
+    /// fault exists. Excludes the neutral `.notRun` state (also `canStartPlayback == false`)
+    /// and drops warning lines (those stay on the routing badge).
+    private var blockingReadinessMessage: String? {
+        let check = store.systemCheck
+        guard !check.canStartPlayback, check != .notRun else { return nil }
+        let blocking = check.messages.filter { !$0.hasPrefix("Warning:") }
+        return blocking.isEmpty ? nil : blocking.joined(separator: " ")
+    }
+
     private var messageStrip: some View {
         VStack(spacing: SustainSpace.sm) {
-            if store.routingSnapshot.hasUnavailableSelection {
+            if let blockingReadinessMessage {
+                SustainInlineNotice(message: blockingReadinessMessage, kind: .warning)
+            } else if store.routingSnapshot.hasUnavailableSelection {
                 SustainInlineNotice(
                     message: store.routingSnapshot.missingSelectionMessages.joined(separator: " "),
                     kind: .warning
