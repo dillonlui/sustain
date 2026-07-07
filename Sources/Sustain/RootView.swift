@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct RootView: View {
@@ -12,16 +13,19 @@ struct RootView: View {
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 SidebarView()
             } detail: {
+                // Live's detail (a real List + inspector) mounts flush to the window top
+                // with no system reserve, so its content rides up under the traffic lights.
+                // Reserve the title-bar strip on the detail only (not the whole split view)
+                // so the sidebar stays positioned by its own brand header. The other
+                // screens keep their system reserve, so this is scoped to Live.
                 selectedScreen
+                    .padding(.top, store.selectedScreen == .live ? 78 : 0)
             }
             .background(.clear)
-            // .hiddenTitleBar gives no top safe area, so content rides up under the
-            // window controls. Reserve the title-bar strip uniformly across both
-            // columns; the traffic lights then sit over the app background above.
-            .padding(.top, 34)
         }
         .tint(SustainColor.accent)
-        .preferredColorScheme((AppAppearance(rawValue: appearanceRaw) ?? .system).colorScheme)
+        .onAppear { applyAppearance() }
+        .onChange(of: appearanceRaw) { applyAppearance() }
         .alert(item: $store.audioRouteChangePrompt) { prompt in
             Alert(
                 title: Text("Audio Output Change Detected"),
@@ -34,6 +38,12 @@ struct RootView: View {
                 }
             )
         }
+    }
+
+    /// Pin the whole app to the chosen appearance. `nil` (System) lets it follow the OS
+    /// live — reliably, unlike `.preferredColorScheme(nil)`, which sticks on the last choice.
+    private func applyAppearance() {
+        NSApplication.shared.appearance = (AppAppearance(rawValue: appearanceRaw) ?? .system).nsAppearance
     }
 
     private var backgroundMood: SustainBackgroundMood {
@@ -71,6 +81,8 @@ struct RootView: View {
 private struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
 
+    private var isLive: Bool { store.selectedScreen == .live }
+
     var body: some View {
         List(selection: selectionBinding) {
             Section("Service") {
@@ -85,12 +97,19 @@ private struct SidebarView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             BrandHeader()
                 .padding(.horizontal, SustainSpace.lg)
-                // Clear the traffic-light strip (the sidebar column stays full-height
-                // under the window controls even when the detail is inset).
-                .padding(.top, 50)
+                // The Live screen's detail (real List + inspector) makes the split view
+                // mount the sidebar flush to the window top, so the brand needs a big top
+                // pad to clear the traffic lights. Every other screen leaves the sidebar a
+                // large system top reserve instead (see reclaimTopSafeArea below), so a
+                // smaller pad lands the brand at the same spot below the controls.
+                .padding(.top, isLive ? 96 : 50)
                 .padding(.bottom, SustainSpace.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // Reclaim the split view's oversized top reserve on the non-Live screens so the
+        // brand isn't stranded far below the window controls. Live has no such reserve
+        // (it mounts flush), so reclaiming there would pull content up under the controls.
+        .reclaimTopSafeArea(!isLive)
     }
 
     private var selectionBinding: Binding<AppScreen?> {
@@ -122,6 +141,19 @@ private struct BrandHeader: View {
             Text("SUSTAIN")
                 .font(.headline)
                 .tracking(3)
+        }
+    }
+}
+
+private extension View {
+    /// Conditionally drops the container's top safe area so content can reclaim the
+    /// split view's oversized top reserve. A no-op when `active` is false.
+    @ViewBuilder
+    func reclaimTopSafeArea(_ active: Bool) -> some View {
+        if active {
+            ignoresSafeArea(.container, edges: .top)
+        } else {
+            self
         }
     }
 }

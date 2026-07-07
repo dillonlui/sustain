@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum AppAppearance: String, CaseIterable, Identifiable {
@@ -20,6 +21,18 @@ enum AppAppearance: String, CaseIterable, Identifiable {
         case .system: nil
         case .light: .light
         case .dark: .dark
+        }
+    }
+
+    /// The AppKit appearance to pin the app to. `nil` (System) lets the window follow the
+    /// OS setting live. We drive `NSApplication.appearance` with this instead of relying on
+    /// SwiftUI's `.preferredColorScheme`, which on macOS fails to clear a previously pinned
+    /// appearance when returning to System — leaving it stuck on the last Light/Dark choice.
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
         }
     }
 }
