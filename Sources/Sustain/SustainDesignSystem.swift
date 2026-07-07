@@ -120,8 +120,6 @@ enum SustainBackgroundMood {
     case standard
     case live
     case rehearse
-    case audio
-    case system
 }
 
 /// Retained for source compatibility. Ambient decoration has been removed in favor of
@@ -330,29 +328,6 @@ struct SustainInlineNotice: View {
         .padding(SustainSpace.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(kind.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
-    }
-}
-
-// MARK: - Layout
-
-/// Lays two panels side by side, falling back to a vertical stack when the container is
-/// too narrow to fit them horizontally. The basis of responsive two-column screens.
-struct PanelPair<First: View, Second: View>: View {
-    var spacing: CGFloat = SustainSpace.xxl
-    @ViewBuilder var first: First
-    @ViewBuilder var second: Second
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: spacing) {
-                first
-                second
-            }
-            VStack(spacing: spacing) {
-                first
-                second
-            }
-        }
     }
 }
 

@@ -71,13 +71,6 @@ struct SustainCommands: Commands {
     }
 
     var body: some Commands {
-        CommandGroup(after: .newItem) {
-            Button("Run System Check") {
-                store.runSystemCheck()
-            }
-            .keyboardShortcut("k", modifiers: [.command, .shift])
-        }
-
         CommandMenu("Performance") {
             Button(isTransition ? "Transition" : "Start") {
                 store.startCuedSong()

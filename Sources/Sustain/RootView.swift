@@ -54,10 +54,6 @@ struct RootView: View {
             return .rehearse
         case .songs:
             return .standard
-        case .audio:
-            return .audio
-        case .check:
-            return .system
         }
     }
 
@@ -70,10 +66,6 @@ struct RootView: View {
             RehearseView()
         case .songs:
             SongLibraryView()
-        case .audio:
-            AudioSetupView()
-        case .check:
-            SystemCheckView()
         }
     }
 }
@@ -127,8 +119,6 @@ private struct SidebarView: View {
         case .live: "play.circle"
         case .rehearse: "music.quarternote.3"
         case .songs: "music.note.list"
-        case .audio: "speaker.wave.2"
-        case .check: "checkmark.shield"
         }
     }
 }

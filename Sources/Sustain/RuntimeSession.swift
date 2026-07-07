@@ -6,8 +6,6 @@ enum AppScreen: String, CaseIterable, Identifiable {
     case live = "Live Service"
     case rehearse = "Rehearse"
     case songs = "Song Library"
-    case audio = "Audio Setup"
-    case check = "System Check"
 
     var id: String { rawValue }
 }
