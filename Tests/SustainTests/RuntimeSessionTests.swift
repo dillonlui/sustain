@@ -5,6 +5,48 @@ import Testing
 
 @MainActor
 struct RuntimeSessionTests {
+    @Test func refreshReadinessReportsReadyWithoutTouchingEngine() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        let routingCallsBefore = audio.configureRoutingCount
+
+        store.refreshReadiness()
+
+        #expect(store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.messages.contains("Ready for Goodness of God in G at 72 BPM."))
+        // The safety-net must NOT reconfigure audio (that is runSystemCheck's job).
+        #expect(audio.configureRoutingCount == routingCallsBefore)
+    }
+
+    @Test func refreshReadinessBlocksWhenPadOutputUnavailable() {
+        let provider = StaticAudioRoutingProvider(
+            snapshotValue: AudioRoutingSnapshot(
+                outputs: [AudioOutputDevice(id: 2, name: "Click Bus", isDefault: true)],
+                padOutputID: 2,
+                padOutputName: "Click Bus",
+                clickOutputID: 2,
+                clickOutputName: "Click Bus",
+                independentRoutingEnabled: false,
+                padOutputUnavailable: true
+            )
+        )
+        let store = AppStore.preview(audioRoutingProvider: provider)
+
+        store.refreshReadiness()
+
+        #expect(!store.systemCheck.canStartPlayback)
+        #expect(store.systemCheck.messages.contains("Selected pad output is unavailable."))
+    }
+
+    @Test func refreshReadinessIsNeutralWhenNothingCued() {
+        let store = AppStore.preview()
+        for entry in store.activeSetlist.entries { store.removeSetlistEntry(entry.id) }
+
+        store.refreshReadiness()
+
+        #expect(store.systemCheck == .notRun)
+    }
+
     @Test func nextSongOnlyChangesCue() {
         let store = AppStore.preview()
         store.startCuedSong()

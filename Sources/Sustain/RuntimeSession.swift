@@ -696,6 +696,17 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// Lightweight readiness re-check for the Live safety-net. Pure `validate()` only — never
+    /// prepares the engine or reconfigures routing (that is `runSystemCheck()`'s job), so it is
+    /// safe to call on screen entry and on state changes, including during playback.
+    func refreshReadiness() {
+        if let cuedEntry, let cuedSong = song(for: cuedEntry) {
+            systemCheck = validate(entry: cuedEntry, song: cuedSong)
+        } else {
+            systemCheck = .notRun
+        }
+    }
+
     private func beginCountoff(
         for entryID: SetlistEntry.ID,
         songTitle: String,
