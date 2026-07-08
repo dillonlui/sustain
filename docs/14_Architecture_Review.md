@@ -16,12 +16,14 @@
 - ✅ **P2 monitor concurrency** (`f6fb955`) — coalesced CoreAudio events (no flapping), non-trapping deinits.
 - ✅ **P2 dead-code removal** (`1621632`) — dropped glass* tokens + TopographicFieldView; AudioPatternView relabeled as a clear pad-viz TODO stub.
 
-**Remaining (each blocked on real-hardware/audible verification, a product call, or is churn — see the P1.2/P2 sections below):**
-- P1.2 leftovers: reconfigure-and-resume across an output-ID replug; `AVAudioEngineConfigurationChange` observer (sample-rate changes). *Need real device hot-plug to verify.*
-- P2 audio timing: drive the visual countoff off the audio clock; sample-accurate crossfade ramp. *Not audibly verifiable in the headless harness.*
-- P2 persisted device **UID** instead of ephemeral `AudioDeviceID`. *Needs reboot/replug to verify.*
-- P2 dead `padPack` persisted schema — **recommend deferring**: harmless today (always `.bundled`); the right fix is to round-trip faithfully when custom pad packs are actually built, not to churn the model + migration now.
-- Structure: folders (`Audio/`, `Persistence/`, …) + split the 1365-line test file. *Safe but large-diff churn.*
+- ✅ **P2 structure reorg + test split** (`<restructure>`) — concern folders; fakes → TestSupport; test file split by concern.
+- ✅ **P2 crossfade smoothing** (`<crossfade>`) — ~120 Hz ramp (was ~19 Hz) to kill zipper. Safe/mechanism-preserving; audio smoothness itself best confirmed on real output.
+
+**Remaining — deliberately NOT shipped blind (real-gear work; each carries unobservable-regression risk here, not just "feel"):**
+- **Countoff off the audio clock.** The visual beat (store `Task.sleep`) and the audible countoff (scheduled on the click player) share the same tempo, so they're duration-matched; the residual drift is start-offset/jitter. A true fix couples engine→store per-beat callbacks — the store side is unit-testable, but the audio timing itself needs real output to confirm it's *tighter*, not worse. Worth doing **with real gear**.
+- **`AVAudioEngineConfigurationChange` observer + reconfigure-and-resume across an output-ID replug** (the P1.2 leftover). Doing this usefully means re-establishing the running graph and re-scheduling playback — exactly the code path that can silence a live service if it's subtly wrong, and it can't be exercised without hot-plugging a device. **Pair on real gear.**
+- **Persisted device UID.** Lower value than the audit implied: `AudioRoutingResolver` already recovers a selected device **by name** when its id changes (tested: `routingResolverRecoversSelectedOutputByNameWhenDeviceIDChanges`). UID only adds duplicate-name robustness, at the cost of settings-model + selection-capture + migration churn that needs a reboot/replug to verify. **Recommend deferring** unless duplicate device names are a real scenario.
+- **Dead `padPack` persisted schema** — **defer**: harmless today (always `.bundled`); round-trip faithfully when custom pad packs are actually built, don't churn the model now.
 
 ---
 
