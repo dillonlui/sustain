@@ -1,6 +1,6 @@
-import Combine
 import CoreAudio
 import Foundation
+import Observation
 
 enum AppScreen: String, CaseIterable, Identifiable {
     case live = "Live Service"
@@ -75,31 +75,37 @@ struct AudioRouteChangePrompt: Identifiable, Equatable {
 }
 
 @MainActor
-final class AppStore: ObservableObject {
-    @Published var selectedScreen: AppScreen = .live
-    @Published var songs: [Song]
-    @Published var padPacks: [PadPack]
-    @Published var activeSetlist: Setlist
-    @Published var runtime = RuntimeSession()
-    @Published var rehearse = RehearseSession()
-    @Published var systemCheck = SystemCheckResult.notRun
-    @Published var audioStatus: String
-    @Published var persistenceStatus: String
-    @Published var routingSettings: AudioRoutingSettings
-    @Published var routingSnapshot: AudioRoutingSnapshot
-    @Published var padVolume: Double
-    @Published var clickVolume: Double
-    @Published var clickSettings: ClickSettings
-    @Published var audioRouteChangePrompt: AudioRouteChangePrompt?
+@Observable
+final class AppStore {
+    // UI state — observed with property-level granularity, so a view re-renders only for the
+    // exact fields it reads. (Migrated off ObservableObject/@Published, whose object-level
+    // invalidation re-rendered every view on any change — the root of the Live layout flip and
+    // a latent re-render storm; see docs/13, docs/14.)
+    var selectedScreen: AppScreen = .live
+    var songs: [Song]
+    var padPacks: [PadPack]
+    var activeSetlist: Setlist
+    var runtime = RuntimeSession()
+    var rehearse = RehearseSession()
+    var systemCheck = SystemCheckResult.notRun
+    var audioStatus: String
+    var persistenceStatus: String
+    var routingSettings: AudioRoutingSettings
+    var routingSnapshot: AudioRoutingSnapshot
+    var padVolume: Double
+    var clickVolume: Double
+    var clickSettings: ClickSettings
+    var audioRouteChangePrompt: AudioRouteChangePrompt?
 
-    private let audioEngine: AudioControlling
-    private let libraryStore: LocalLibraryStore?
-    private let audioRoutingProvider: AudioRoutingProviding
-    private let audioHardwareMonitor: AudioHardwareMonitoring
-    private let powerStateMonitor: PowerStateMonitoring
-    private let countoffDurationMultiplier: Double
-    private var clickStateTask: Task<Void, Never>?
-    private var audioRoutingFailureMessage: String?
+    // Infrastructure / private state — never read from a view body, so exclude from observation.
+    @ObservationIgnored private let audioEngine: AudioControlling
+    @ObservationIgnored private let libraryStore: LocalLibraryStore?
+    @ObservationIgnored private let audioRoutingProvider: AudioRoutingProviding
+    @ObservationIgnored private let audioHardwareMonitor: AudioHardwareMonitoring
+    @ObservationIgnored private let powerStateMonitor: PowerStateMonitoring
+    @ObservationIgnored private let countoffDurationMultiplier: Double
+    @ObservationIgnored private var clickStateTask: Task<Void, Never>?
+    @ObservationIgnored private var audioRoutingFailureMessage: String?
 
     init(
         songs: [Song],

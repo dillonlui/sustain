@@ -31,7 +31,7 @@ private struct SetlistResizeHandle: View {
 }
 
 struct LiveServiceView: View {
-    @EnvironmentObject private var store: AppStore
+    @Environment(AppStore.self) private var store
     @State private var editingEntryID: SetlistEntry.ID?
     @AppStorage("liveSetlistWidth") private var setlistWidth = 260.0
 
@@ -512,7 +512,7 @@ private struct SetlistRowView: View {
 // MARK: - Inspector
 
 private struct SongInspectorPane: View {
-    @EnvironmentObject private var store: AppStore
+    @Environment(AppStore.self) private var store
     var entryID: SetlistEntry.ID?
     var onClose: () -> Void
 

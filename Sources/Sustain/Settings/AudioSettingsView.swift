@@ -2,7 +2,7 @@ import CoreAudio
 import SwiftUI
 
 struct AudioSettingsView: View {
-    @EnvironmentObject private var store: AppStore
+    @Environment(AppStore.self) private var store
 
     var body: some View {
         Form {

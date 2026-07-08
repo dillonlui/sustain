@@ -39,12 +39,12 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
 @main
 struct SustainApp: App {
-    @StateObject private var store = AppStore.live()
+    @State private var store = AppStore.live()
 
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environmentObject(store)
+                .environment(store)
                 .frame(minWidth: 1200, minHeight: 700)
         }
         .windowStyle(.hiddenTitleBar)
@@ -54,7 +54,7 @@ struct SustainApp: App {
 
         Settings {
             AppSettingsView()
-                .environmentObject(store)
+                .environment(store)
         }
     }
 }
@@ -63,7 +63,7 @@ struct SustainApp: App {
 /// click, pad) and screen navigation, all reachable from any screen and shown
 /// with their keyboard shortcuts so performers can discover them.
 struct SustainCommands: Commands {
-    @ObservedObject var store: AppStore
+    var store: AppStore
 
     private var isTransition: Bool {
         store.runtime.playingEntryID != nil &&

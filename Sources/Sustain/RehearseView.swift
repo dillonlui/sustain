@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct RehearseView: View {
-    @EnvironmentObject private var store: AppStore
+    @Environment(AppStore.self) private var store
 
     private let tempoRange = 40...220
 

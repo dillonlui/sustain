@@ -2,7 +2,7 @@ import CoreAudio
 import SwiftUI
 
 struct SongLibraryView: View {
-    @EnvironmentObject private var store: AppStore
+    @Environment(AppStore.self) private var store
 
     var body: some View {
         VStack(spacing: 0) {

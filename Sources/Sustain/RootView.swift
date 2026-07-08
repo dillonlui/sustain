@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct RootView: View {
-    @EnvironmentObject private var store: AppStore
+    @Environment(AppStore.self) private var store
     @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
 
     /// Reserved strip at the very top of the window, under `.hiddenTitleBar`, so content clears
@@ -12,6 +12,7 @@ struct RootView: View {
     private static let topChrome: CGFloat = 28
 
     var body: some View {
+        @Bindable var store = store  // local binding shadow for `$store` (alert item) under @Observable
         ZStack {
             SustainAppBackground(mood: backgroundMood)
 
@@ -82,7 +83,7 @@ struct RootView: View {
 }
 
 private struct SidebarView: View {
-    @EnvironmentObject private var store: AppStore
+    @Environment(AppStore.self) private var store
 
     /// Top reserve so the brand clears the window's traffic-light controls (the sidebar runs
     /// full-height to the window top under `.hiddenTitleBar`).
