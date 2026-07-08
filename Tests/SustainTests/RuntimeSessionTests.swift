@@ -286,6 +286,21 @@ struct RuntimeSessionTests {
         #expect(!FileManager.default.fileExists(atPath: libraryURL.path))
     }
 
+    @Test func failedSaveRaisesAlertPrompt() throws {
+        // A directory under /dev/null can never be created, so every save write fails.
+        let unwritable = LocalLibraryStore(
+            directoryOverride: URL(fileURLWithPath: "/dev/null/sustain-nope", isDirectory: true)
+        )
+        let store = AppStore.preview(libraryStore: unwritable)
+        #expect(store.saveErrorPrompt == nil)
+
+        let entry = try #require(store.activeSetlist.entries.first)
+        store.updateEntry(entry.id, keyOverride: .bb, bpmOverride: 88)
+
+        #expect(store.saveErrorPrompt != nil)
+        #expect(store.persistenceStatus.hasPrefix("Library save failed"))
+    }
+
     @Test func newerSchemaFileThrowsDistinctErrorAndIsNotQuarantined() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)

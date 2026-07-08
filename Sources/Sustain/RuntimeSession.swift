@@ -74,6 +74,11 @@ struct AudioRouteChangePrompt: Identifiable, Equatable {
     var message: String
 }
 
+struct SaveErrorPrompt: Identifiable, Equatable {
+    var id = UUID()
+    var message: String
+}
+
 @MainActor
 @Observable
 final class AppStore {
@@ -96,8 +101,14 @@ final class AppStore {
     var clickVolume: Double
     var clickSettings: ClickSettings
     var audioRouteChangePrompt: AudioRouteChangePrompt?
+    /// Set when a library save fails after a retry — drives a blocking alert so the operator
+    /// isn't left believing edits are saved when they're not.
+    var saveErrorPrompt: SaveErrorPrompt?
 
     // Infrastructure / private state — never read from a view body, so exclude from observation.
+    /// True when the in-memory library is newer than what's on disk (a save failed). Lets a
+    /// later successful save or an app-quit flush recover the work.
+    @ObservationIgnored private var hasUnsavedChanges = false
     @ObservationIgnored private let audioEngine: AudioControlling
     @ObservationIgnored private let libraryStore: LocalLibraryStore?
     @ObservationIgnored private let audioRoutingProvider: AudioRoutingProviding
@@ -822,22 +833,50 @@ final class AppStore {
             return
         }
 
-        do {
-            try libraryStore.saveLibrary(
-                LibrarySnapshot(
-                    songs: songs,
-                    padPacks: padPacks,
-                    activeSetlist: activeSetlist,
-                    routingSettings: routingSettings,
-                    padVolume: padVolume,
-                    clickVolume: clickVolume,
-                    clickSettings: clickSettings
-                )
-            )
-            persistenceStatus = "Library saved"
-        } catch {
-            persistenceStatus = "Library save failed: \(error.localizedDescription)"
+        let snapshot = LibrarySnapshot(
+            songs: songs,
+            padPacks: padPacks,
+            activeSetlist: activeSetlist,
+            routingSettings: routingSettings,
+            padVolume: padVolume,
+            clickVolume: clickVolume,
+            clickSettings: clickSettings
+        )
+
+        // Retry once — most write failures are transient (a brief lock, momentary I/O hiccup).
+        for attempt in 1...2 {
+            do {
+                try libraryStore.saveLibrary(snapshot)
+                persistenceStatus = "Library saved"
+                hasUnsavedChanges = false
+                saveErrorPrompt = nil
+                return
+            } catch {
+                if attempt == 2 {
+                    // Persistent failure: mark the work unsaved and raise a visible alert so the
+                    // operator knows, rather than silently losing edits on next launch.
+                    hasUnsavedChanges = true
+                    persistenceStatus = "Library save failed: \(error.localizedDescription)"
+                    if saveErrorPrompt == nil {
+                        saveErrorPrompt = SaveErrorPrompt(
+                            message: "Sustain couldn't save your library (\(error.localizedDescription)). Your changes are kept in memory — try again, and don't quit until it succeeds."
+                        )
+                    }
+                }
+            }
         }
+    }
+
+    /// Re-attempt a save the user asked to retry from the save-failure alert.
+    func retryFailedSave() {
+        saveErrorPrompt = nil
+        saveLibrary()
+    }
+
+    /// Flush unsaved work — call on app quit / scene backgrounding as a last-chance backstop.
+    func flushPendingSaveIfNeeded() {
+        guard hasUnsavedChanges else { return }
+        saveLibrary()
     }
 
     private func configureAudioRouting() {

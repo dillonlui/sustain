@@ -3,6 +3,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
 
     /// Reserved strip at the very top of the window, under `.hiddenTitleBar`, so content clears
@@ -30,6 +31,11 @@ struct RootView: View {
         .tint(SustainColor.accent)
         .onAppear { applyAppearance() }
         .onChange(of: appearanceRaw) { applyAppearance() }
+        // Last-chance flush of unsaved work when the app leaves the foreground (a backstop for
+        // the rare case a prior save failed; normal edits already persist eagerly).
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { store.flushPendingSaveIfNeeded() }
+        }
         .alert(item: $store.audioRouteChangePrompt) { prompt in
             Alert(
                 title: Text("Audio Output Change Detected"),
@@ -40,6 +46,16 @@ struct RootView: View {
                 secondaryButton: .default(Text("Switch to \(prompt.detectedOutputName)")) {
                     store.switchToDetectedAudioOutput()
                 }
+            )
+        }
+        .alert(item: $store.saveErrorPrompt) { prompt in
+            Alert(
+                title: Text("Couldn't Save Library"),
+                message: Text(prompt.message),
+                primaryButton: .default(Text("Try Again")) {
+                    store.retryFailedSave()
+                },
+                secondaryButton: .cancel(Text("Dismiss"))
             )
         }
     }
