@@ -2,19 +2,26 @@
 
 **Date:** 2026-07-08 · **Branch:** `redesign-native` · Build clean, `swift test` 66 passing.
 
-## Status (updated 2026-07-08) — top fixes shipped
+## Status (updated 2026-07-08) — P0 + all P1 + most P2 shipped
 
-- ✅ **P0.1 @Observable migration** — commit `a595755`. AppStore off classic ObservableObject;
-  property-level tracking. Verified: view + menu reactivity fire, layout stable.
-- ✅ **P0.2 schema-versioning + rolling backup** — commit `f3d78f4`. `schemaVersion` (legacy
-  files default to v1), `Library.bak` recovery on corrupt primary, newer-schema rejected not
-  wiped. +3 tests; real legacy library boots unchanged.
-- ✅ **P0.3 off-main pad decode at Start** — commit `fb162a1`. Deferred off-thread decode +
-  generation guard; Start never blocks the UI. Verified live from a cold cache.
-- ✅ **P1.3 SwiftUI previews** — commit `a3740d8`. Every screen + editor + idle/playing/countoff
-  states from `AppStore.preview()`. (Snapshot tests deferred — external dep.)
+**Done (commits on `redesign-native`):**
+- ✅ **P0.1 @Observable migration** (`a595755`) — property-level tracking; view + menu reactivity verified.
+- ✅ **P0.2 schema-versioning + rolling backup** (`f3d78f4`) — legacy files load as v1, `Library.bak` recovery, newer-schema preserved. +3 tests.
+- ✅ **P0.3 off-main pad decode at Start** (`fb162a1`) — deferred decode + generation guard; verified live from cold cache.
+- ✅ **P1.1 save-failure surfacing** (`0b1d6c1`) — retry-once, dirty flag, blocking alert, scene-phase flush. +1 test.
+- ✅ **P1.2 (core) keep-playing through unrelated device changes** (`dea0323`) — stop only when a needed device is gone or our output IDs shift; otherwise keep playing + prompt. Test updated.
+- ✅ **P1.3 SwiftUI previews** (`a3740d8`) — every screen + key states.
+- ✅ **P1.4 extract routing normalizer + readiness evaluator** (`b0bfed2`) — pure, testable; AppStore delegates. +2 tests.
+- ✅ **P2 AudioEngine hardening** (`c852007`) — bounded LRU pad cache, guarded throws for force-unwraps, documented `@unchecked Sendable` contract.
+- ✅ **P2 monitor concurrency** (`f6fb955`) — coalesced CoreAudio events (no flapping), non-trapping deinits.
+- ✅ **P2 dead-code removal** (`1621632`) — dropped glass* tokens + TopographicFieldView; AudioPatternView relabeled as a clear pad-viz TODO stub.
 
-Remaining P1/P2 items below are not yet done.
+**Remaining (each blocked on real-hardware/audible verification, a product call, or is churn — see the P1.2/P2 sections below):**
+- P1.2 leftovers: reconfigure-and-resume across an output-ID replug; `AVAudioEngineConfigurationChange` observer (sample-rate changes). *Need real device hot-plug to verify.*
+- P2 audio timing: drive the visual countoff off the audio clock; sample-accurate crossfade ramp. *Not audibly verifiable in the headless harness.*
+- P2 persisted device **UID** instead of ephemeral `AudioDeviceID`. *Needs reboot/replug to verify.*
+- P2 dead `padPack` persisted schema — **recommend deferring**: harmless today (always `.bundled`); the right fix is to round-trip faithfully when custom pad packs are actually built, not to churn the model + migration now.
+- Structure: folders (`Audio/`, `Persistence/`, …) + split the 1365-line test file. *Safe but large-diff churn.*
 
 ---
 
