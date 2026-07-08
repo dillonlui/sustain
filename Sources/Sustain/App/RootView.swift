@@ -6,27 +6,24 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
 
-    /// Reserved strip at the very top of the window, under `.hiddenTitleBar`, so content clears
-    /// the traffic-light controls and leaves a draggable title-bar zone. We OWN this inset — it
-    /// is a single fixed value, so unlike `NavigationSplitView` it cannot flip between mount
-    /// modes when state changes mid-service (the root cause fixed here; see docs/13).
-    private static let topChrome: CGFloat = 28
-
     var body: some View {
         @Bindable var store = store  // local binding shadow for `$store` (alert item) under @Observable
         ZStack {
             SustainAppBackground(mood: backgroundMood)
 
             HStack(spacing: 0) {
-                SidebarView(topChrome: Self.topChrome)
+                SidebarView()
                     .frame(width: 220)
 
                 Divider()
 
                 selectedScreen
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.top, Self.topChrome)
             }
+            // Panes + dividers fill to the physical window top; each column insets its own content
+            // by SustainLayout.topChrome so content clears the traffic-light zone and aligns
+            // across columns. One rule, no per-screen padding (that was the old hack; see docs/13).
+            .ignoresSafeArea(.container, edges: .top)
         }
         .tint(SustainColor.accent)
         .onAppear { applyAppearance() }
@@ -101,10 +98,6 @@ struct RootView: View {
 private struct SidebarView: View {
     @Environment(AppStore.self) private var store
 
-    /// Top reserve so the brand clears the window's traffic-light controls (the sidebar runs
-    /// full-height to the window top under `.hiddenTitleBar`).
-    let topChrome: CGFloat
-
     var body: some View {
         List(selection: selectionBinding) {
             Section("Service") {
@@ -116,9 +109,11 @@ private struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top, spacing: 0) {
+            // Sidebar material fills to the window top; the brand insets by topChrome to clear
+            // the traffic lights and align with the detail's top content.
             BrandHeader()
                 .padding(.horizontal, SustainSpace.lg)
-                .padding(.top, topChrome + SustainSpace.sm)
+                .padding(.top, SustainLayout.topChrome)
                 .padding(.bottom, SustainSpace.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

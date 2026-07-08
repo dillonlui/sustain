@@ -108,7 +108,10 @@ struct LiveServiceView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, SustainSpace.md)
-        .padding(.vertical, SustainSpace.sm)
+        // Header material fills to the window top; the title insets by topChrome so it aligns
+        // with the sidebar brand and the NOW/NEXT cards.
+        .padding(.top, SustainLayout.topChrome)
+        .padding(.bottom, SustainSpace.sm)
         .background(.bar)
     }
 
@@ -138,7 +141,9 @@ struct LiveServiceView: View {
             Spacer()
         }
         .padding(.horizontal, SustainSpace.md)
-        .padding(.vertical, SustainSpace.sm)
+        .padding(.top, SustainSpace.sm)
+        // Extra bottom room so Add Song isn't jammed against the window edge.
+        .padding(.bottom, SustainSpace.lg)
         .background(.bar)
     }
 
@@ -177,7 +182,10 @@ struct LiveServiceView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(SustainSpace.screen)
+        .padding(.horizontal, SustainSpace.screen)
+        .padding(.bottom, SustainSpace.screen)
+        // Align the NOW/NEXT cards' top with the setlist header (both at topChrome).
+        .padding(.top, SustainLayout.topChrome)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 

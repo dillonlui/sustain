@@ -61,6 +61,15 @@ enum SustainRadius {
     static let capsule: CGFloat = 999
 }
 
+enum SustainLayout {
+    /// Top inset that clears the window's traffic-light / title-bar zone under `.hiddenTitleBar`.
+    /// The pane containers (sidebar, dividers, setlist) fill to the physical window top; each
+    /// column then insets its CONTENT by this same amount so the brand, the setlist header, and
+    /// the NOW/NEXT cards align on one line just below the controls. Single source of truth — no
+    /// per-screen padding.
+    static let topChrome: CGFloat = 28
+}
+
 enum SustainType {
     static let display = Font.system(.largeTitle, design: .rounded).weight(.semibold)
     static let metric = Font.system(.title, design: .rounded).weight(.semibold).monospacedDigit()

@@ -48,9 +48,13 @@ half-implementation risks silencing a live service without me being able to obse
 - **Drop the dead `padPack` persisted schema** — harmless today (always `.bundled`); round-trip
   faithfully when custom pad packs are actually built.
 
-### In progress
-- **Live layout spacing polish** — top insets/alignment + Add-Song bottom padding. Root cause
-  found (see below / docs/13 addendum); fix pending.
+### Done since
+- ✅ **Live layout spacing polish** — root cause was the pane `HStack` respecting the window top
+  safe area (borders didn't reach the top) plus an extra top padding on the detail only (main
+  sat ~28px below the nav, unaligned). Fixed with one rule: `HStack.ignoresSafeArea(.top)` so
+  panes/dividers fill to the physical top, and a single `SustainLayout.topChrome` content inset
+  applied uniformly (sidebar brand, setlist header, NOW/NEXT, Rehearse/Song-Library headers) so
+  all top content aligns; plus Add-Song bottom padding. Verified by pixel probe.
 
 ---
 

@@ -22,6 +22,8 @@ struct RehearseView: View {
                         .padding(SustainSpace.screen)
                 }
             }
+            // Clear the window's traffic-light / title-bar zone (the screen fills to the top).
+            .padding(.top, SustainLayout.topChrome)
         }
         .sustainScreenBackground(.rehearse)
     }
