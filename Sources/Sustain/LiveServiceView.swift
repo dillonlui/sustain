@@ -101,7 +101,9 @@ struct LiveServiceView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, SustainSpace.md)
-        .padding(.vertical, SustainSpace.sm)
+        // A little breathing room up top so the title isn't jammed against the window edge.
+        .padding(.top, 26)
+        .padding(.bottom, SustainSpace.sm)
         .background(.bar)
     }
 
@@ -155,13 +157,20 @@ struct LiveServiceView: View {
             levelsRow
             messageStrip
 
-            Spacer(minLength: 0)
+            // Zero-height anchor just below the controls. The countoff renders from here as
+            // an overlay, so it sits a fixed distance below the controls yet has NO layout
+            // footprint (adding real height here would reflow the column).
+            Color.clear
+                .frame(height: 0)
+                .overlay(alignment: .top) {
+                    if store.runtime.countoffBeat != nil {
+                        CountoffIndicator(beat: store.runtime.countoffBeat, total: store.runtime.countoffTotal)
+                            .padding(.top, SustainSpace.xl)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
 
-            // Countoff lives below the permanent controls, in the empty space, so it never
-            // pushes the transport/levels around when it appears and disappears.
-            if store.runtime.countoffBeat != nil {
-                CountoffIndicator(beat: store.runtime.countoffBeat, total: store.runtime.countoffTotal)
-            }
+            Spacer(minLength: 0)
         }
         .padding(SustainSpace.screen)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
