@@ -78,6 +78,9 @@ final class SustainAudioEngine: AudioControlling {
     private var padFadeTasks: [Task<Void, Never>?] = [nil, nil]
     private var padStopTasks: [Task<Void, Never>?] = [nil, nil]
     private var padGenerations = [0, 0]
+    /// Bumped by every startPad/stopPad. A deferred (off-main) decode only commits if it still
+    /// matches the latest value, so a stop or newer start during the decode window supersedes it.
+    private var padStartGeneration = 0
     private let padBufferCache = PadBufferCache()
     private let padDecodeQueue = DispatchQueue(label: "com.sustain.pad-decode", qos: .userInitiated)
 
@@ -195,10 +198,34 @@ final class SustainAudioEngine: AudioControlling {
             throw AudioEngineError.missingPadFile(pack: padPack.name, key: key)
         }
 
-        let buffer = try loadPadBuffer(for: asset.url)
-
         try startPadEngineIfNeeded()
 
+        padStartGeneration &+= 1
+        let generation = padStartGeneration
+
+        // Fast path: the pad was preloaded on cue, so scheduling is immediate.
+        if let buffer = padBufferCache.buffer(for: asset.url) {
+            commitPad(buffer: buffer, key: key, assetDisplayName: asset.displayName)
+            return
+        }
+
+        // Cache miss (e.g. cue-then-immediate-start beat the preload). Decode OFF the main
+        // thread so pressing Start never stalls the UI on a multi-MB file read, then commit
+        // when ready — unless a later start/stop has superseded this one.
+        let cache = padBufferCache
+        let queue = padDecodeQueue
+        let url = asset.url
+        let displayName = asset.displayName
+        Task { @MainActor [weak self] in
+            guard let buffer = try? await Self.decodePadBuffer(at: url, cache: cache, queue: queue) else { return }
+            guard let self, self.padStartGeneration == generation else { return }
+            self.commitPad(buffer: buffer, key: key, assetDisplayName: displayName)
+        }
+    }
+
+    /// Schedules an already-decoded pad buffer on a free player and crossfades from the
+    /// previous one. Pure main-actor work — no file IO — so it's cheap and instant.
+    private func commitPad(buffer: AVAudioPCMBuffer, key: MusicalKey, assetDisplayName: String?) {
         let newIndex = nextPadIndex
         nextPadIndex = (nextPadIndex + 1) % padPlayers.count
 
@@ -226,10 +253,11 @@ final class SustainAudioEngine: AudioControlling {
 
         activePadIndex = newIndex
         activePadKey = key
-        activePadAssetName = asset.displayName
+        activePadAssetName = assetDisplayName
     }
 
     func stopPad() {
+        padStartGeneration &+= 1  // supersede any pending off-main decode
         guard let activePadIndex else { return }
 
         let player = padPlayers[activePadIndex]
@@ -512,21 +540,29 @@ final class SustainAudioEngine: AudioControlling {
         }
     }
 
-    private func loadPadBuffer(for url: URL) throws -> AVAudioPCMBuffer {
-        if let cached = padBufferCache.buffer(for: url) {
+    /// Returns a cached pad buffer immediately, or decodes it on `queue` (off the main thread)
+    /// and caches it. `nonisolated` + static so the decode never touches the main actor.
+    private nonisolated static func decodePadBuffer(
+        at url: URL,
+        cache: PadBufferCache,
+        queue: DispatchQueue
+    ) async throws -> AVAudioPCMBuffer {
+        if let cached = cache.buffer(for: url) {
             return cached
         }
 
-        let file: AVAudioFile
-        do {
-            file = try AVAudioFile(forReading: url)
-        } catch {
-            throw AudioEngineError.unreadablePadFile(url)
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                do {
+                    let file = try AVAudioFile(forReading: url)
+                    let buffer = try makeLoopingBuffer(from: file)
+                    cache.store(buffer, for: url)
+                    continuation.resume(returning: buffer)
+                } catch {
+                    continuation.resume(throwing: AudioEngineError.unreadablePadFile(url))
+                }
+            }
         }
-
-        let buffer = try Self.makeLoopingBuffer(from: file)
-        padBufferCache.store(buffer, for: url)
-        return buffer
     }
 
     /// Reads a file fully into a PCM buffer. `nonisolated` so it can run on the pad
