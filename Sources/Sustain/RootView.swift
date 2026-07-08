@@ -43,7 +43,15 @@ struct RootView: View {
     /// Pin the whole app to the chosen appearance. `nil` (System) lets it follow the OS
     /// live — reliably, unlike `.preferredColorScheme(nil)`, which sticks on the last choice.
     private func applyAppearance() {
-        NSApplication.shared.appearance = (AppAppearance(rawValue: appearanceRaw) ?? .system).nsAppearance
+        let appearance = (AppAppearance(rawValue: appearanceRaw) ?? .system).nsAppearance
+        NSApplication.shared.appearance = appearance
+        // Push onto every open window too: setting only the app appearance leaves
+        // background windows' AppKit-backed controls (e.g. the menu-style Picker /
+        // NSPopUpButton) stale until the window is next focused. Assigning the window
+        // appearance forces an immediate effective-appearance refresh of their subviews.
+        for window in NSApplication.shared.windows {
+            window.appearance = appearance
+        }
     }
 
     private var backgroundMood: SustainBackgroundMood {
