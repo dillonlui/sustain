@@ -286,6 +286,51 @@ struct RuntimeSessionTests {
         #expect(!FileManager.default.fileExists(atPath: libraryURL.path))
     }
 
+    @Test func routingNormalizerAppliesOutputResolutionRules() {
+        // Unchosen output stays on the system default (nil), regardless of what resolves.
+        #expect(RoutingSettingsNormalizer.normalizedOutputID(currentID: nil, resolvedID: 5) == nil)
+        // A chosen device that's momentarily unresolved (unplugged) is kept.
+        #expect(RoutingSettingsNormalizer.normalizedOutputID(currentID: 42, resolvedID: nil) == 42)
+        // A chosen device that resolves adopts the fresh id.
+        #expect(RoutingSettingsNormalizer.normalizedOutputID(currentID: 42, resolvedID: 7) == 7)
+
+        #expect(RoutingSettingsNormalizer.normalizedOutputName(currentID: nil, currentName: "X", resolvedName: "Y") == nil)
+        #expect(RoutingSettingsNormalizer.normalizedOutputName(currentID: 1, currentName: "Prev", resolvedName: "Unavailable") == "Prev")
+        #expect(RoutingSettingsNormalizer.normalizedOutputName(currentID: 1, currentName: "Prev", resolvedName: "Live") == "Live")
+    }
+
+    @Test func readinessEvaluatorBlocksOnMissingPadAndSurfacesSetlistWarnings() {
+        let song = Song(title: "Cued", defaultKey: .c, defaultBPM: 72, timeSignature: .fourFour, padPack: .bundled)
+        let laterMissingBPM = Song(title: "Bad", defaultKey: .c, defaultBPM: 0, timeSignature: .fourFour, padPack: .bundled)
+        let cued = SetlistEntry(songID: song.id)
+        let later = SetlistEntry(songID: laterMissingBPM.id)
+        let lookup: (SetlistEntry) -> Song? = { entry in
+            [song, laterMissingBPM].first { $0.id == entry.songID }
+        }
+
+        let ready = SetlistReadinessEvaluator(
+            hasPadAsset: { _, _ in true },
+            padAssetStatus: { _, _ in "" },
+            routingSnapshot: .previewDefault,
+            routingFailureMessage: nil,
+            entries: [cued, later],
+            song: lookup
+        ).validate(entry: cued, song: song)
+        #expect(ready.canStartPlayback)
+        // The other entry's zero BPM surfaces as a non-blocking warning.
+        #expect(ready.warnings.contains { $0.contains("Bad") })
+
+        let blocked = SetlistReadinessEvaluator(
+            hasPadAsset: { _, _ in false },
+            padAssetStatus: { _, _ in "No pad for this key" },
+            routingSnapshot: .previewDefault,
+            routingFailureMessage: nil,
+            entries: [cued],
+            song: lookup
+        ).validate(entry: cued, song: song)
+        #expect(!blocked.canStartPlayback)
+    }
+
     @Test func failedSaveRaisesAlertPrompt() throws {
         // A directory under /dev/null can never be created, so every save write fails.
         let unwritable = LocalLibraryStore(

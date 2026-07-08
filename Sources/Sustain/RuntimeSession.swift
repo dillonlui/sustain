@@ -915,46 +915,10 @@ final class AppStore {
     }
 
     private func normalizeRoutingSettingsFromSnapshot() {
-        let normalized = AudioRoutingSettings(
-            padOutputID: normalizedOutputID(
-                currentID: routingSettings.padOutputID,
-                resolvedID: routingSnapshot.padOutputID
-            ),
-            padOutputName: normalizedOutputName(
-                currentID: routingSettings.padOutputID,
-                currentName: routingSettings.padOutputName,
-                resolvedName: routingSnapshot.padOutputName
-            ),
-            padOutputChannel: routingSettings.padOutputChannel,
-            clickOutputID: normalizedOutputID(
-                currentID: routingSettings.clickOutputID,
-                resolvedID: routingSnapshot.clickOutputID
-            ),
-            clickOutputName: normalizedOutputName(
-                currentID: routingSettings.clickOutputID,
-                currentName: routingSettings.clickOutputName,
-                resolvedName: routingSnapshot.clickOutputName
-            ),
-            clickOutputChannel: routingSettings.clickOutputChannel
-        )
-
+        let normalized = RoutingSettingsNormalizer.normalize(routingSettings, snapshot: routingSnapshot)
         if normalized != routingSettings {
             routingSettings = normalized
         }
-    }
-
-    private func normalizedOutputID(currentID: AudioDeviceID?, resolvedID: AudioDeviceID?) -> AudioDeviceID? {
-        guard currentID != nil else { return nil }
-        return resolvedID ?? currentID
-    }
-
-    private func normalizedOutputName(
-        currentID: AudioDeviceID?,
-        currentName: String?,
-        resolvedName: String
-    ) -> String? {
-        guard currentID != nil else { return nil }
-        return resolvedName == "Unavailable" ? currentName : resolvedName
     }
 
     private func handleAudioHardwareChanged(
@@ -1030,68 +994,14 @@ final class AppStore {
     }
 
     private func validate(entry: SetlistEntry, song: Song) -> SystemCheckResult {
-        var blockingMessages: [String] = []
-        var warnings: [String] = []
-        let key = entry.resolvedKey(for: song)
-        let bpm = entry.resolvedBPM(for: song)
-
-        if bpm <= 0 {
-            blockingMessages.append("\(song.title) needs a valid BPM.")
-        }
-
-        if !audioEngine.hasPadAsset(for: song.padPack, key: key) {
-            blockingMessages.append(audioEngine.padAssetStatus(for: song.padPack, key: key))
-        }
-
-        if routingSnapshot.outputs.isEmpty {
-            blockingMessages.append("No output audio device is available.")
-        } else if let audioRoutingFailureMessage {
-            blockingMessages.append(audioRoutingFailureMessage)
-        } else if !routingSnapshot.missingSelectionMessages.isEmpty {
-            blockingMessages.append(contentsOf: routingSnapshot.missingSelectionMessages)
-        } else if let warning = routingSnapshot.warning {
-            warnings.append(warning)
-        }
-
-        warnings.append(contentsOf: setlistReadinessWarnings(excluding: entry.id))
-
-        var messages = blockingMessages
-        if messages.isEmpty {
-            messages.append("Ready for \(song.title) in \(key.rawValue) at \(bpm) BPM.")
-        }
-        messages.append(contentsOf: warnings.map { "Warning: \($0)" })
-
-        return SystemCheckResult(
-            canStartPlayback: blockingMessages.isEmpty,
-            messages: messages,
-            warnings: warnings
-        )
-    }
-
-    private func setlistReadinessWarnings(excluding cuedEntryID: SetlistEntry.ID) -> [String] {
-        activeSetlist.entries.enumerated().flatMap { index, entry -> [String] in
-            guard entry.id != cuedEntryID else {
-                return []
-            }
-
-            guard let song = song(for: entry) else {
-                return ["Setlist entry \(index + 1): references a missing song."]
-            }
-
-            var warnings: [String] = []
-            let key = entry.resolvedKey(for: song)
-            let bpm = entry.resolvedBPM(for: song)
-
-            if bpm <= 0 {
-                warnings.append("\(song.title): needs a valid BPM.")
-            }
-
-            if !audioEngine.hasPadAsset(for: song.padPack, key: key) {
-                warnings.append("\(song.title): \(audioEngine.padAssetStatus(for: song.padPack, key: key))")
-            }
-
-            return warnings
-        }
+        SetlistReadinessEvaluator(
+            hasPadAsset: { [audioEngine] pack, key in audioEngine.hasPadAsset(for: pack, key: key) },
+            padAssetStatus: { [audioEngine] pack, key in audioEngine.padAssetStatus(for: pack, key: key) },
+            routingSnapshot: routingSnapshot,
+            routingFailureMessage: audioRoutingFailureMessage,
+            entries: activeSetlist.entries,
+            song: { [songs] entry in songs.first { $0.id == entry.songID } }
+        ).validate(entry: entry, song: song)
     }
 
 }
