@@ -118,7 +118,11 @@ final class SustainAudioEngine: AudioControlling {
         let hardwareFormat = clickEngine.outputNode.inputFormat(forBus: 0)
         let sampleRate = hardwareFormat.sampleRate > 0 ? hardwareFormat.sampleRate : 44_100
         let channelCount = hardwareFormat.channelCount > 0 ? min(hardwareFormat.channelCount, 2) : 2
-        clickFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount)!
+        // Safe unwrap: sampleRate is guaranteed > 0 and channelCount ∈ {1,2} above, which is a
+        // valid standard PCM format. `init` can't throw; there's no non-failable AVAudioFormat
+        // initializer, so the fallback is a hardcoded, always-valid format.
+        clickFormat = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: channelCount)
+            ?? AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
 
         for index in padPlayers.indices {
             padEngine.attach(padPlayers[index])
@@ -285,9 +289,9 @@ final class SustainAudioEngine: AudioControlling {
 
         clickPlayer.stop()
         clickPlayer.pan = clickOutputChannel.pan
-        let loop = makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
+        let loop = try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
         if includesCountoff {
-            let countoff = makeCountoffBuffer(bpm: bpm, timeSignature: timeSignature, settings: settings)
+            let countoff = try makeCountoffBuffer(bpm: bpm, timeSignature: timeSignature, settings: settings)
             clickPlayer.scheduleBuffer(countoff)
         }
         clickPlayer.scheduleBuffer(loop, at: nil, options: .loops)
@@ -332,9 +336,12 @@ final class SustainAudioEngine: AudioControlling {
     }
 
     private func setOutputDevice(_ deviceID: AudioDeviceID, on engine: AVAudioEngine) throws {
+        guard let outputAudioUnit = engine.outputNode.audioUnit else {
+            throw AudioEngineError.invalidOutputFormat
+        }
         var deviceID = deviceID
         let status = AudioUnitSetProperty(
-            engine.outputNode.audioUnit!,
+            outputAudioUnit,
             kAudioOutputUnitProperty_CurrentDevice,
             kAudioUnitScope_Global,
             0,
@@ -420,13 +427,15 @@ final class SustainAudioEngine: AudioControlling {
         timeSignature: TimeSignature,
         measures: Int,
         settings: ClickSettings
-    ) -> AVAudioPCMBuffer {
+    ) throws -> AVAudioPCMBuffer {
         let sampleRate = clickFormat.sampleRate
         let beats = max(1, timeSignature.beatsPerMeasure * measures)
         let secondsPerBeat = 60.0 / Double(bpm)
         let duration = secondsPerBeat * Double(beats)
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
-        let buffer = AVAudioPCMBuffer(pcmFormat: clickFormat, frameCapacity: frameCount)!
+        let frameCount = max(1, AVAudioFrameCount(sampleRate * duration))
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: clickFormat, frameCapacity: frameCount) else {
+            throw AudioEngineError.invalidOutputFormat
+        }
         buffer.frameLength = frameCount
 
         for beat in 0..<beats {
@@ -464,9 +473,9 @@ final class SustainAudioEngine: AudioControlling {
         bpm: Int,
         timeSignature: TimeSignature,
         settings: ClickSettings
-    ) -> AVAudioPCMBuffer {
+    ) throws -> AVAudioPCMBuffer {
         if settings.countoffSound == .click {
-            return makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
+            return try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
         }
 
         let sampleRate = clickFormat.sampleRate
@@ -476,12 +485,14 @@ final class SustainAudioEngine: AudioControlling {
         // At fast tempos a spoken word cannot stay intelligible within a beat, so fall
         // back to the click count-off rather than a garbled voice.
         guard secondsPerBeat >= minSpokenBeatDuration else {
-            return makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
+            return try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
         }
 
         let duration = secondsPerBeat * Double(beats)
-        let frameCount = AVAudioFrameCount(sampleRate * duration)
-        let buffer = AVAudioPCMBuffer(pcmFormat: clickFormat, frameCapacity: frameCount)!
+        let frameCount = max(1, AVAudioFrameCount(sampleRate * duration))
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: clickFormat, frameCapacity: frameCount) else {
+            throw AudioEngineError.invalidOutputFormat
+        }
         buffer.frameLength = frameCount
         zeroBuffer(buffer)
 
@@ -580,16 +591,34 @@ final class SustainAudioEngine: AudioControlling {
     }
 }
 
-/// Thread-safe cache of decoded pad buffers keyed by file URL. Buffers are immutable
-/// once decoded, so sharing them across player nodes and calls is safe.
+/// Bounded, thread-safe LRU cache of decoded pad buffers keyed by file URL.
+///
+/// Concurrency contract (the load-bearing invariant behind `@unchecked Sendable`): a buffer is
+/// produced once on the decode queue, then only ever READ — never mutated — afterwards. It is
+/// shared across the main actor and both crossfade player nodes concurrently, which is safe
+/// precisely because the PCM data is immutable after `store`. Do not add consumer-side buffer
+/// mutation (gain, trimming) without rethinking this. The `NSLock` guards only the dictionary
+/// and LRU list, not the buffers.
+///
+/// Eviction matters for a long service: decoded pad buffers are large (a multi-minute stereo
+/// pad ≈ 100 MB), so an unbounded cache could accumulate >1 GB. A buffer scheduled on a player
+/// node is retained by that node, so evicting it here never interrupts playback.
 private final class PadBufferCache: @unchecked Sendable {
     private let lock = NSLock()
     private var buffers: [URL: AVAudioPCMBuffer] = [:]
+    private var lru: [URL] = []  // least-recently-used first
+    private let capacity: Int
+
+    init(capacity: Int = 4) {
+        self.capacity = capacity
+    }
 
     func buffer(for url: URL) -> AVAudioPCMBuffer? {
         lock.lock()
         defer { lock.unlock() }
-        return buffers[url]
+        guard let buffer = buffers[url] else { return nil }
+        touch(url)
+        return buffer
     }
 
     func contains(_ url: URL) -> Bool {
@@ -600,8 +629,21 @@ private final class PadBufferCache: @unchecked Sendable {
 
     func store(_ buffer: AVAudioPCMBuffer, for url: URL) {
         lock.lock()
+        defer { lock.unlock() }
         buffers[url] = buffer
-        lock.unlock()
+        touch(url)
+        while lru.count > capacity, let evicted = lru.first {
+            lru.removeFirst()
+            buffers[evicted] = nil
+        }
+    }
+
+    /// Mark `url` most-recently-used. Caller must hold `lock`.
+    private func touch(_ url: URL) {
+        if let index = lru.firstIndex(of: url) {
+            lru.remove(at: index)
+        }
+        lru.append(url)
     }
 }
 
