@@ -1,6 +1,22 @@
 # 14 — Architecture Review (Fork-in-the-Road Checkpoint)
 
-**Date:** 2026-07-08 · **Branch:** `redesign-native` · Build clean, `swift test` 63 passing.
+**Date:** 2026-07-08 · **Branch:** `redesign-native` · Build clean, `swift test` 66 passing.
+
+## Status (updated 2026-07-08) — top fixes shipped
+
+- ✅ **P0.1 @Observable migration** — commit `a595755`. AppStore off classic ObservableObject;
+  property-level tracking. Verified: view + menu reactivity fire, layout stable.
+- ✅ **P0.2 schema-versioning + rolling backup** — commit `f3d78f4`. `schemaVersion` (legacy
+  files default to v1), `Library.bak` recovery on corrupt primary, newer-schema rejected not
+  wiped. +3 tests; real legacy library boots unchanged.
+- ✅ **P0.3 off-main pad decode at Start** — commit `fb162a1`. Deferred off-thread decode +
+  generation guard; Start never blocks the UI. Verified live from a cold cache.
+- ✅ **P1.3 SwiftUI previews** — commit `a3740d8`. Every screen + editor + idle/playing/countoff
+  states from `AppStore.preview()`. (Snapshot tests deferred — external dep.)
+
+Remaining P1/P2 items below are not yet done.
+
+---
 
 Prompted by the Live layout saga (docs/13): the user asked, before building further, "are there
 other foundational decisions that will bite us like this one did?" This is the answer — a
