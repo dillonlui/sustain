@@ -13,13 +13,14 @@ struct RootView: View {
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 SidebarView()
             } detail: {
-                // Live's detail (a real List + inspector) mounts flush to the window top
-                // with no system reserve, so its content rides up under the traffic lights.
-                // Reserve the title-bar strip on the detail only (not the whole split view)
-                // so the sidebar stays positioned by its own brand header. The other
-                // screens keep their system reserve, so this is scoped to Live.
+                // Live's detail (real List + inspector) mounts flush to the window top, and
+                // the setlist List drags any in-column header up under the window edge — the
+                // only reliable way to seat it below the traffic-light strip is a detail-level
+                // top reserve. Keep it modest so the header sits toward the top and the strip
+                // reads as a normal title-bar zone. Scoped to Live; other screens reserve their
+                // own via the system inset.
                 selectedScreen
-                    .padding(.top, store.selectedScreen == .live ? 78 : 0)
+                    .padding(.top, store.selectedScreen == .live ? 40 : 0)
             }
             .background(.clear)
         }
@@ -102,7 +103,7 @@ private struct SidebarView: View {
                 // pad to clear the traffic lights. Every other screen leaves the sidebar a
                 // large system top reserve instead (see reclaimTopSafeArea below), so a
                 // smaller pad lands the brand at the same spot below the controls.
-                .padding(.top, isLive ? 96 : 50)
+                .padding(.top, isLive ? 104 : 50)
                 .padding(.bottom, SustainSpace.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

@@ -101,10 +101,7 @@ struct LiveServiceView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, SustainSpace.md)
-        // The setlist List pins high in the detail, so extend the header bar up and drop
-        // the title clear of the top edge.
-        .padding(.top, 42)
-        .padding(.bottom, SustainSpace.sm)
+        .padding(.vertical, SustainSpace.sm)
         .background(.bar)
     }
 
@@ -155,14 +152,16 @@ struct LiveServiceView: View {
             transportCluster
             channelControls
 
-            if store.runtime.countoffBeat != nil {
-                CountoffIndicator(beat: store.runtime.countoffBeat, total: store.runtime.countoffTotal)
-            }
-
             levelsRow
             messageStrip
 
             Spacer(minLength: 0)
+
+            // Countoff lives below the permanent controls, in the empty space, so it never
+            // pushes the transport/levels around when it appears and disappears.
+            if store.runtime.countoffBeat != nil {
+                CountoffIndicator(beat: store.runtime.countoffBeat, total: store.runtime.countoffTotal)
+            }
         }
         .padding(SustainSpace.screen)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -334,12 +333,14 @@ struct LiveServiceView: View {
     private var messageStrip: some View {
         VStack(spacing: SustainSpace.sm) {
             if let blockingReadinessMessage {
-                SustainInlineNotice(message: blockingReadinessMessage, kind: .warning)
-            } else if store.routingSnapshot.hasUnavailableSelection {
-                SustainInlineNotice(
-                    message: store.routingSnapshot.missingSelectionMessages.joined(separator: " "),
-                    kind: .warning
-                )
+                // A real blocker (unavailable output, missing pad, invalid BPM) — red.
+                SustainInlineNotice(message: blockingReadinessMessage, kind: .error)
+            } else {
+                // Advisory warnings that don't block playback (e.g. pad + click sharing one
+                // output) — orange, so the operator still notices them before service.
+                ForEach(store.systemCheck.warnings, id: \.self) { warning in
+                    SustainInlineNotice(message: warning, kind: .warning)
+                }
             }
 
             HStack(spacing: SustainSpace.sm) {
