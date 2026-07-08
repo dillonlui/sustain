@@ -40,12 +40,6 @@ enum SustainColor {
 
     static let separator = Color(nsColor: .separatorColor)
     static let focusRing = Color.accentColor.opacity(0.55)
-
-    // Retained for source compatibility; kept subtle/native rather than glassy.
-    static let glassFill = Color.clear
-    static let glassTint = Color.clear
-    static let glassHighlight = Color(nsColor: .separatorColor)
-    static let glassShadow = Color.black.opacity(0.12)
 }
 
 enum SustainSpace {
@@ -122,19 +116,10 @@ enum SustainBackgroundMood {
     case rehearse
 }
 
-/// Retained for source compatibility. Ambient decoration has been removed in favor of
-/// native calm; renders nothing. A tasteful, motion-respecting pad visualization will be
-/// reintroduced only on the active-playback surface.
-struct TopographicFieldView: View {
-    var tint: Color
-    var animated = false
-
-    var body: some View {
-        Color.clear
-    }
-}
-
-/// Retained for source compatibility; renders nothing for now.
+/// TODO (docs/14): planned seam for a tasteful, motion-respecting pad visualization on the
+/// active-playback surface (the Rehearse pad tile). Renders nothing today; it exists so the
+/// call site reserves layout for the viz. Replace the body when the visualization is built —
+/// do not add other callers expecting it to draw.
 struct AudioPatternView: View {
     var tint: Color
     var isActive: Bool
