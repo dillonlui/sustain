@@ -364,16 +364,18 @@ final class SustainAudioEngine: AudioControlling {
     private func fade(mixer: AVAudioMixerNode, at index: Int, to target: Float, duration: TimeInterval) {
         padFadeTasks[index]?.cancel()
         let start = mixer.outputVolume
-        let steps = 24
+        // ~120 Hz stepping: fine enough that the linear volume ramp is inaudible as steps even
+        // under main-thread load (the old 24 steps ≈ 19 Hz could zipper). Still a timed ramp,
+        // not a sample-accurate AU parameter automation — good enough for a 1s pad crossfade.
+        let steps = max(2, Int((duration * 120).rounded()))
+        let delay = UInt64(duration / Double(steps) * 1_000_000_000)
 
         padFadeTasks[index] = Task { @MainActor in
             for step in 1...steps {
-                let progress = Float(step) / Float(steps)
-                let volume = start + (target - start) * progress
-                let delay = UInt64(duration / Double(steps) * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: delay)
                 guard !Task.isCancelled else { return }
-                mixer.outputVolume = volume
+                let progress = Float(step) / Float(steps)
+                mixer.outputVolume = start + (target - start) * progress
             }
         }
     }
