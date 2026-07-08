@@ -257,6 +257,38 @@ extension RuntimeSessionTests {
         #expect(store.runtime.lastMessage == "Stop playback before removing the playing song")
     }
 
+    @Test func deletingSongRemovesItAndReferencingSetlistEntries() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainDeleteTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let store = AppStore.preview(libraryStore: libraryStore)
+
+        let songID = store.addSong()
+        let entryID = try #require(store.addSongToSetlist(songID))
+
+        store.deleteSong(songID)
+
+        #expect(!store.songs.contains { $0.id == songID })
+        #expect(!store.activeSetlist.entries.contains { $0.id == entryID })
+
+        let loaded = try #require(try libraryStore.loadLibrary())
+        #expect(!loaded.songs.contains { $0.id == songID })
+        #expect(!loaded.activeSetlist.entries.contains { $0.songID == songID })
+    }
+
+    @Test func deletingPlayingSongIsBlocked() throws {
+        let store = AppStore.preview()
+        let entry = try #require(store.activeSetlist.entries.first)
+        let songID = entry.songID
+
+        store.startCuedSong()
+        store.deleteSong(songID)
+
+        #expect(store.songs.contains { $0.id == songID })
+        #expect(store.activeSetlist.entries.contains(entry))
+        #expect(store.persistenceStatus == "Stop playback before deleting the playing song")
+    }
+
     @Test func activeSetlistTitlePersistsToJSON() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)

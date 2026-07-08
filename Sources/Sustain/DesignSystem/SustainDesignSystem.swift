@@ -67,7 +67,7 @@ enum SustainLayout {
     /// column then insets its CONTENT by this same amount so the brand, the setlist header, and
     /// the NOW/NEXT cards align on one line just below the controls. Single source of truth — no
     /// per-screen padding.
-    static let topChrome: CGFloat = 28
+    static let topChrome: CGFloat = 36
 }
 
 enum SustainType {
@@ -173,7 +173,11 @@ extension View {
     }
 }
 
-/// A native button-styled toggle with a small state dot, used for arm/enable controls.
+/// A native button-styled toggle for arm/enable controls. Off reads as a clearly
+/// bordered neutral button; on switches to a filled, prominent accent button — so the
+/// active/inactive distinction is unmistakable in both light and dark. This is the app's
+/// "active = accent fill" language (panels, indicators) applied to a control, rather than
+/// the near-invisible on/off of a plain `.toggleStyle(.button)` with a muted tint.
 struct LitToggleButton: View {
     var title: String
     var systemImage: String
@@ -184,8 +188,27 @@ struct LitToggleButton: View {
         Toggle(isOn: $isOn) {
             Label(title, systemImage: systemImage)
         }
-        .toggleStyle(.button)
-        .tint(tint)
+        .toggleStyle(LitButtonToggleStyle(tint: tint))
+        .controlSize(.large)
+    }
+}
+
+/// Off = `.bordered` (visible neutral outline), On = `.borderedProminent` filled with the
+/// accent. Both are stock macOS button styles, so the control keeps native sizing, focus
+/// ring, and press behavior while gaining a high-contrast on/off read.
+private struct LitButtonToggleStyle: ToggleStyle {
+    var tint: Color
+
+    @ViewBuilder
+    func makeBody(configuration: Configuration) -> some View {
+        if configuration.isOn {
+            Button { configuration.isOn.toggle() } label: { configuration.label }
+                .buttonStyle(.borderedProminent)
+                .tint(tint)
+        } else {
+            Button { configuration.isOn.toggle() } label: { configuration.label }
+                .buttonStyle(.bordered)
+        }
     }
 }
 

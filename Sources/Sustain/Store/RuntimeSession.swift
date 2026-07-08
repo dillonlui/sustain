@@ -547,6 +547,37 @@ final class AppStore {
         saveLibrary()
     }
 
+    /// Removes a song from the library along with any setlist entries that reference it.
+    /// Refuses while one of those entries is the song currently playing — stop first.
+    func deleteSong(_ songID: Song.ID) {
+        guard let songIndex = songs.firstIndex(where: { $0.id == songID }) else {
+            persistenceStatus = "Could not delete song"
+            return
+        }
+
+        let referencesPlaying = activeSetlist.entries.contains {
+            $0.songID == songID && $0.id == runtime.playingEntryID
+        }
+        guard !referencesPlaying else {
+            persistenceStatus = "Stop playback before deleting the playing song"
+            return
+        }
+
+        let title = songs[songIndex].title
+        activeSetlist.entries.removeAll { $0.songID == songID }
+
+        // Repair the cued selection if it pointed at an entry we just removed.
+        if let cuedID = runtime.cuedEntryID,
+           !activeSetlist.entries.contains(where: { $0.id == cuedID }) {
+            runtime.cuedEntryID = activeSetlist.entries.first?.id
+        }
+
+        songs.remove(at: songIndex)
+        persistenceStatus = "Deleted \(title)"
+        saveLibrary()
+        preloadCuedPad()
+    }
+
     @discardableResult
     func addSongToSetlist(_ songID: Song.ID) -> SetlistEntry.ID? {
         guard let song = songs.first(where: { $0.id == songID }) else {

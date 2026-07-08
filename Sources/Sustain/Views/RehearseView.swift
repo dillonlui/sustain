@@ -99,8 +99,6 @@ struct RehearseView: View {
                 }
                 .controlSize(.large)
                 .disabled(store.rehearse.padState == .off)
-
-                messageStrip
             }
         }
     }
@@ -274,18 +272,6 @@ struct RehearseView: View {
                 )
             }
         }
-    }
-
-    private var messageStrip: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "info.circle")
-                .foregroundStyle(SustainColor.accent)
-            Text(store.rehearse.lastMessage)
-                .font(.callout)
-            Spacer()
-        }
-        .padding(14)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var activePadText: String {

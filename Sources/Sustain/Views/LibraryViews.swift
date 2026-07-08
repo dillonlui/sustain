@@ -29,10 +29,14 @@ struct SongLibraryView: View {
                                         title: titleBinding(for: song.id),
                                         key: keyBinding(for: song.id),
                                         bpm: bpmBinding(for: song.id),
-                                        timeSignature: timeSignatureBinding(for: song.id)
-                                    ) {
-                                        _ = store.addSongToSetlist(song.id)
-                                    }
+                                        timeSignature: timeSignatureBinding(for: song.id),
+                                        onAddToSetlist: {
+                                            _ = store.addSongToSetlist(song.id)
+                                        },
+                                        onDelete: {
+                                            store.deleteSong(song.id)
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -156,9 +160,11 @@ private struct SongLibraryRow: View {
     @Binding var bpm: Int
     @Binding var timeSignature: TimeSignature
     var onAddToSetlist: () -> Void
+    var onDelete: () -> Void
 
     @State private var titleDraft = ""
     @FocusState private var titleFocused: Bool
+    @State private var confirmingDelete = false
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -178,6 +184,21 @@ private struct SongLibraryRow: View {
             RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous)
                 .stroke(SustainColor.separator, lineWidth: 1)
         )
+        .contextMenu {
+            Button("Delete Song\u{2026}", systemImage: "trash", role: .destructive) {
+                confirmingDelete = true
+            }
+        }
+        .confirmationDialog(
+            "Delete \u{201C}\(song.title)\u{201D}?",
+            isPresented: $confirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Song", role: .destructive) { onDelete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the song from your library and any setlists. This can\u{2019}t be undone.")
+        }
         .onAppear { titleDraft = title }
         .onChange(of: title) { _, newValue in
             // Keep the draft in sync when the underlying title changes
@@ -239,6 +260,19 @@ private struct SongLibraryRow: View {
             Button("Add", systemImage: "text.badge.plus") {
                 onAddToSetlist()
             }
+
+            Menu {
+                Button("Delete Song\u{2026}", systemImage: "trash", role: .destructive) {
+                    confirmingDelete = true
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More actions")
+            .accessibilityLabel("More actions for \(song.title)")
         }
     }
 }
