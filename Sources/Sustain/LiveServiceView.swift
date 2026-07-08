@@ -651,3 +651,21 @@ private struct SongInspectorPane: View {
         }
     }
 }
+
+#Preview("Live detail – countoff") {
+    let store = AppStore.preview()
+    store.startCuedSong()
+    store.runtime.countoffBeat = 2
+    store.runtime.countoffTotal = 6
+    return LiveServiceView()
+        .environment(store)
+        .frame(width: 940, height: 660)
+}
+
+#Preview("Song editor pane") {
+    let store = AppStore.preview()
+    let entryID = store.activeSetlist.entries.first?.id
+    return SongInspectorPane(entryID: entryID) {}
+        .environment(store)
+        .frame(width: 280, height: 660)
+}

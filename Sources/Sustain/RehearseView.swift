@@ -392,3 +392,9 @@ private struct RehearseStateTile: View {
         )
     }
 }
+
+#Preview("Rehearse") {
+    RehearseView()
+        .environment(AppStore.preview())
+        .frame(width: 940, height: 720)
+}

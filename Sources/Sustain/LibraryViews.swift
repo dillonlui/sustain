@@ -281,3 +281,9 @@ struct DiagnosticLine: View {
         }
     }
 }
+
+#Preview("Song Library") {
+    SongLibraryView()
+        .environment(AppStore.preview())
+        .frame(width: 940, height: 720)
+}

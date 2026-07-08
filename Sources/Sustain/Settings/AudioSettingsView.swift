@@ -133,3 +133,9 @@ struct AudioSettingsView: View {
         channel == .stereo ? nil : channel
     }
 }
+
+#Preview("Audio settings") {
+    AudioSettingsView()
+        .environment(AppStore.preview())
+        .frame(width: 480, height: 420)
+}

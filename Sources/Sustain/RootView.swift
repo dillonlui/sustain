@@ -138,3 +138,17 @@ private struct BrandHeader: View {
         }
     }
 }
+
+#Preview("App shell – idle") {
+    RootView()
+        .environment(AppStore.preview())
+        .frame(width: 1200, height: 760)
+}
+
+#Preview("App shell – playing") {
+    let store = AppStore.preview()
+    store.startCuedSong()
+    return RootView()
+        .environment(store)
+        .frame(width: 1200, height: 760)
+}
