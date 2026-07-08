@@ -232,6 +232,88 @@ struct RuntimeSessionTests {
         }
     }
 
+    @Test func schemaVersionIsStampedOnSaveAndLegacyFilesDefaultToV1() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let libraryURL = try libraryStore.applicationSupportDirectory()
+            .appendingPathComponent("Library.json", isDirectory: false)
+
+        try libraryStore.saveLibrary(AppStore.seedSnapshot())
+
+        // The written file carries the current schema version, and reloads with it.
+        let raw = try #require(String(data: Data(contentsOf: libraryURL), encoding: .utf8))
+        #expect(raw.contains("\"schemaVersion\""))
+        let saved = try #require(try libraryStore.loadLibrary())
+        #expect(saved.schemaVersion == LibrarySnapshot.currentSchemaVersion)
+
+        // A legacy file (field absent, i.e. written before versioning existed) still loads,
+        // defaulting to v1 — so shipping this doesn't break existing users' libraries.
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: libraryURL)) as? [String: Any]
+        )
+        object.removeValue(forKey: "schemaVersion")
+        try JSONSerialization.data(withJSONObject: object).write(to: libraryURL)
+        let legacy = try #require(try libraryStore.loadLibrary())
+        #expect(legacy.schemaVersion == 1)
+    }
+
+    @Test func loadRecoversFromBackupWhenPrimaryIsCorrupt() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let appSupport = try libraryStore.applicationSupportDirectory()
+        let libraryURL = appSupport.appendingPathComponent("Library.json", isDirectory: false)
+        let backupURL = appSupport.appendingPathComponent("Library.bak", isDirectory: false)
+
+        // First save: nothing to back up yet.
+        var first = AppStore.seedSnapshot()
+        first.activeSetlist.title = "Backup Copy"
+        try libraryStore.saveLibrary(first)
+        #expect(!FileManager.default.fileExists(atPath: backupURL.path))
+
+        // Second save rolls the previous good primary into the backup.
+        var second = AppStore.seedSnapshot()
+        second.activeSetlist.title = "Latest Save"
+        try libraryStore.saveLibrary(second)
+        #expect(FileManager.default.fileExists(atPath: backupURL.path))
+
+        // Corrupt the primary → load recovers the previous good save from the backup and
+        // quarantines the corrupt primary (instead of silently seeding the demo library).
+        try Data("{not-json".utf8).write(to: libraryURL)
+        let recovered = try #require(try libraryStore.loadLibrary())
+        #expect(recovered.activeSetlist.title == "Backup Copy")
+        #expect(!FileManager.default.fileExists(atPath: libraryURL.path))
+    }
+
+    @Test func newerSchemaFileThrowsDistinctErrorAndIsNotQuarantined() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let libraryURL = try libraryStore.applicationSupportDirectory()
+            .appendingPathComponent("Library.json", isDirectory: false)
+
+        // Write a valid library, then bump its version beyond what this build supports.
+        try libraryStore.saveLibrary(AppStore.seedSnapshot())
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: libraryURL)) as? [String: Any]
+        )
+        object["schemaVersion"] = LibrarySnapshot.currentSchemaVersion + 1
+        try JSONSerialization.data(withJSONObject: object).write(to: libraryURL)
+
+        do {
+            _ = try libraryStore.loadLibrary()
+            Issue.record("Expected newer-schema load to throw")
+        } catch let error as LibraryLoadError {
+            guard case .newerSchema = error else {
+                Issue.record("Wrong error: \(error)")
+                return
+            }
+            // The valid (future) file must be preserved, not quarantined or overwritten.
+            #expect(FileManager.default.fileExists(atPath: libraryURL.path))
+        }
+    }
+
     @Test func songAssignmentWorkflowPersistsSongAndSetlistEntry() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
