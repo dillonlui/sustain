@@ -13,8 +13,10 @@ final class MacPowerStateMonitor: PowerStateMonitoring {
     private var onWake: (@MainActor () -> Void)?
 
     deinit {
-        MainActor.assumeIsolated {
-            stop()
+        // Owned by AppStore (main actor) for the app's lifetime. Guard the main-actor
+        // assumption instead of trapping if a future change releases this off-main.
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { stop() }
         }
     }
 

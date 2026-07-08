@@ -18,8 +18,11 @@ final class PollingAudioHardwareMonitor: AudioHardwareMonitoring {
     }
 
     deinit {
-        MainActor.assumeIsolated {
-            timer?.invalidate()
+        // Owned by AppStore (main actor) for the app's lifetime, so this runs on main. Guard on
+        // the thread rather than using a bare assumeIsolated, which would trap if a future change
+        // ever released this off-main — degrade to a harmless no-op at shutdown instead.
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { timer?.invalidate() }
         }
     }
 
@@ -70,8 +73,10 @@ final class CoreAudioHardwareMonitor: AudioHardwareMonitoring {
     }
 
     deinit {
-        MainActor.assumeIsolated {
-            stop()
+        // See PollingAudioHardwareMonitor.deinit: guard the main-actor assumption instead of
+        // trapping if released off-main.
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { stop() }
         }
     }
 
@@ -130,22 +135,38 @@ final class CoreAudioHardwareMonitor: AudioHardwareMonitoring {
 private final class AudioHardwareChangeRelay: @unchecked Sendable {
     private let lock = NSLock()
     private var onChange: (@MainActor () -> Void)?
+    private var pending = false
 
     func update(onChange: (@MainActor () -> Void)?) {
         lock.lock()
         self.onChange = onChange
+        pending = false
         lock.unlock()
     }
 
+    /// CoreAudio fires this on a private serial queue, and a device unplug/replug or wake can
+    /// produce a rapid burst. Coalesce: keep at most one hop in flight so callbacks can't run
+    /// out of order or flap the route-change prompt. `pending` is cleared before invoking the
+    /// callback, so a change that arrives while it's running still schedules a fresh hop.
     func notify() {
         lock.lock()
-        let onChange = onChange
+        guard let onChange, !pending else {
+            lock.unlock()
+            return
+        }
+        pending = true
         lock.unlock()
 
-        guard let onChange else { return }
         Task { @MainActor in
+            self.clearPending()
             onChange()
         }
+    }
+
+    private func clearPending() {
+        lock.lock()
+        pending = false
+        lock.unlock()
     }
 }
 
