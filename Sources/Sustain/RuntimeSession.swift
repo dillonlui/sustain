@@ -939,7 +939,27 @@ final class AppStore {
             return
         }
 
-        if runtime.playbackPhase != .noSongPlaying || rehearse.padState != .off || rehearse.clickState != .off {
+        let isPlaying = runtime.playbackPhase != .noSongPlaying
+            || rehearse.padState != .off
+            || rehearse.clickState != .off
+
+        if isPlaying {
+            // Keep playing when the devices we're actually using are unchanged: with the same
+            // resolved output IDs (or the same nil "follow default"), the running engine is
+            // provably unaffected — it's pinned to those devices, or its default output node
+            // already tracks the OS default. A bumped cable or an unrelated default switch no
+            // longer silences the service mid-song. We still surface the prompt so the operator
+            // can switch on purpose. If our output IDs actually shifted (e.g. a replug reassigned
+            // one), fall through to the safe stop so routing can be re-established.
+            let outputsUnchanged = routingSnapshot.padOutputID == previousSnapshot.padOutputID
+                && routingSnapshot.clickOutputID == previousSnapshot.clickOutputID
+            if outputsUnchanged {
+                runtime.lastMessage = readyMessage
+                refreshAudioStatus()
+                setRouteChangePrompt(from: routingSnapshot, previousSnapshot: previousSnapshot)
+                return
+            }
+
             stopAudioAfterHardwareChange(message: "Audio devices changed. Playback stopped so routing can be rechecked.")
             setRouteChangePrompt(from: routingSnapshot, previousSnapshot: previousSnapshot)
             return

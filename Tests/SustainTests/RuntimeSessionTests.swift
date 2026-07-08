@@ -789,7 +789,11 @@ struct RuntimeSessionTests {
         #expect(audio.stopAllCount == 1)
     }
 
-    @Test func hardwareChangeStopsPlaybackWhenDefaultOutputChanges() {
+    @Test func hardwareChangeKeepsPlayingWhenUsedOutputsUnchanged() {
+        // Pad (AirPods=1) and click (MacBook=2) are explicitly selected. Only the unrelated
+        // system default moves (1 -> 3); our two devices are untouched, so the engine is
+        // unaffected and playback should CONTINUE mid-service — while still surfacing the prompt
+        // so the operator can switch to the new default on purpose.
         let audio = RecordingAudioEngine()
         let provider = MutableAudioRoutingProvider(
             snapshotValue: AudioRoutingSnapshot(
@@ -828,12 +832,10 @@ struct RuntimeSessionTests {
         )
         monitor.simulateChange()
 
-        #expect(store.runtime.playbackPhase == .noSongPlaying)
-        #expect(store.runtime.padState == .off)
-        #expect(store.runtime.clickState == .off)
-        #expect(store.runtime.lastMessage == "Audio devices changed. Playback stopped so routing can be rechecked.")
+        #expect(store.runtime.playbackPhase == .songPlaying)
+        #expect(store.runtime.padState == .playing)
         #expect(store.audioRouteChangePrompt?.detectedOutputID == 3)
-        #expect(audio.stopAllCount == 1)
+        #expect(audio.stopAllCount == 0)
     }
 
     @Test func keepingCurrentRoutingDismissesRouteChangePrompt() {
