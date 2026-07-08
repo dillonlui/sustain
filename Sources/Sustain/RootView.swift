@@ -3,26 +3,28 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
+
+    /// Reserved strip at the very top of the window, under `.hiddenTitleBar`, so content clears
+    /// the traffic-light controls and leaves a draggable title-bar zone. We OWN this inset — it
+    /// is a single fixed value, so unlike `NavigationSplitView` it cannot flip between mount
+    /// modes when state changes mid-service (the root cause fixed here; see docs/13).
+    private static let topChrome: CGFloat = 28
 
     var body: some View {
         ZStack {
             SustainAppBackground(mood: backgroundMood)
 
-            NavigationSplitView(columnVisibility: $columnVisibility) {
-                SidebarView()
-            } detail: {
-                // Live's detail (real List + inspector) mounts flush to the window top, and
-                // the setlist List drags any in-column header up under the window edge — the
-                // only reliable way to seat it below the traffic-light strip is a detail-level
-                // top reserve. Keep it modest so the header sits toward the top and the strip
-                // reads as a normal title-bar zone. Scoped to Live; other screens reserve their
-                // own via the system inset.
+            HStack(spacing: 0) {
+                SidebarView(topChrome: Self.topChrome)
+                    .frame(width: 220)
+
+                Divider()
+
                 selectedScreen
-                    .padding(.top, store.selectedScreen == .live ? 40 : 0)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, Self.topChrome)
             }
-            .background(.clear)
         }
         .tint(SustainColor.accent)
         .onAppear { applyAppearance() }
@@ -82,7 +84,9 @@ struct RootView: View {
 private struct SidebarView: View {
     @EnvironmentObject private var store: AppStore
 
-    private var isLive: Bool { store.selectedScreen == .live }
+    /// Top reserve so the brand clears the window's traffic-light controls (the sidebar runs
+    /// full-height to the window top under `.hiddenTitleBar`).
+    let topChrome: CGFloat
 
     var body: some View {
         List(selection: selectionBinding) {
@@ -94,23 +98,13 @@ private struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         .safeAreaInset(edge: .top, spacing: 0) {
             BrandHeader()
                 .padding(.horizontal, SustainSpace.lg)
-                // The Live screen's detail (real List + inspector) makes the split view
-                // mount the sidebar flush to the window top, so the brand needs a big top
-                // pad to clear the traffic lights. Every other screen leaves the sidebar a
-                // large system top reserve instead (see reclaimTopSafeArea below), so a
-                // smaller pad lands the brand at the same spot below the controls.
-                .padding(.top, isLive ? 104 : 50)
+                .padding(.top, topChrome + SustainSpace.sm)
                 .padding(.bottom, SustainSpace.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // Reclaim the split view's oversized top reserve on the non-Live screens so the
-        // brand isn't stranded far below the window controls. Live has no such reserve
-        // (it mounts flush), so reclaiming there would pull content up under the controls.
-        .reclaimTopSafeArea(!isLive)
     }
 
     private var selectionBinding: Binding<AppScreen?> {
@@ -140,19 +134,6 @@ private struct BrandHeader: View {
             Text("SUSTAIN")
                 .font(.headline)
                 .tracking(3)
-        }
-    }
-}
-
-private extension View {
-    /// Conditionally drops the container's top safe area so content can reclaim the
-    /// split view's oversized top reserve. A no-op when `active` is false.
-    @ViewBuilder
-    func reclaimTopSafeArea(_ active: Bool) -> some View {
-        if active {
-            ignoresSafeArea(.container, edges: .top)
-        } else {
-            self
         }
     }
 }

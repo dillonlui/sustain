@@ -46,12 +46,19 @@ struct LiveServiceView: View {
 
             performanceSurface
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Custom trailing editor pane, replacing `.inspector`. `.inspector` is a
+            // NavigationSplitView-family feature and — like NavigationSplitView itself —
+            // flips the window's top safe-area inset when state changes mid-service (the
+            // ~90px "jump on play" bug; see docs/13). A plain conditional pane in this HStack
+            // has no such behavior and keeps the setlist visible while editing.
+            if editingEntryID != nil {
+                Divider()
+                SongInspectorPane(entryID: editingEntryID) { editingEntryID = nil }
+                    .frame(width: 280)
+            }
         }
         .sustainScreenBackground(.live)
-        .inspector(isPresented: inspectorPresented) {
-            SongInspectorPane(entryID: editingEntryID) { editingEntryID = nil }
-                .inspectorColumnWidth(min: 240, ideal: 260, max: 320)
-        }
         .onAppear { store.refreshReadiness() }
     }
 
@@ -101,9 +108,7 @@ struct LiveServiceView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, SustainSpace.md)
-        // A little breathing room up top so the title isn't jammed against the window edge.
-        .padding(.top, 26)
-        .padding(.bottom, SustainSpace.sm)
+        .padding(.vertical, SustainSpace.sm)
         .background(.bar)
     }
 
@@ -374,14 +379,6 @@ struct LiveServiceView: View {
         isTransition ? "Transition" : "Start"
     }
 
-    private var inspectorPresented: Binding<Bool> {
-        Binding {
-            editingEntryID != nil
-        } set: { isPresented in
-            if !isPresented { editingEntryID = nil }
-        }
-    }
-
     private var padVolumeBinding: Binding<Double> {
         Binding { store.padVolume } set: { store.setPadVolumeLive($0) }
     }
@@ -522,6 +519,33 @@ private struct SongInspectorPane: View {
     @State private var titleDraft = ""
 
     var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Edit Song")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.medium))
+                }
+                .buttonStyle(.borderless)
+                .help("Close editor")
+            }
+            .padding(.horizontal, SustainSpace.md)
+            .padding(.top, SustainSpace.md)
+            .padding(.bottom, SustainSpace.sm)
+
+            Divider()
+
+            editorBody
+        }
+        .background(.bar)
+    }
+
+    @ViewBuilder
+    private var editorBody: some View {
         Group {
             if let entryID, let entry = store.entry(id: entryID), let song = store.song(for: entry) {
                 Form {
@@ -563,7 +587,6 @@ private struct SongInspectorPane: View {
                     }
                 }
                 .formStyle(.grouped)
-                .navigationTitle("Edit Song")
                 .onAppear { titleDraft = song.title }
                 .onChange(of: entryID) { titleDraft = song.title }
             } else {

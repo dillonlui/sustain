@@ -1,7 +1,110 @@
 # 13 — Live Layout Instability: Findings & Experiment Plan
 
-**Status:** Investigation paused for a fresh session. This doc is the handoff.
-**Branch:** `redesign-native` · working tree clean · `swift test` → 63 passing.
+**Status: RESOLVED (2026-07-08).** Tier 3 shipped — custom paned layout. Flip eliminated,
+verified live. `swift build` clean, `swift test` 63 passing.
+**Branch:** `redesign-native` (changes uncommitted pending review).
+
+---
+
+## RESOLUTION (2026-07-08) — the flip had TWO independent causes
+
+The root cause was **not one thing but two**, each *independently sufficient* to flip the
+window's top safe-area inset (~90px on play):
+
+1. **`NavigationSplitView`** (outer sidebar+detail shell), under `.hiddenTitleBar`, re-decides
+   its top inset when `RootView`'s body re-evaluates on a state publish.
+2. **`.inspector`** (the Live song editor) — a NavigationSplitView-*family* feature that, even
+   standalone, wraps content in its own split-view container with the same inset behavior.
+
+This is why the earlier spikes were each inconclusive: removing `.inspector` while keeping
+`NavigationSplitView` still flipped (cause #1 remained); replacing `NavigationSplitView` with a
+custom `HStack` while keeping `.inspector` still flipped (cause #2 remained). Only removing
+**both** stops it. Confirmed via `p2_idle`/`p2_playing` and `final_live_idle`/`final_live_playing`
+captures: every structural element holds position across idle↔playing; only content changes.
+
+**The fix (tier 3), all native SwiftUI — a net simplification:**
+- `RootView`: `NavigationSplitView` → `HStack { SidebarView.frame(width:220); Divider; detail }`
+  in a `ZStack` over the background. One fixed, self-owned top inset (`topChrome = 28`) clears the
+  traffic lights and can't flip. `.hiddenTitleBar` **restored** (safe now — nothing fights us for
+  the top inset), so the brand-forward chrome is back.
+- `SidebarView`: full-height, brand header padded by `topChrome + sm`. Removed
+  `navigationSplitViewColumnWidth` / `columnVisibility`.
+- `LiveServiceView`: `.inspector` → a plain conditional trailing pane in the existing `HStack`
+  (`SongInspectorPane` made self-contained with its own "Edit Song" header + close button).
+  Editor verified live (`final_editor` capture).
+- Deleted all the safe-area hacks from the pre-experiment design (see below).
+
+**Trade-off accepted:** lost `NavigationSplitView`'s free sidebar-collapse toggle. Fine for an
+always-on performance sidebar; a custom toggle is cheap to add later if wanted.
+
+**Deeper note (see docs/14):** the *reason* a state publish re-evaluated the whole `RootView`
+body is the `AppStore` god-object using classic `ObservableObject` (object-level invalidation).
+Migrating to `@Observable` (property-level tracking) would remove the broad re-render that fed
+this bug and prevent a class of future re-render storms. Tracked in the architecture review.
+
+---
+
+## Experiment result (2026-07-08) — flip is FRAMEWORK-LEVEL, not our hacks
+
+Ran the cheap experiment exactly as planned: `.hiddenTitleBar` → `.titleBar`, and stripped ALL
+four safe-area hacks (detail `.padding`, sidebar `isLive` brand pad, `reclaimTopSafeArea` +
+helper, setlist-header `.padding(.top, 26)`). Built, bundled, relaunched.
+
+**Measured the flip before/after, same method, controlled A/B:**
+- **Baseline (committed hacks):** on ⌘Return the whole split view drops ~90px (logical);
+  `idle` and `stopped` captures are byte-identical, `playing` differs. Reproduced cleanly.
+- **Clean stock config:** the **~90px flip STILL happens** on play (transport row ~y203 idle →
+  ~y332 playing; sidebar mounts flush-under-traffic-lights when idle, drops when playing).
+  Removing the hacks + standard title bar did NOT stop it.
+
+**Conclusion:** the "our hacks caused it" hypothesis is **falsified**. The flip is
+`NavigationSplitView`'s own macOS safe-area/mount-mode behavior, re-triggered when
+`store.runtime` publishes on play and the whole `RootView` body re-evaluates. Per the decision
+tree → **tier 3.**
+
+Evidence: `clean_idle.png` vs `clean_playing.png` (visual, unambiguous, captured pre-lock).
+Numeric AX confirmation was blocked mid-run — the Mac auto-locked during the scripted waits
+(synthetic ⌘-keys and AX window queries fail at the lock screen). Re-run the AX position check
+after unlock if a hard number is wanted; the visual A/B already settles the decision.
+
+### Refined tier-3 scope (smaller than first thought)
+`LiveServiceView` is **already** a custom `HStack { List; resize-handle; performanceSurface }`
+(`LiveServiceView.swift:41-49`) — the internal setlist/performance split is NOT
+`NavigationSplitView`. Only two framework-magic layers remain:
+1. The **outer** `NavigationSplitView` in `RootView` (sidebar + detail) — replace with a custom
+   `HStack { sidebar; Divider; detail }` and one consistent, self-owned top inset.
+2. **`.inspector`** in `LiveServiceView` (`:51`) — a NavigationSplitView-family feature that
+   splices into the enclosing split view. Replace with a custom trailing pane (trivial, since
+   the view is already an HStack) or a `.sheet`.
+
+Candidate cheaper-than-full-tier-3 spike to try first: **remove `.inspector` alone** (keep the
+outer `NavigationSplitView`) and re-measure the flip. The flip triggers on play (not on
+inspector toggle), so `.inspector`'s mere presence putting the split view in the fragile mode is
+plausible-but-unconfirmed. If dropping it stops the flip, that's a much smaller fix.
+
+### `.inspector` spike RESULT (2026-07-08) — NOT the culprit
+
+Ran it: commented out the `.inspector` modifier only, kept the outer `NavigationSplitView` and
+the clean baseline. Rebuilt/rebundled/relaunched, measured the same way.
+
+**The ~90px flip persists** (`spike_idle.png` vs `spike_playing.png`: transport row ~y242 idle →
+~y372 playing, ≈86px logical; sidebar flush-when-idle → dropped-when-playing). Restored
+`.inspector` afterward (confirmed innocent; leaving it disabled only breaks the song editor).
+
+That is now **three independent configs all flipping ~86–90px**: (1) committed hacks, (2) clean
+stock, (3) clean-minus-inspector. The outer `NavigationSplitView` is the **irreducible cause**.
+→ Full tier 3 (replace the outer split view) is required; the `.inspector` still needs replacing
+as part of tier 3 (it's a split-view feature) but it is not the flip trigger.
+
+Measurement note: numeric AX position queries (`entire contents … whose role is "AXButton"/…`)
+did **not** surface the SwiftUI transport button / sidebar text reliably — a known SwiftUI↔AX
+gap. The flip was measured from screenshots (retina 2×, captured region 1320 logical wide), which
+is the reliable channel here. Also: the Mac **auto-locks during scripted `sleep`s** — wrap live
+measurement in `caffeinate -d -t N &` or the window deregisters (`windows=0`) mid-run.
+
+---
+
+## Original handoff (pre-experiment)
 
 ---
 
