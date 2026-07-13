@@ -116,6 +116,49 @@ struct RuntimeSessionTests {
         #expect(audio.clickStartCount == clickStarts)
     }
 
+    @Test func restartingTheAlreadyPlayingSongIsIgnored() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedSong()
+        let playing = store.runtime.playingEntryID
+        let padStarts = audio.padStartCount
+        let clickStarts = audio.clickStartCount
+
+        // After Start, the cued entry is still the playing entry (cueing does not
+        // auto-advance). Pressing Start again (button / Return / ⌘Return) must not
+        // interrupt the live song with a fresh countoff + pad self-crossfade.
+        #expect(store.runtime.cuedEntryID == playing)
+        store.startCuedSong()
+
+        #expect(store.runtime.playingEntryID == playing)
+        #expect(audio.padStartCount == padStarts)
+        #expect(audio.clickStartCount == clickStarts)
+    }
+
+    @Test func failedTransitionClearsStaleCountoffBadge() async {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio, countoffDurationMultiplier: 1.0)
+        store.startCuedSong()
+
+        // Let the visual countoff for the first song advance to a beat.
+        for _ in 0..<200 where store.runtime.countoffBeat == nil {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(store.runtime.countoffBeat != nil)
+        let playing = store.runtime.playingEntryID
+
+        // Cue a different song and attempt a transition whose click start fails.
+        audio.shouldFailClickStart = true
+        store.cueNextSong()
+        store.startCuedSong()
+
+        // The previous song keeps playing, and the stale countoff badge is cleared
+        // rather than left frozen on screen after the failure.
+        #expect(store.runtime.playingEntryID == playing)
+        #expect(store.runtime.countoffBeat == nil)
+        #expect(store.runtime.padState == .playing)
+    }
+
     @Test func systemCheckWarnsAboutMissingPadAssetsLaterInSetlist() {
         let audio = RecordingAudioEngine(missingPadKeys: [.bb])
         let store = AppStore.preview(audioEngine: audio)

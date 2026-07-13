@@ -308,7 +308,7 @@ struct LiveServiceView: View {
             .transportButtonStyle(prominent: true)
             .controlSize(.large)
             .tint(SustainColor.accent)
-            .disabled(store.cuedEntry == nil)
+            .disabled(store.cuedEntry == nil || store.isCuedSongPlaying)
             .keyboardShortcut(.return, modifiers: [])
             .help(startTitle)
 

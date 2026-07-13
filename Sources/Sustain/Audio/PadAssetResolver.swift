@@ -1,5 +1,11 @@
 import Foundation
 
+// Pad audio source/attribution:
+// The bundled pads in `Resources/Pads/*.mp3` are "Ambient Pad Bases" by Karl Verkade
+// (ambient guitar pads in all 12 keys), included on the basis of the artist's
+// free-for-church-use offer. Support/buy: https://karlverkade.bandcamp.com/album/ambient-pad-bases
+// See the Credits section in README.md.
+
 extension Bundle {
     /// Resource bundle for pad audio and other packaged assets.
     ///

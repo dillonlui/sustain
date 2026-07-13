@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 CONFIG="${1:-release}"
 APP_NAME="Sustain"
 BUNDLE_ID="com.sustain.app"
-VERSION="0.1.0"
+VERSION="1.0.0"
 BUILD_NUMBER="1"
 
 echo "==> Building ($CONFIG)"

@@ -76,7 +76,7 @@ struct SustainCommands: Commands {
                 store.startCuedSong()
             }
             .keyboardShortcut(.return, modifiers: .command)
-            .disabled(store.cuedEntry == nil)
+            .disabled(store.cuedEntry == nil || store.isCuedSongPlaying)
 
             Button("Previous Song") {
                 store.cuePreviousSong()
@@ -138,14 +138,38 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            Picker("Appearance", selection: $appearanceRaw) {
-                ForEach(AppAppearance.allCases) { appearance in
-                    Text(appearance.label).tag(appearance.rawValue)
+            Section {
+                Picker("Appearance", selection: $appearanceRaw) {
+                    ForEach(AppAppearance.allCases) { appearance in
+                        Text(appearance.label).tag(appearance.rawValue)
+                    }
                 }
+                .pickerStyle(.segmented)
             }
-            .pickerStyle(.segmented)
+
+            Section("About") {
+                LabeledContent("Version", value: Self.appVersion)
+                VStack(alignment: .leading, spacing: SustainSpace.xs) {
+                    Text("Pad audio")
+                        .font(.callout)
+                    Text("“Ambient Pad Bases” by Karl Verkade — ambient guitar pads in all 12 keys, included with gratitude and offered free for church use.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Link("Support the artist on Bandcamp",
+                         destination: URL(string: "https://karlverkade.bandcamp.com/album/ambient-pad-bases")!)
+                        .font(.footnote)
+                }
+                .padding(.vertical, SustainSpace.xxs)
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 120)
+        .frame(width: 460, height: 300)
+    }
+
+    private static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String
+        return build.map { "\(short) (\($0))" } ?? short
     }
 }

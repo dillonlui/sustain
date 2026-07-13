@@ -171,6 +171,13 @@ final class AppStore {
         entry(id: runtime.cuedEntryID)
     }
 
+    /// True when the cued entry is the one already playing — i.e. Start would be a
+    /// no-op restart. Used to disable the Start control so it can't interrupt the
+    /// live song (`startCuedSong()` also guards this authoritatively).
+    var isCuedSongPlaying: Bool {
+        runtime.playingEntryID != nil && runtime.cuedEntryID == runtime.playingEntryID
+    }
+
     func song(for entry: SetlistEntry?) -> Song? {
         guard let entry else { return nil }
         return songs.first { $0.id == entry.songID }
@@ -230,6 +237,15 @@ final class AppStore {
             return
         }
 
+        // Re-pressing Start on the song that is already playing must not interrupt
+        // it with a fresh countoff and a pad self-crossfade. Cueing does not
+        // auto-advance, so the cued entry is the playing entry until the operator
+        // cues the next song — an easy accidental double-press mid-service.
+        guard cuedEntry.id != runtime.playingEntryID else {
+            runtime.lastMessage = "\(cuedSong.title) is already playing"
+            return
+        }
+
         prepareCurrentAudioRoutingForStart()
         let validation = validate(entry: cuedEntry, song: cuedSong)
         guard validation.canStartPlayback else {
@@ -267,7 +283,11 @@ final class AppStore {
             runtime.lastMessage = "Countoff started for \(cuedSong.title)"
             refreshAudioStatus()
         } catch {
+            // Any partial countoff (e.g. the outgoing song's, cancelled just above)
+            // must not stay frozen on screen after a failed start/transition.
+            clearCountoff()
             audioEngine.stopClick()
+            runtime.clickState = .off
             if hadPlayingEntry {
                 runtime.padState = .playing
                 runtime.playbackPhase = .songPlaying
