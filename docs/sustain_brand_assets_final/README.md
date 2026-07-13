@@ -13,7 +13,10 @@ This pass re-centers the assets on the actual decisions from the conversation:
 - No inner border / inner highlight / ribbon-within-ribbon effect.
 
 ## Included files
-- `sustain-icon-dark.svg` — primary dark app icon
+- `sustain-icon.svg` — **the shipping app icon** (1024×1024). Rendered to
+  `AppIcon.icns` by `scripts/bundle.sh` at build time. This is the current,
+  tuned final; the `sustain-icon-dark.svg` below is the earlier concept.
+- `sustain-icon-dark.svg` — earlier concept dark app icon (superseded)
 - `sustain-icon-light.svg` — light app icon variant
 - `sustain-icon-monochrome-dark.svg` — simplified monochrome dark variant
 - `sustain-symbol-dark.svg` — compact symbol-only mark

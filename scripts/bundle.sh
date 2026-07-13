@@ -47,7 +47,7 @@ if [ -d "$RES_BUNDLE" ]; then
 fi
 
 # ---- App icon (best effort) ----
-ICON_SVG="docs/sustain_brand_assets_final/sustain-icon-dark.svg"
+ICON_SVG="docs/sustain_brand_assets_final/sustain-icon.svg"
 ICONSET="build/AppIcon.iconset"
 if [ -f "$ICON_SVG" ]; then
     echo "==> Rendering app icon"
