@@ -1,0 +1,44 @@
+Sustain — Licensing & Attribution Notice
+=========================================
+
+Sustain is made of parts that are licensed SEPARATELY. The MIT License in the
+LICENSE file does NOT cover the whole project. Please read this notice alongside
+LICENSE before copying, redistributing, or building on Sustain.
+
+
+1. Source code  —  MIT License
+-------------------------------
+All source code in this repository is licensed under the MIT License (see
+LICENSE). This is the ONLY part of the project covered by MIT.
+
+
+2. Pad audio  —  NOT covered by the MIT License
+-----------------------------------------------
+The audio files in `Sources/Sustain/Resources/Pads/*.mp3` are
+"Ambient Pad Bases" by Karl Verkade. Copyright © Karl Verkade. All rights in
+this audio are reserved by the artist.
+
+  - These pads are included in Sustain with gratitude, on the basis of the
+    artist's stated offer that they are free for church use.
+  - No rights to the audio are granted to you by this project. In particular,
+    the MIT License does NOT grant you any right to copy, redistribute, resell,
+    sublicense, or make derivative works from these audio files. Whether and how
+    you may use them is governed solely by the artist's own terms.
+  - Neither Sustain nor its author claims any ownership of this audio.
+  - Please support and buy the pads:
+    https://karlverkade.bandcamp.com/album/ambient-pad-bases
+  - If you are Karl Verkade and would like the audio changed or removed, please
+    open an issue on the repository and it will be addressed promptly.
+
+
+3. Name and brand assets  —  NOT covered by the MIT License
+-----------------------------------------------------------
+The name "Sustain", the Sustain app icon, wordmark, and other brand artwork —
+including the SVG files in `docs/sustain_brand_assets_final/` and the in-app
+brand mark — are copyright © 2026 Dillon Lui. All rights reserved. They are NOT
+licensed under MIT.
+
+The MIT License grants no trademark rights. You are free to use, modify, and
+redistribute the source code under MIT, but please do not ship a distribution
+under the Sustain name or using the Sustain brand identity in a way that implies
+it is the official app.

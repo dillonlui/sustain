@@ -85,12 +85,24 @@ swift test             # run the test suite
 
 ---
 
+## License
+
+Sustain's parts are licensed **separately** — see [`NOTICE`](NOTICE) for the full
+details:
+
+- **Source code** — [MIT License](LICENSE). This is the only part covered by MIT.
+- **Pad audio** (`Sources/Sustain/Resources/Pads/*.mp3`) — “Ambient Pad Bases” ©
+  Karl Verkade, all rights reserved by the artist; **not** MIT-licensed and no
+  rights to it are granted here (see Credits).
+- **Name & brand** — the “Sustain” name, app icon, and wordmark are © 2026 Dillon
+  Lui, all rights reserved; **not** MIT-licensed.
+
 ## Credits
 
 The included ambient pads are **“Ambient Pad Bases” by Karl Verkade** — ambient
 guitar pads in all 12 keys — included with gratitude on the basis of the artist's
 stated offer that they are free for church use. Sustain is a free, non-commercial,
-church-use tool.
+church-use tool. The pad audio remains © Karl Verkade; see [`NOTICE`](NOTICE).
 
 Please support the artist and buy the pads:
 https://karlverkade.bandcamp.com/album/ambient-pad-bases
