@@ -1172,15 +1172,15 @@ extension AppStore {
         let bundledPads = PadPack.bundled
 
         let songs = [
-            Song(title: "Goodness of God", defaultKey: .g, defaultBPM: 72, timeSignature: .sixEight, padPack: bundledPads),
+            Song(title: "Goodness of God", defaultKey: .g, defaultBPM: 72, timeSignature: .fourFour, padPack: bundledPads),
             Song(title: "King of Kings", defaultKey: .d, defaultBPM: 68, timeSignature: .fourFour, padPack: bundledPads),
             Song(title: "Holy Forever", defaultKey: .a, defaultBPM: 76, timeSignature: .fourFour, padPack: bundledPads)
         ]
 
         let entries = [
             SetlistEntry(songID: songs[0].id),
-            SetlistEntry(songID: songs[1].id, keyOverride: .e),
-            SetlistEntry(songID: songs[2].id, keyOverride: .bb, bpmOverride: 74)
+            SetlistEntry(songID: songs[1].id),
+            SetlistEntry(songID: songs[2].id)
         ]
 
         return LibrarySnapshot(

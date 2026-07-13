@@ -2,23 +2,18 @@ import SwiftUI
 
 struct BrandMarkView: View {
     var body: some View {
-        ZStack {
-            ForEach(0..<5, id: \.self) { index in
-                RippleShape(amount: CGFloat(index))
-                    .stroke(Color.sustainSage.opacity(0.15), lineWidth: 0.7)
-            }
-
-            SustainWaveShape()
-                .fill(
-                    LinearGradient(
-                        colors: [.sustainIvory, .sustainSage, .sustainIvory],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
+        // Just the clean sustain wave — matches the app icon's central mark. The old
+        // topographic ripple strokes behind it read as visual noise at this size.
+        SustainWaveShape()
+            .fill(
+                LinearGradient(
+                    colors: [.sustainIvory, .sustainSage, .sustainIvory],
+                    startPoint: .leading,
+                    endPoint: .trailing
                 )
-                .shadow(color: .sustainSage.opacity(0.42), radius: 12)
-        }
-        .drawingGroup()
+            )
+            .shadow(color: .sustainSage.opacity(0.42), radius: 12)
+            .drawingGroup()
     }
 }
 
@@ -40,24 +35,6 @@ struct SustainWaveShape: Shape {
         path.addCurve(to: point(374, 520), control1: point(512, 627), control2: point(450, 562))
         path.addCurve(to: point(196, 535), control1: point(310, 485), control2: point(253, 494))
         path.closeSubpath()
-        return path
-    }
-}
-
-private struct RippleShape: Shape {
-    var amount: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let inset = amount * 7
-        let base = rect.insetBy(dx: inset, dy: inset * 0.35)
-
-        var path = Path()
-        path.move(to: CGPoint(x: base.minX + 8, y: base.midY - 5 - amount * 2))
-        path.addCurve(
-            to: CGPoint(x: base.maxX - 8, y: base.midY + 5 + amount * 3),
-            control1: CGPoint(x: base.minX + base.width * 0.28, y: base.minY + amount * 3),
-            control2: CGPoint(x: base.minX + base.width * 0.66, y: base.maxY - amount * 2)
-        )
         return path
     }
 }

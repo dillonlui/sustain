@@ -99,7 +99,8 @@ struct RuntimeSessionTests {
     }
 
     @Test func invalidTransitionDoesNotDestroyPlayingState() {
-        let audio = RecordingAudioEngine(missingPadKeys: [.bb])
+        // Cueing forward lands on Holy Forever (default key A); make its pad missing.
+        let audio = RecordingAudioEngine(missingPadKeys: [.a])
         let store = AppStore.preview(audioEngine: audio)
         store.startCuedSong()
         let playing = store.runtime.playingEntryID
@@ -160,14 +161,15 @@ struct RuntimeSessionTests {
     }
 
     @Test func systemCheckWarnsAboutMissingPadAssetsLaterInSetlist() {
-        let audio = RecordingAudioEngine(missingPadKeys: [.bb])
+        // Holy Forever is later in the seed setlist and resolves to its default key A.
+        let audio = RecordingAudioEngine(missingPadKeys: [.a])
         let store = AppStore.preview(audioEngine: audio)
 
         store.runSystemCheck()
 
         #expect(store.systemCheck.canStartPlayback)
-        #expect(store.systemCheck.warnings.contains("Holy Forever: Missing included pad Bb.mp3"))
-        #expect(store.systemCheck.messages.contains("Warning: Holy Forever: Missing included pad Bb.mp3"))
+        #expect(store.systemCheck.warnings.contains("Holy Forever: Missing included pad A.mp3"))
+        #expect(store.systemCheck.messages.contains("Warning: Holy Forever: Missing included pad A.mp3"))
     }
 
     @Test func systemCheckWarnsAboutInvalidBPMLaterInSetlist() {
@@ -444,10 +446,10 @@ struct RuntimeSessionTests {
             try? await Task.sleep(nanoseconds: 500_000)
         }
 
-        // First cued song is "Goodness of God" in 6/8 → six count-in beats.
+        // First cued song is "Goodness of God" in 4/4 → four count-in beats.
         #expect(store.runtime.clickState == .countoff)
         #expect(store.runtime.countoffBeat == 1)
-        #expect(store.runtime.countoffTotal == 6)
+        #expect(store.runtime.countoffTotal == 4)
     }
 
     @Test func stoppingDuringCountoffClearsCountoffState() async {
