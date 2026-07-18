@@ -254,8 +254,8 @@ final class AppStore {
             return
         }
 
-        let key = cuedEntry.resolvedKey(for: cuedSong)
-        let bpm = cuedEntry.resolvedBPM(for: cuedSong)
+        let key = cuedSong.defaultKey
+        let bpm = cuedSong.defaultBPM
         let hadPlayingEntry = runtime.playingEntryID != nil
 
         do {
@@ -275,11 +275,18 @@ final class AppStore {
                 includesCountoff: true,
                 settings: clickSettings
             )
+            let countoffStartedAt = ContinuousClock.now
             try audioEngine.startPad(for: key, padPack: cuedSong.padPack)
             runtime.padState = .playing
             runtime.playingEntryID = cuedEntry.id
             runtime.playbackPhase = .songPlaying
-            beginCountoff(for: cuedEntry.id, songTitle: cuedSong.title, bpm: bpm, timeSignature: cuedSong.timeSignature)
+            beginCountoff(
+                for: cuedEntry.id,
+                songTitle: cuedSong.title,
+                bpm: bpm,
+                timeSignature: cuedSong.timeSignature,
+                startedAt: countoffStartedAt
+            )
             runtime.lastMessage = "Countoff started for \(cuedSong.title)"
             refreshAudioStatus()
         } catch {
@@ -326,7 +333,7 @@ final class AppStore {
             return
         }
 
-        let bpm = playingEntry.resolvedBPM(for: song)
+        let bpm = song.defaultBPM
 
         do {
             try audioEngine.startClick(
@@ -335,7 +342,13 @@ final class AppStore {
                 includesCountoff: true,
                 settings: clickSettings
             )
-            beginCountoff(for: playingEntry.id, songTitle: song.title, bpm: bpm, timeSignature: song.timeSignature)
+            beginCountoff(
+                for: playingEntry.id,
+                songTitle: song.title,
+                bpm: bpm,
+                timeSignature: song.timeSignature,
+                startedAt: ContinuousClock.now
+            )
             runtime.lastMessage = "Countoff started for \(song.title)"
             refreshAudioStatus()
         } catch {
@@ -360,7 +373,7 @@ final class AppStore {
         }
 
         do {
-            try audioEngine.startPad(for: playingEntry.resolvedKey(for: song), padPack: song.padPack)
+            try audioEngine.startPad(for: song.defaultKey, padPack: song.padPack)
             runtime.padState = .playing
             runtime.lastMessage = "Pad started"
             refreshAudioStatus()
@@ -467,8 +480,8 @@ final class AppStore {
 
     func setCountoffSound(_ countoffSound: CountoffSound) {
         clickSettings.countoffSound = countoffSound
-        rehearse.lastMessage = "\(countoffSound.rawValue) countoff selected"
-        runtime.lastMessage = "\(countoffSound.rawValue) countoff selected"
+        rehearse.lastMessage = "\(countoffSound.label) countoff selected"
+        runtime.lastMessage = "\(countoffSound.label) countoff selected"
         saveLibrary()
     }
 
@@ -543,6 +556,7 @@ final class AppStore {
         return song.id
     }
 
+    @discardableResult
     func updateSong(
         _ songID: Song.ID,
         title: String,
@@ -550,21 +564,92 @@ final class AppStore {
         defaultBPM: Int,
         timeSignature: TimeSignature,
         padPackID: PadPack.ID
-    ) {
+    ) -> Bool {
         guard let songIndex = songs.firstIndex(where: { $0.id == songID }) else {
             persistenceStatus = "Could not update song"
-            return
+            return false
         }
+
+        let current = songs[songIndex]
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        songs[songIndex] = Song(
+        let updated = Song(
             id: songID,
-            title: trimmedTitle.isEmpty ? songs[songIndex].title : trimmedTitle,
+            title: trimmedTitle.isEmpty ? current.title : trimmedTitle,
             defaultKey: defaultKey,
             defaultBPM: min(220, max(40, defaultBPM)),
             timeSignature: timeSignature,
             padPack: .bundled
         )
+
+        guard updated != current else { return true }
+
+        let playingThisSong = playingEntry?.songID == songID
+        let shouldUpdateClick = playingThisSong && runtime.clickState != .off &&
+            (updated.defaultBPM != current.defaultBPM || updated.timeSignature != current.timeSignature)
+        let shouldUpdatePad = playingThisSong && runtime.padState == .playing &&
+            updated.defaultKey != current.defaultKey
+
+        if shouldUpdatePad && !audioEngine.hasPadAsset(for: updated.padPack, key: updated.defaultKey) {
+            runtime.lastMessage = audioEngine.padAssetStatus(for: updated.padPack, key: updated.defaultKey)
+            return false
+        }
+
+        if shouldUpdateClick {
+            do {
+                // A live metadata correction should take effect immediately, but must not
+                // trigger another verbal count-in in the middle of a song.
+                try audioEngine.startClick(
+                    bpm: updated.defaultBPM,
+                    timeSignature: updated.timeSignature,
+                    includesCountoff: false,
+                    settings: clickSettings
+                )
+            } catch {
+                runtime.lastMessage = "Could not update click: \(error.localizedDescription)"
+                refreshAudioStatus()
+                return false
+            }
+        }
+
+        if shouldUpdatePad {
+            do {
+                try audioEngine.startPad(for: updated.defaultKey, padPack: updated.padPack)
+            } catch {
+                // If the click was already retimed, restore it to the still-canonical old
+                // metadata so screen and audio remain truthful after the failed pad change.
+                if shouldUpdateClick {
+                    try? audioEngine.startClick(
+                        bpm: current.defaultBPM,
+                        timeSignature: current.timeSignature,
+                        includesCountoff: false,
+                        settings: clickSettings
+                    )
+                }
+                runtime.lastMessage = "Could not update pad: \(error.localizedDescription)"
+                refreshAudioStatus()
+                return false
+            }
+        }
+
+        songs[songIndex] = updated
+
+        if shouldUpdateClick {
+            clickStateTask?.cancel()
+            clearCountoff()
+            runtime.clickState = .playing
+        }
+        if shouldUpdatePad {
+            runtime.padState = .playing
+        }
+
         saveLibrary()
+        preloadCuedPad()
+        refreshReadiness()
+        runtime.lastMessage = playingThisSong
+            ? "Updated \(updated.title) live"
+            : "Updated \(updated.title)"
+        refreshAudioStatus()
+        return true
     }
 
     /// Removes a song from the library along with any setlist entries that reference it.
@@ -667,22 +752,6 @@ final class AppStore {
         saveLibrary()
     }
 
-    func updateEntry(
-        _ entryID: SetlistEntry.ID,
-        keyOverride: MusicalKey?,
-        bpmOverride: Int?
-    ) {
-        guard let index = activeSetlist.entries.firstIndex(where: { $0.id == entryID }) else {
-            runtime.lastMessage = "Could not update setlist entry"
-            return
-        }
-
-        activeSetlist.entries[index].keyOverride = keyOverride
-        activeSetlist.entries[index].bpmOverride = bpmOverride
-        saveLibrary()
-        preloadCuedPad()
-    }
-
     func updateRouting(
         padOutputID: AudioDeviceID?,
         clickOutputID: AudioDeviceID?,
@@ -778,24 +847,47 @@ final class AppStore {
         for entryID: SetlistEntry.ID,
         songTitle: String,
         bpm: Int,
-        timeSignature: TimeSignature
+        timeSignature: TimeSignature,
+        startedAt: ContinuousClock.Instant
     ) {
         clickStateTask?.cancel()
         runtime.clickState = .countoff
 
         let beats = max(1, timeSignature.beatsPerMeasure)
-        let secondsPerBeat = bpm > 0 ? 60.0 / Double(bpm) : 0
+        let secondsPerBeat = bpm > 0
+            ? max(0, (60.0 / Double(bpm)) * countoffDurationMultiplier)
+            : 0
+        let clock = ContinuousClock()
+        let elapsed = max(0, durationInSeconds(startedAt.duration(to: clock.now)))
+        let initialBeat = secondsPerBeat > 0
+            ? min(beats, Int(elapsed / secondsPerBeat) + 1)
+            : 1
         runtime.countoffTotal = beats
+        runtime.countoffBeat = initialBeat
+
         clickStateTask = Task { @MainActor in
-            let perBeat = UInt64(max(0, secondsPerBeat * countoffDurationMultiplier) * 1_000_000_000)
-            for beat in 1...beats {
-                guard !Task.isCancelled,
-                      runtime.playingEntryID == entryID,
-                      runtime.clickState == .countoff else {
-                    return
+            if initialBeat < beats {
+                for beat in (initialBeat + 1)...beats {
+                    let deadline = startedAt.advanced(by: .seconds(secondsPerBeat * Double(beat - 1)))
+                    do {
+                        try await clock.sleep(until: deadline)
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled,
+                          runtime.playingEntryID == entryID,
+                          runtime.clickState == .countoff else {
+                        return
+                    }
+                    runtime.countoffBeat = beat
                 }
-                runtime.countoffBeat = beat
-                try? await Task.sleep(nanoseconds: perBeat)
+            }
+
+            let countoffEnd = startedAt.advanced(by: .seconds(secondsPerBeat * Double(beats)))
+            do {
+                try await clock.sleep(until: countoffEnd)
+            } catch {
+                return
             }
 
             guard !Task.isCancelled,
@@ -809,6 +901,11 @@ final class AppStore {
             runtime.clickState = .playing
             runtime.lastMessage = "Click playing for \(songTitle)"
         }
+    }
+
+    private func durationInSeconds(_ duration: Duration) -> Double {
+        let components = duration.components
+        return Double(components.seconds) + Double(components.attoseconds) / 1_000_000_000_000_000_000
     }
 
     private func beginRehearseCountoff() {
@@ -870,7 +967,7 @@ final class AppStore {
 
     private func preloadCuedPad() {
         guard let cuedEntry, let song = song(for: cuedEntry) else { return }
-        audioEngine.preloadPad(for: cuedEntry.resolvedKey(for: song), padPack: song.padPack)
+        audioEngine.preloadPad(for: song.defaultKey, padPack: song.padPack)
     }
 
     private func countoffDuration(bpm: Int, timeSignature: TimeSignature) -> TimeInterval {

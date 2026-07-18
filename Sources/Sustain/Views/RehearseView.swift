@@ -166,7 +166,7 @@ struct RehearseView: View {
                             .foregroundStyle(SustainColor.textSecondary)
                         Picker("Countoff Sound", selection: countoffSoundBinding) {
                             ForEach(CountoffSound.allCases) { sound in
-                                Text(sound.rawValue).tag(sound)
+                                Text(sound.label).tag(sound)
                             }
                         }
                         .pickerStyle(.segmented)

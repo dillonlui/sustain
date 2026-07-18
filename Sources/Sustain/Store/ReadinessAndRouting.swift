@@ -54,8 +54,8 @@ struct SetlistReadinessEvaluator {
     func validate(entry: SetlistEntry, song: Song) -> SystemCheckResult {
         var blockingMessages: [String] = []
         var warnings: [String] = []
-        let key = entry.resolvedKey(for: song)
-        let bpm = entry.resolvedBPM(for: song)
+        let key = song.defaultKey
+        let bpm = song.defaultBPM
 
         if bpm <= 0 {
             blockingMessages.append("\(song.title) needs a valid BPM.")
@@ -101,8 +101,8 @@ struct SetlistReadinessEvaluator {
             }
 
             var warnings: [String] = []
-            let key = entry.resolvedKey(for: song)
-            let bpm = entry.resolvedBPM(for: song)
+            let key = song.defaultKey
+            let bpm = song.defaultBPM
 
             if bpm <= 0 {
                 warnings.append("\(song.title): needs a valid BPM.")

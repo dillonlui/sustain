@@ -64,7 +64,7 @@ final class SustainAudioEngine: AudioControlling {
 
     /// Below this beat length a spoken word cannot stay intelligible, so the count-off
     /// falls back to clicks (matching how Ableton only clicks at fast tempos).
-    private let minSpokenBeatDuration: TimeInterval = 0.33
+    private static let minSpokenBeatDuration: TimeInterval = 0.33
     private var activePadIndex: Int?
     private var nextPadIndex = 0
     private var activePadKey: MusicalKey?
@@ -285,13 +285,18 @@ final class SustainAudioEngine: AudioControlling {
             throw AudioEngineError.invalidBPM(bpm)
         }
 
+        // Build every replacement buffer before touching a currently running click. A live
+        // BPM/time-signature edit can then fail safely without silencing the old loop.
+        let loop = try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
+        let countoff = includesCountoff
+            ? try makeCountoffBuffer(bpm: bpm, timeSignature: timeSignature, settings: settings)
+            : nil
+
         try startClickEngineIfNeeded()
 
         clickPlayer.stop()
         clickPlayer.pan = clickOutputChannel.pan
-        let loop = try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
-        if includesCountoff {
-            let countoff = try makeCountoffBuffer(bpm: bpm, timeSignature: timeSignature, settings: settings)
+        if let countoff {
             clickPlayer.scheduleBuffer(countoff)
         }
         clickPlayer.scheduleBuffer(loop, at: nil, options: .loops)
@@ -430,32 +435,55 @@ final class SustainAudioEngine: AudioControlling {
         measures: Int,
         settings: ClickSettings
     ) throws -> AVAudioPCMBuffer {
-        let sampleRate = clickFormat.sampleRate
+        try Self.makeClickBuffer(
+            format: clickFormat,
+            bpm: bpm,
+            timeSignature: timeSignature,
+            measures: measures,
+            settings: settings
+        )
+    }
+
+    private static func makeClickBuffer(
+        format: AVAudioFormat,
+        bpm: Int,
+        timeSignature: TimeSignature,
+        measures: Int,
+        settings: ClickSettings
+    ) throws -> AVAudioPCMBuffer {
+        let sampleRate = format.sampleRate
         let beats = max(1, timeSignature.beatsPerMeasure * measures)
         let secondsPerBeat = 60.0 / Double(bpm)
         let duration = secondsPerBeat * Double(beats)
         let frameCount = max(1, AVAudioFrameCount(sampleRate * duration))
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: clickFormat, frameCapacity: frameCount) else {
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
             throw AudioEngineError.invalidOutputFormat
         }
         buffer.frameLength = frameCount
+        zeroBuffer(buffer, format: format)
 
         for beat in 0..<beats {
             let startFrame = Int(Double(beat) * secondsPerBeat * sampleRate)
             let accented = settings.accentMode == .downbeat && beat % timeSignature.beatsPerMeasure == 0
-            writeClickTone(into: buffer, startFrame: startFrame, accented: accented)
+            writeClickTone(into: buffer, format: format, startFrame: startFrame, accented: accented)
         }
 
         return buffer
     }
 
-    private func writeClickTone(into buffer: AVAudioPCMBuffer, startFrame: Int, accented: Bool) {
-        let sampleRate = clickFormat.sampleRate
-        let channelCount = Int(clickFormat.channelCount)
+    private static func writeClickTone(
+        into buffer: AVAudioPCMBuffer,
+        format: AVAudioFormat,
+        startFrame: Int,
+        accented: Bool,
+        gain: Float = 1
+    ) {
+        let sampleRate = format.sampleRate
+        let channelCount = Int(format.channelCount)
         let frameCount = Int(buffer.frameLength)
         let clickLength = Int(sampleRate * 0.045)
         let frequency = accented ? 1_760.0 : 1_200.0
-        let amplitude = accented ? 0.78 : 0.48
+        let amplitude = Float(accented ? 0.78 : 0.48) * gain
 
         for offset in 0..<clickLength {
             let frame = startFrame + offset
@@ -463,7 +491,7 @@ final class SustainAudioEngine: AudioControlling {
 
             let t = Double(offset) / sampleRate
             let envelope = exp(-55.0 * t)
-            let sample = Float(sin(2.0 * .pi * frequency * t) * envelope * amplitude)
+            let sample = Float(sin(2.0 * .pi * frequency * t) * envelope) * amplitude
 
             for channel in 0..<channelCount {
                 buffer.floatChannelData?[channel][frame] += sample
@@ -476,53 +504,94 @@ final class SustainAudioEngine: AudioControlling {
         timeSignature: TimeSignature,
         settings: ClickSettings
     ) throws -> AVAudioPCMBuffer {
+        try Self.makeCountoffBuffer(
+            format: clickFormat,
+            voiceRenderer: voiceRenderer,
+            bpm: bpm,
+            timeSignature: timeSignature,
+            settings: settings
+        )
+    }
+
+    /// Pure PCM composition entry point for regression tests. It deliberately does not create
+    /// AVAudioEngine/player nodes, so count-in behavior can be checked in headless test runners.
+    static func makeCountoffBuffer(
+        format: AVAudioFormat,
+        voiceRenderer: CountoffVoiceRendering?,
+        bpm: Int,
+        timeSignature: TimeSignature,
+        settings: ClickSettings
+    ) throws -> AVAudioPCMBuffer {
         if settings.countoffSound == .click {
-            return try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
+            return try makeClickBuffer(
+                format: format,
+                bpm: bpm,
+                timeSignature: timeSignature,
+                measures: 1,
+                settings: settings
+            )
         }
 
-        let sampleRate = clickFormat.sampleRate
+        let sampleRate = format.sampleRate
         let beats = max(1, timeSignature.beatsPerMeasure)
         let secondsPerBeat = 60.0 / Double(bpm)
 
         // At fast tempos a spoken word cannot stay intelligible within a beat, so fall
         // back to the click count-off rather than a garbled voice.
         guard secondsPerBeat >= minSpokenBeatDuration else {
-            return try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
+            return try makeClickBuffer(
+                format: format,
+                bpm: bpm,
+                timeSignature: timeSignature,
+                measures: 1,
+                settings: settings
+            )
         }
 
         let duration = secondsPerBeat * Double(beats)
         let frameCount = max(1, AVAudioFrameCount(sampleRate * duration))
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: clickFormat, frameCapacity: frameCount) else {
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
             throw AudioEngineError.invalidOutputFormat
         }
         buffer.frameLength = frameCount
-        zeroBuffer(buffer)
+        zeroBuffer(buffer, format: format)
 
         let slotFrames = Int(secondsPerBeat * sampleRate)
         for beat in 0..<beats {
             let startFrame = Int(Double(beat) * secondsPerBeat * sampleRate)
+            let accented = settings.accentMode == .downbeat && beat == 0
 
-            if let word = voiceRenderer?.renderedWord(for: beat + 1, format: clickFormat) {
-                copyWord(word, into: buffer, at: startFrame, maxFrames: slotFrames)
-            } else {
-                // Voice unavailable — keep every beat audible with a click.
-                let accented = settings.accentMode == .downbeat && beat == 0
-                writeClickTone(into: buffer, startFrame: startFrame, accented: accented)
+            // The counted mode is deliberately click + voice. Put a quieter transient exactly
+            // on the beat, then mix the already-rendered word into the same slot. This leaves
+            // voice choice, prewarming, routing, scheduling, and fallback behavior untouched.
+            // Speech is rendered at 0.8 gain; a 0.2 click gain keeps even the accented
+            // transient below full-scale when the two overlap, without changing voice level.
+            writeClickTone(
+                into: buffer,
+                format: format,
+                startFrame: startFrame,
+                accented: accented,
+                gain: 0.2
+            )
+
+            if let word = voiceRenderer?.renderedWord(for: beat + 1, format: format) {
+                copyWord(word, into: buffer, format: format, at: startFrame, maxFrames: slotFrames)
             }
         }
 
         return buffer
     }
 
-    private func copyWord(
+    private static func copyWord(
         _ word: AVAudioPCMBuffer,
         into buffer: AVAudioPCMBuffer,
+        format: AVAudioFormat,
         at startFrame: Int,
         maxFrames: Int
     ) {
         guard let source = word.floatChannelData, let destination = buffer.floatChannelData else { return }
 
-        let channelCount = Int(clickFormat.channelCount)
+        let channelCount = Int(format.channelCount)
         let sourceChannelCount = max(1, Int(word.format.channelCount))
         let bufferFrames = Int(buffer.frameLength)
         let available = min(maxFrames, bufferFrames - startFrame)
@@ -530,7 +599,7 @@ final class SustainAudioEngine: AudioControlling {
         guard copyCount > 0 else { return }
 
         // Short fade at the trim boundary so a word cut off at the beat edge doesn't pop.
-        let fadeFrames = min(copyCount, Int(clickFormat.sampleRate * 0.008))
+        let fadeFrames = min(copyCount, Int(format.sampleRate * 0.008))
         for offset in 0..<copyCount {
             var envelope: Float = 1
             if fadeFrames > 0, offset > copyCount - fadeFrames {
@@ -545,10 +614,10 @@ final class SustainAudioEngine: AudioControlling {
         }
     }
 
-    private func zeroBuffer(_ buffer: AVAudioPCMBuffer) {
+    private static func zeroBuffer(_ buffer: AVAudioPCMBuffer, format: AVAudioFormat) {
         guard let channels = buffer.floatChannelData else { return }
         let frames = Int(buffer.frameLength)
-        for channel in 0..<Int(clickFormat.channelCount) {
+        for channel in 0..<Int(format.channelCount) {
             channels[channel].update(repeating: 0, count: frames)
         }
     }

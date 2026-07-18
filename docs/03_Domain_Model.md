@@ -39,13 +39,12 @@ Setlist:
 
 ## Setlist Entry
 
-Overrides song defaults.
+References one canonical library song. Key, BPM, and time signature live on `Song`, so edits
+from either Song Library or Live Service update every occurrence consistently.
 
 ```yaml
 SetlistEntry:
   songId
-  keyOverride?
-  bpmOverride?
 ```
 
 ---

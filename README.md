@@ -32,13 +32,13 @@ Full step-by-step instructions (including a fix if it still won't open) are in
 ## What it does
 
 - **Song Library** — reusable songs with a default key, BPM, and time signature.
-- **Setlist builder** — add and reorder songs; override key or BPM per service.
+- **Setlist builder** — add and reorder reusable library songs.
 - **Live Service screen** — see the playing and cued song at a glance; Start,
   Next, Previous, and Stop with clear transport controls and keyboard shortcuts.
 - **Pads** — ambient pads in all 12 keys, with gapless looping and true
   crossfades between songs.
 - **Click & count-off** — sample-accurate click generated from BPM and time
-  signature, with an audible and on-screen count-off.
+  signature, with spoken counts layered over audible beat clicks and an on-screen count-in.
 - **Rehearse mode** — free-play pads, click, and count-off, with live level
   control, without touching your setlist.
 - **Independent audio routing** — send pads and click to separate output devices;

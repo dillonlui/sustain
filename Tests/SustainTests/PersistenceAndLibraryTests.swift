@@ -4,20 +4,77 @@ import Testing
 @testable import Sustain
 
 extension RuntimeSessionTests {
-    @Test func setlistOverridesPersistToJSON() throws {
+    @Test func schemaV1SetlistOverridesMigrateIntoCanonicalSongValues() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
         let libraryStore = LocalLibraryStore(directoryOverride: directory)
-        let store = AppStore.preview(libraryStore: libraryStore)
+        let libraryURL = try libraryStore.applicationSupportDirectory()
+            .appendingPathComponent("Library.json", isDirectory: false)
 
-        let entry = try #require(store.activeSetlist.entries.first)
-        store.updateEntry(entry.id, keyOverride: .bb, bpmOverride: 88)
+        try libraryStore.saveLibrary(AppStore.seedSnapshot())
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: libraryURL)) as? [String: Any]
+        )
+        object["schemaVersion"] = 1
+        var setlist = try #require(object["activeSetlist"] as? [String: Any])
+        var entries = try #require(setlist["entries"] as? [[String: Any]])
+        entries[0]["keyOverride"] = MusicalKey.bb.rawValue
+        entries[0]["bpmOverride"] = 88
+        setlist["entries"] = entries
+        object["activeSetlist"] = setlist
+        try JSONSerialization.data(withJSONObject: object).write(to: libraryURL)
 
         let loaded = try #require(try libraryStore.loadLibrary())
-        let loadedEntry = try #require(loaded.activeSetlist.entries.first)
+        let firstEntry = try #require(loaded.activeSetlist.entries.first)
+        let migratedSong = try #require(loaded.songs.first { $0.id == firstEntry.songID })
 
-        #expect(loadedEntry.keyOverride == .bb)
-        #expect(loadedEntry.bpmOverride == 88)
+        #expect(loaded.schemaVersion == LibrarySnapshot.currentSchemaVersion)
+        #expect(migratedSong.defaultKey == .bb)
+        #expect(migratedSong.defaultBPM == 88)
+        #expect(firstEntry.legacyKeyOverride == nil)
+        #expect(firstEntry.legacyBPMOverride == nil)
+
+        // Loading performs the migration durably. The v1 primary is retained as the rolling
+        // backup, while the current Library.json is immediately rewritten in canonical v2.
+        let encodedText = try #require(String(data: Data(contentsOf: libraryURL), encoding: .utf8))
+        #expect(encodedText.contains("\"schemaVersion\" : 2"))
+        #expect(!encodedText.contains("keyOverride"))
+        #expect(!encodedText.contains("bpmOverride"))
+        let backupURL = libraryURL.deletingLastPathComponent()
+            .appendingPathComponent("Library.bak", isDirectory: false)
+        let backupText = try #require(String(data: Data(contentsOf: backupURL), encoding: .utf8))
+        #expect(backupText.contains("keyOverride"))
+    }
+
+    @Test func conflictingLegacyOverridesPreserveLibraryDefaults() throws {
+        let snapshot = AppStore.seedSnapshot()
+        let firstEntry = try #require(snapshot.activeSetlist.entries.first)
+        let firstSong = try #require(snapshot.songs.first { $0.id == firstEntry.songID })
+        let encoder = JSONEncoder()
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: encoder.encode(snapshot)) as? [String: Any]
+        )
+        object["schemaVersion"] = 1
+        var setlist = try #require(object["activeSetlist"] as? [String: Any])
+        var entries = try #require(setlist["entries"] as? [[String: Any]])
+        entries[0]["keyOverride"] = MusicalKey.bb.rawValue
+        entries[0]["bpmOverride"] = 88
+        var duplicate = entries[0]
+        duplicate["id"] = UUID().uuidString
+        duplicate["keyOverride"] = MusicalKey.a.rawValue
+        duplicate["bpmOverride"] = 99
+        entries.append(duplicate)
+        setlist["entries"] = entries
+        object["activeSetlist"] = setlist
+
+        let loaded = try JSONDecoder().decode(
+            LibrarySnapshot.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+        let canonical = try #require(loaded.songs.first { $0.id == firstSong.id })
+
+        #expect(canonical.defaultKey == firstSong.defaultKey)
+        #expect(canonical.defaultBPM == firstSong.defaultBPM)
     }
 
     @Test func corruptLibraryIsQuarantinedOnLoadFailure() throws {
@@ -56,15 +113,15 @@ extension RuntimeSessionTests {
         let saved = try #require(try libraryStore.loadLibrary())
         #expect(saved.schemaVersion == LibrarySnapshot.currentSchemaVersion)
 
-        // A legacy file (field absent, i.e. written before versioning existed) still loads,
-        // defaulting to v1 — so shipping this doesn't break existing users' libraries.
+        // A legacy file (field absent, i.e. written before versioning existed) still loads
+        // and is normalized in memory to the current schema.
         var object = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: libraryURL)) as? [String: Any]
         )
         object.removeValue(forKey: "schemaVersion")
         try JSONSerialization.data(withJSONObject: object).write(to: libraryURL)
         let legacy = try #require(try libraryStore.loadLibrary())
-        #expect(legacy.schemaVersion == 1)
+        #expect(legacy.schemaVersion == LibrarySnapshot.currentSchemaVersion)
     }
 
     @Test func loadRecoversFromBackupWhenPrimaryIsCorrupt() throws {
@@ -148,8 +205,15 @@ extension RuntimeSessionTests {
         let store = AppStore.preview(libraryStore: unwritable)
         #expect(store.saveErrorPrompt == nil)
 
-        let entry = try #require(store.activeSetlist.entries.first)
-        store.updateEntry(entry.id, keyOverride: .bb, bpmOverride: 88)
+        let song = try #require(store.songs.first)
+        store.updateSong(
+            song.id,
+            title: song.title,
+            defaultKey: .bb,
+            defaultBPM: 88,
+            timeSignature: song.timeSignature,
+            padPackID: PadPack.bundled.id
+        )
 
         #expect(store.saveErrorPrompt != nil)
         #expect(store.persistenceStatus.hasPrefix("Library save failed"))
@@ -311,7 +375,7 @@ extension RuntimeSessionTests {
         let cued = try #require(store.cuedEntry)
         let song = try #require(store.song(for: cued))
         #expect(audio.preloadedKeys.count > before)
-        #expect(audio.preloadedKeys.last == cued.resolvedKey(for: song))
+        #expect(audio.preloadedKeys.last == song.defaultKey)
     }
 
     @Test func movingSetlistEntryReordersAndPersists() throws {

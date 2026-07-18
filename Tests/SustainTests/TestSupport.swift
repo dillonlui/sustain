@@ -10,7 +10,12 @@ final class RecordingAudioEngine: AudioControlling {
     var isEngineRunning: Bool { padIsActive || clickIsActive }
     var padStartCount = 0
     var clickStartCount = 0
+    var clickStopCount = 0
+    var padStopCount = 0
     var stopAllCount = 0
+    var startedPadKeys: [MusicalKey] = []
+    var clickBPMHistory: [Int] = []
+    var clickTimeSignatureHistory: [TimeSignature] = []
     var clickIncludesCountoffHistory: [Bool] = []
     var clickSettingsHistory: [ClickSettings] = []
     var configureRoutingCount = 0
@@ -23,6 +28,8 @@ final class RecordingAudioEngine: AudioControlling {
     var shouldFailClickStart = false
     var shouldFailConfigureRouting = false
     var statusSummary: String { isEngineRunning ? "Running" : "Stopped" }
+    var isPadActive: Bool { padIsActive }
+    var isClickActive: Bool { clickIsActive }
 
     init(missingPadKeys: Set<MusicalKey> = []) {
         self.missingPadKeys = missingPadKeys
@@ -52,6 +59,7 @@ final class RecordingAudioEngine: AudioControlling {
 
     func startPad(for key: MusicalKey, padPack: PadPack) throws {
         padStartCount += 1
+        startedPadKeys.append(key)
         if shouldFailPadStart {
             throw AudioEngineError.unreadablePadFile(URL(fileURLWithPath: "\(key.rawValue).mp3"))
         }
@@ -59,11 +67,14 @@ final class RecordingAudioEngine: AudioControlling {
     }
 
     func stopPad() {
+        padStopCount += 1
         padIsActive = false
     }
 
     func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool, settings: ClickSettings) throws {
         clickStartCount += 1
+        clickBPMHistory.append(bpm)
+        clickTimeSignatureHistory.append(timeSignature)
         clickIncludesCountoffHistory.append(includesCountoff)
         clickSettingsHistory.append(settings)
         if shouldFailClickStart {
@@ -73,6 +84,7 @@ final class RecordingAudioEngine: AudioControlling {
     }
 
     func stopClick() {
+        clickStopCount += 1
         clickIsActive = false
     }
 
@@ -102,4 +114,3 @@ final class MutableAudioRoutingProvider: AudioRoutingProviding {
         snapshotValue
     }
 }
-

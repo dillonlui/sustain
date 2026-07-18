@@ -106,7 +106,7 @@ still works and System follows the OS live.
      not help.)
    - **Cue change** — `cue(entryID:)` (`:200`) currently does not publish `systemCheck`; add a
      `refreshReadiness()` call there.
-   - **Cued-song key/BPM edits** — after `updateEntry(...)` for the cued entry.
+   - **Cued-song key/BPM edits** — after updating the canonical library song.
    - **Audio hardware change** — already wired via `handleAudioHardwareChanged` (`:905`); no new work.
 3. **Playback gating:** when `runtime.playbackPhase == .songPlaying`, keep updates passive — no
    modal, no toast, no animated relayout. The banner may update text in place, but must not jump the

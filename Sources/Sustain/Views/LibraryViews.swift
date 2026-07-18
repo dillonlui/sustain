@@ -1,8 +1,11 @@
+import Accessibility
 import CoreAudio
 import SwiftUI
 
 struct SongLibraryView: View {
     @Environment(AppStore.self) private var store
+    @State private var addConfirmation: AddConfirmation?
+    @State private var confirmationTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,7 +25,7 @@ struct SongLibraryView: View {
                                 isActive: !store.songs.isEmpty
                             )
 
-                            VStack(spacing: SustainSpace.sm) {
+                            LazyVStack(spacing: SustainSpace.sm) {
                                 ForEach(store.songs) { song in
                                     SongLibraryRow(
                                         song: song,
@@ -30,8 +33,9 @@ struct SongLibraryView: View {
                                         key: keyBinding(for: song.id),
                                         bpm: bpmBinding(for: song.id),
                                         timeSignature: timeSignatureBinding(for: song.id),
+                                        isAdded: addConfirmation?.songID == song.id,
                                         onAddToSetlist: {
-                                            _ = store.addSongToSetlist(song.id)
+                                            addToSetlist(song)
                                         },
                                         onDelete: {
                                             store.deleteSong(song.id)
@@ -48,6 +52,18 @@ struct SongLibraryView: View {
         // Clear the window's traffic-light / title-bar zone (the screen fills to the top).
         .padding(.top, SustainLayout.topChrome)
         .sustainScreenBackground(.standard)
+        .overlay(alignment: .bottom) {
+            if let addConfirmation {
+                SustainInlineNotice(message: addConfirmation.message, kind: .success)
+                    .frame(maxWidth: 440)
+                    .padding(SustainSpace.screen)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .onDisappear {
+            confirmationTask?.cancel()
+            confirmationTask = nil
+        }
     }
 
     private var header: some View {
@@ -151,6 +167,34 @@ struct SongLibraryView: View {
         }
     }
 
+    private func addToSetlist(_ song: Song) {
+        guard store.addSongToSetlist(song.id) != nil else { return }
+
+        let confirmation = AddConfirmation(
+            songID: song.id,
+            message: "Added \(song.title) to setlist"
+        )
+        confirmationTask?.cancel()
+        withAnimation(.snappy(duration: 0.18)) {
+            addConfirmation = confirmation
+        }
+        AccessibilityNotification.Announcement(confirmation.message).post()
+
+        confirmationTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, addConfirmation?.id == confirmation.id else { return }
+            withAnimation(.easeOut(duration: 0.18)) {
+                addConfirmation = nil
+            }
+        }
+    }
+
+}
+
+private struct AddConfirmation: Identifiable {
+    let id = UUID()
+    var songID: Song.ID
+    var message: String
 }
 
 private struct SongLibraryRow: View {
@@ -159,6 +203,7 @@ private struct SongLibraryRow: View {
     @Binding var key: MusicalKey
     @Binding var bpm: Int
     @Binding var timeSignature: TimeSignature
+    var isAdded: Bool
     var onAddToSetlist: () -> Void
     var onDelete: () -> Void
 
@@ -167,16 +212,10 @@ private struct SongLibraryRow: View {
     @State private var confirmingDelete = false
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: SustainSpace.lg) {
-                titleField
-                Spacer(minLength: SustainSpace.md)
-                controls
-            }
-            VStack(alignment: .leading, spacing: SustainSpace.md) {
-                titleField
-                controls
-            }
+        HStack(alignment: .center, spacing: SustainSpace.lg) {
+            titleField
+            Spacer(minLength: SustainSpace.md)
+            controls
         }
         .padding(SustainSpace.lg)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
@@ -246,8 +285,7 @@ private struct SongLibraryRow: View {
             .labelsHidden()
             .frame(width: 84)
 
-            Stepper("\(bpm) BPM", value: $bpm, in: 40...220)
-                .frame(width: 128)
+            TempoControl(value: $bpm, label: "")
 
             Picker("Time", selection: $timeSignature) {
                 ForEach(TimeSignature.common, id: \.self) { timeSignature in
@@ -257,9 +295,14 @@ private struct SongLibraryRow: View {
             .labelsHidden()
             .frame(width: 92)
 
-            Button("Add", systemImage: "text.badge.plus") {
+            Button {
                 onAddToSetlist()
+            } label: {
+                Image(systemName: isAdded ? "checkmark" : "text.badge.plus")
             }
+            .fixedSize()
+            .help(isAdded ? "Added to setlist" : "Add to setlist")
+            .accessibilityLabel(isAdded ? "Added \(song.title) to setlist" : "Add \(song.title) to setlist")
 
             Menu {
                 Button("Delete Song\u{2026}", systemImage: "trash", role: .destructive) {

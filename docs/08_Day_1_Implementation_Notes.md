@@ -5,7 +5,7 @@
 The app now has a working technical foundation for the first live-service loop:
 
 - Live store loads from local JSON persistence or falls back to seed data.
-- Setlist key and BPM overrides save to `Library.json`.
+- Key, BPM, and time-signature edits update the canonical library song in `Library.json`.
 - Live Service controls call an audio controller instead of only flipping UI state.
 - Included MP3 pad audio loops indefinitely.
 - Generated click audio follows song BPM.
@@ -37,8 +37,8 @@ Persisted data:
 
 - Songs
 - Active setlist
-- Key overrides
-- BPM overrides
+- Canonical song key updates
+- Canonical song BPM updates
 
 SwiftData or SQLite should wait until the editing model gets more complex.
 

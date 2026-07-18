@@ -55,7 +55,7 @@ struct LiveServiceView: View {
             if editingEntryID != nil {
                 Divider()
                 SongInspectorPane(entryID: editingEntryID) { editingEntryID = nil }
-                    .frame(width: 280)
+                    .frame(width: 320)
             }
         }
         .sustainScreenBackground(.live)
@@ -71,7 +71,8 @@ struct LiveServiceView: View {
                     index: index + 1,
                     song: store.song(for: entry),
                     entry: entry,
-                    isPlaying: store.runtime.playingEntryID == entry.id
+                    isPlaying: store.runtime.playingEntryID == entry.id,
+                    onEdit: { editingEntryID = entry.id }
                 )
                 .tag(entry.id)
                 .contextMenu {
@@ -162,7 +163,6 @@ struct LiveServiceView: View {
             nowNextRow
 
             transportCluster
-            channelControls
 
             levelsRow
             messageStrip
@@ -244,7 +244,13 @@ struct LiveServiceView: View {
             tint: SustainColor.accent,
             isActive: store.runtime.padState == .playing,
             value: padVolumeBinding,
-            onCommit: { store.commitAudioLevels() }
+            onCommit: { store.commitAudioLevels() },
+            controlTitle: store.runtime.playbackPhase == .songPlaying
+                ? (store.runtime.padState == .off ? "Start Pad" : "Stop Pad")
+                : nil,
+            onControl: {
+                store.runtime.padState == .off ? store.startPad() : store.stopPad()
+            }
         )
     }
 
@@ -256,30 +262,14 @@ struct LiveServiceView: View {
             tint: SustainColor.accent,
             isActive: store.runtime.clickState != .off,
             value: clickVolumeBinding,
-            onCommit: { store.commitAudioLevels() }
-        )
-    }
-
-    private var channelControls: some View {
-        HStack(spacing: SustainSpace.md) {
-            Button {
+            onCommit: { store.commitAudioLevels() },
+            controlTitle: store.runtime.playbackPhase == .songPlaying
+                ? (store.runtime.clickState == .off ? "Start Click" : "Stop Click")
+                : nil,
+            onControl: {
                 store.runtime.clickState == .off ? store.startClick() : store.stopClick()
-            } label: {
-                Label(store.runtime.clickState == .off ? "Start Click" : "Stop Click", systemImage: "metronome")
             }
-            .disabled(store.runtime.playbackPhase == .noSongPlaying)
-
-            Button {
-                store.runtime.padState == .off ? store.startPad() : store.stopPad()
-            } label: {
-                Label(store.runtime.padState == .off ? "Start Pad" : "Stop Pad", systemImage: "waveform")
-            }
-            .disabled(store.runtime.playbackPhase == .noSongPlaying)
-
-            Spacer()
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        )
     }
 
     private var transportCluster: some View {
@@ -446,9 +436,10 @@ private struct StatePanel: View {
                         .font(.caption2.weight(.semibold))
                         .tracking(2)
                         .foregroundStyle(isActive ? SustainColor.accent : .secondary)
+                    Spacer()
                 }
 
-                if let entry, let song {
+                if entry != nil, let song {
                     Text(song.title)
                         .font(.system(.title, design: .rounded).weight(.semibold))
                         .lineLimit(2)
@@ -456,8 +447,8 @@ private struct StatePanel: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     HStack(spacing: SustainSpace.sm) {
-                        MetadataChip(label: "Key", value: entry.resolvedKey(for: song).rawValue)
-                        MetadataChip(label: "BPM", value: "\(entry.resolvedBPM(for: song))")
+                        MetadataChip(label: "Key", value: song.defaultKey.rawValue)
+                        MetadataChip(label: "BPM", value: "\(song.defaultBPM)")
                         MetadataChip(label: "Time", value: song.timeSignature.description)
                     }
                 } else {
@@ -482,6 +473,7 @@ private struct SetlistRowView: View {
     var song: Song?
     var entry: SetlistEntry
     var isPlaying: Bool
+    var onEdit: () -> Void
 
     var body: some View {
         HStack(spacing: SustainSpace.sm) {
@@ -498,7 +490,7 @@ private struct SetlistRowView: View {
                     .foregroundStyle(song == nil ? SustainColor.warning : .primary)
 
                 if let song {
-                    Text("\(entry.resolvedKey(for: song).rawValue) · \(entry.resolvedBPM(for: song)) · \(song.timeSignature.description)")
+                    Text("\(song.defaultKey.rawValue) · \(song.defaultBPM) · \(song.timeSignature.description)")
                         .font(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
@@ -506,6 +498,13 @@ private struct SetlistRowView: View {
             }
 
             Spacer(minLength: SustainSpace.sm)
+
+            Button(action: onEdit) {
+                Image(systemName: "slider.horizontal.3")
+            }
+            .buttonStyle(.borderless)
+            .help("Adjust \(song?.title ?? "song")")
+            .accessibilityLabel("Adjust \(song?.title ?? "song")")
 
             if isPlaying {
                 Image(systemName: "speaker.wave.2.fill")
@@ -525,6 +524,7 @@ private struct SongInspectorPane: View {
     var onClose: () -> Void
 
     @State private var titleDraft = ""
+    @FocusState private var titleFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -557,33 +557,28 @@ private struct SongInspectorPane: View {
         Group {
             if let entryID, let entry = store.entry(id: entryID), let song = store.song(for: entry) {
                 Form {
-                    Section("Song") {
+                    Section("Song Library") {
                         TextField("Title", text: $titleDraft)
+                            .focused($titleFocused)
                             .onSubmit { commitTitle(song) }
+                            .onChange(of: titleFocused) { _, isFocused in
+                                if !isFocused { commitTitle(song) }
+                            }
+                        Picker("Key", selection: keyBinding(song)) {
+                            ForEach(MusicalKey.allCases) { key in
+                                Text(key.rawValue).tag(key)
+                            }
+                        }
+                        TempoControl(value: bpmBinding(song))
                         Picker("Time", selection: timeSignatureBinding(song)) {
                             ForEach(TimeSignature.common, id: \.self) { signature in
                                 Text(signature.description).tag(signature)
                             }
                         }
                         LabeledContent("Pads", value: "Included")
-                    }
-
-                    Section("This service") {
-                        Picker("Key", selection: keyBinding(entryID, song)) {
-                            ForEach(MusicalKey.allCases) { key in
-                                Text(key.rawValue).tag(key)
-                            }
-                        }
-                        Stepper(
-                            "Tempo \(entry.resolvedBPM(for: song)) BPM",
-                            value: bpmBinding(entryID, song),
-                            in: 40...220
-                        )
-                        if entry.keyOverride != nil || entry.bpmOverride != nil {
-                            Button("Reset to song defaults") {
-                                store.updateEntry(entryID, keyOverride: nil, bpmOverride: nil)
-                            }
-                        }
+                        Text("Changes update this song everywhere it appears.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                     Section {
@@ -596,7 +591,10 @@ private struct SongInspectorPane: View {
                 }
                 .formStyle(.grouped)
                 .onAppear { titleDraft = song.title }
-                .onChange(of: entryID) { titleDraft = song.title }
+                .onChange(of: entryID) { _, _ in titleDraft = song.title }
+                .onChange(of: song.title) { _, newTitle in
+                    if !titleFocused { titleDraft = newTitle }
+                }
             } else {
                 ContentUnavailableView(
                     "No song selected",
@@ -608,55 +606,68 @@ private struct SongInspectorPane: View {
     }
 
     private func commitTitle(_ song: Song) {
+        guard let current = currentSong(song.id) else { return }
         store.updateSong(
             song.id,
             title: titleDraft,
-            defaultKey: song.defaultKey,
-            defaultBPM: song.defaultBPM,
-            timeSignature: song.timeSignature,
+            defaultKey: current.defaultKey,
+            defaultBPM: current.defaultBPM,
+            timeSignature: current.timeSignature,
             padPackID: PadPack.bundled.id
         )
+        titleDraft = currentSong(song.id)?.title ?? current.title
     }
 
     private func timeSignatureBinding(_ song: Song) -> Binding<TimeSignature> {
         Binding {
-            song.timeSignature
+            currentSong(song.id)?.timeSignature ?? song.timeSignature
         } set: { signature in
+            guard let current = currentSong(song.id) else { return }
             store.updateSong(
                 song.id,
-                title: song.title,
-                defaultKey: song.defaultKey,
-                defaultBPM: song.defaultBPM,
+                title: current.title,
+                defaultKey: current.defaultKey,
+                defaultBPM: current.defaultBPM,
                 timeSignature: signature,
                 padPackID: PadPack.bundled.id
             )
         }
     }
 
-    private func keyBinding(_ entryID: SetlistEntry.ID, _ song: Song) -> Binding<MusicalKey> {
+    private func keyBinding(_ song: Song) -> Binding<MusicalKey> {
         Binding {
-            store.entry(id: entryID)?.resolvedKey(for: song) ?? song.defaultKey
+            currentSong(song.id)?.defaultKey ?? song.defaultKey
         } set: { key in
-            let entry = store.entry(id: entryID)
-            store.updateEntry(
-                entryID,
-                keyOverride: key == song.defaultKey ? nil : key,
-                bpmOverride: entry?.bpmOverride
+            guard let current = currentSong(song.id) else { return }
+            store.updateSong(
+                song.id,
+                title: current.title,
+                defaultKey: key,
+                defaultBPM: current.defaultBPM,
+                timeSignature: current.timeSignature,
+                padPackID: PadPack.bundled.id
             )
         }
     }
 
-    private func bpmBinding(_ entryID: SetlistEntry.ID, _ song: Song) -> Binding<Int> {
+    private func bpmBinding(_ song: Song) -> Binding<Int> {
         Binding {
-            store.entry(id: entryID)?.resolvedBPM(for: song) ?? song.defaultBPM
+            currentSong(song.id)?.defaultBPM ?? song.defaultBPM
         } set: { bpm in
-            let entry = store.entry(id: entryID)
-            store.updateEntry(
-                entryID,
-                keyOverride: entry?.keyOverride,
-                bpmOverride: bpm == song.defaultBPM ? nil : bpm
+            guard let current = currentSong(song.id) else { return }
+            store.updateSong(
+                song.id,
+                title: current.title,
+                defaultKey: current.defaultKey,
+                defaultBPM: bpm,
+                timeSignature: current.timeSignature,
+                padPackID: PadPack.bundled.id
             )
         }
+    }
+
+    private func currentSong(_ songID: Song.ID) -> Song? {
+        store.songs.first { $0.id == songID }
     }
 }
 
@@ -675,5 +686,5 @@ private struct SongInspectorPane: View {
     let entryID = store.activeSetlist.entries.first?.id
     return SongInspectorPane(entryID: entryID) {}
         .environment(store)
-        .frame(width: 280, height: 660)
+        .frame(width: 320, height: 660)
 }

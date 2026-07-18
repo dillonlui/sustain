@@ -4,8 +4,8 @@ struct LibrarySnapshot: Codable, Equatable {
     /// The on-disk format version this build writes and can read. Bump when the persisted shape
     /// changes in a breaking way, and add a migration branch in `LocalLibraryStore` keyed on the
     /// decoded `schemaVersion`. Establishing the field now (while it's trivial) is what lets a
-    /// future v2 migrate old files instead of throwing and wiping the user's library.
-    static let currentSchemaVersion = 1
+    /// future versions migrate old files instead of throwing and wiping the user's library.
+    static let currentSchemaVersion = 2
 
     var schemaVersion: Int
     var songs: [Song]
@@ -15,6 +15,9 @@ struct LibrarySnapshot: Codable, Equatable {
     var padVolume: Double
     var clickVolume: Double
     var clickSettings: ClickSettings
+    /// Runtime-only signal used by LocalLibraryStore to durably rewrite an older schema.
+    /// Omitted from CodingKeys, so it is never part of the persisted format.
+    var needsMigrationSave = false
 
     init(
         songs: [Song],
@@ -26,9 +29,10 @@ struct LibrarySnapshot: Codable, Equatable {
         clickSettings: ClickSettings = .default
     ) {
         self.schemaVersion = Self.currentSchemaVersion
-        self.songs = Self.normalizedSongs(songs)
+        let canonical = Self.promotingLegacyOverrides(in: songs, setlist: activeSetlist)
+        self.songs = Self.normalizedSongs(canonical.songs)
         self.padPacks = [Self.includedPadPack(from: padPacks)]
-        self.activeSetlist = activeSetlist
+        self.activeSetlist = canonical.setlist
         self.routingSettings = routingSettings
         self.padVolume = Self.clampedVolume(padVolume)
         self.clickVolume = Self.clampedVolume(clickVolume)
@@ -49,16 +53,25 @@ struct LibrarySnapshot: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         // Legacy files (shipped before versioning) have no field → treat as v1.
-        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        let decodedSchemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         let decodedSongs = try container.decode([Song].self, forKey: .songs)
         let decodedPadPacks = try container.decodeIfPresent([PadPack].self, forKey: .padPacks)
-        songs = Self.normalizedSongs(decodedSongs)
+        let decodedSetlist = try container.decode(Setlist.self, forKey: .activeSetlist)
+        let canonical = Self.promotingLegacyOverrides(in: decodedSongs, setlist: decodedSetlist)
+        songs = Self.normalizedSongs(canonical.songs)
         padPacks = [Self.includedPadPack(from: decodedPadPacks)]
-        activeSetlist = try container.decode(Setlist.self, forKey: .activeSetlist)
+        activeSetlist = canonical.setlist
         routingSettings = try container.decodeIfPresent(AudioRoutingSettings.self, forKey: .routingSettings) ?? .default
         padVolume = Self.clampedVolume(try container.decodeIfPresent(Double.self, forKey: .padVolume) ?? 0.42)
         clickVolume = Self.clampedVolume(try container.decodeIfPresent(Double.self, forKey: .clickVolume) ?? 0.75)
         clickSettings = try container.decodeIfPresent(ClickSettings.self, forKey: .clickSettings) ?? .default
+
+        // Preserve a future version so LocalLibraryStore can reject it without quarantining.
+        // Successfully decoded v1 data is fully migrated in memory to the v2 canonical model.
+        schemaVersion = decodedSchemaVersion > Self.currentSchemaVersion
+            ? decodedSchemaVersion
+            : Self.currentSchemaVersion
+        needsMigrationSave = decodedSchemaVersion < Self.currentSchemaVersion
     }
 
     var hasUsableSetlist: Bool {
@@ -77,6 +90,38 @@ struct LibrarySnapshot: Codable, Equatable {
                 padPack: .bundled
             )
         }
+    }
+
+    /// Promote an unambiguous v1 setlist override into the library Song, then clear every
+    /// legacy field. If duplicate entries disagree, preserve the existing library default
+    /// instead of selecting an arbitrary setlist occurrence.
+    private static func promotingLegacyOverrides(
+        in songs: [Song],
+        setlist: Setlist
+    ) -> (songs: [Song], setlist: Setlist) {
+        var canonicalSongs = songs
+        var canonicalSetlist = setlist
+
+        for songIndex in canonicalSongs.indices {
+            let songID = canonicalSongs[songIndex].id
+            let matchingEntries = canonicalSetlist.entries.filter { $0.songID == songID }
+            let keys = Set(matchingEntries.compactMap(\.legacyKeyOverride))
+            let bpms = Set(matchingEntries.compactMap(\.legacyBPMOverride))
+
+            if keys.count == 1, let key = keys.first {
+                canonicalSongs[songIndex].defaultKey = key
+            }
+            if bpms.count == 1, let bpm = bpms.first {
+                canonicalSongs[songIndex].defaultBPM = min(220, max(40, bpm))
+            }
+        }
+
+        for entryIndex in canonicalSetlist.entries.indices {
+            canonicalSetlist.entries[entryIndex].legacyKeyOverride = nil
+            canonicalSetlist.entries[entryIndex].legacyBPMOverride = nil
+        }
+
+        return (canonicalSongs, canonicalSetlist)
     }
 
     private static func includedPadPack(from padPacks: [PadPack]?) -> PadPack {
@@ -152,7 +197,14 @@ struct LocalLibraryStore {
         }
 
         do {
-            return try decodeSnapshot(at: url)
+            var snapshot = try decodeSnapshot(at: url)
+            if snapshot.needsMigrationSave {
+                snapshot.needsMigrationSave = false
+                // Loading must still succeed if an otherwise readable library cannot be
+                // rewritten. The next successful user edit will persist the same v2 shape.
+                try? saveLibrary(snapshot)
+            }
+            return snapshot
         } catch let error as LibraryLoadError {
             // Newer-than-supported schema: the file is valid, just from the future. Do NOT
             // quarantine or fall back — surface it so we don't clobber recoverable data.

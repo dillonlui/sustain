@@ -47,6 +47,15 @@ enum CountoffSound: String, CaseIterable, Codable, Identifiable {
     case click = "Click"
 
     var id: String { rawValue }
+
+    /// Keep the raw values stable because they are persisted in Library.json, while making
+    /// the current counted behavior explicit in the UI.
+    var label: String {
+        switch self {
+        case .counted: "Count + Click"
+        case .click: "Click Only"
+        }
+    }
 }
 
 struct ClickSettings: Codable, Equatable {
@@ -87,17 +96,42 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
 }
 
 struct SetlistEntry: Codable, Identifiable, Equatable, Hashable {
-    var id = UUID()
+    var id: UUID
     var songID: Song.ID
-    var keyOverride: MusicalKey?
-    var bpmOverride: Int?
 
-    func resolvedKey(for song: Song) -> MusicalKey {
-        keyOverride ?? song.defaultKey
+    /// Read only while migrating schema-v1 libraries. Runtime code never consults these;
+    /// Song is the sole source of truth for key and BPM in schema v2 and later.
+    var legacyKeyOverride: MusicalKey?
+    var legacyBPMOverride: Int?
+
+    init(id: UUID = UUID(), songID: Song.ID) {
+        self.id = id
+        self.songID = songID
+        legacyKeyOverride = nil
+        legacyBPMOverride = nil
     }
 
-    func resolvedBPM(for song: Song) -> Int {
-        bpmOverride ?? song.defaultBPM
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case songID
+        case keyOverride
+        case bpmOverride
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        songID = try container.decode(Song.ID.self, forKey: .songID)
+        legacyKeyOverride = try container.decodeIfPresent(MusicalKey.self, forKey: .keyOverride)
+        legacyBPMOverride = try container.decodeIfPresent(Int.self, forKey: .bpmOverride)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(songID, forKey: .songID)
+        // v2 intentionally omits the legacy override fields. They are promoted to Song values
+        // during decode, leaving one canonical value everywhere in the app.
     }
 }
 

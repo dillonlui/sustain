@@ -172,11 +172,12 @@ struct RuntimeSessionTests {
         #expect(store.systemCheck.messages.contains("Warning: Holy Forever: Missing included pad A.mp3"))
     }
 
-    @Test func systemCheckWarnsAboutInvalidBPMLaterInSetlist() {
+    @Test func systemCheckWarnsAboutInvalidBPMLaterInSetlist() throws {
         let store = AppStore.preview()
         let laterEntry = store.activeSetlist.entries[1]
 
-        store.updateEntry(laterEntry.id, keyOverride: nil, bpmOverride: 0)
+        let songIndex = try #require(store.songs.firstIndex { $0.id == laterEntry.songID })
+        store.songs[songIndex].defaultBPM = 0
         store.runSystemCheck()
 
         #expect(store.systemCheck.canStartPlayback)
@@ -188,7 +189,11 @@ struct RuntimeSessionTests {
         let snapshot = AppStore.seedSnapshot()
         var activeSetlist = snapshot.activeSetlist
         activeSetlist.entries.append(SetlistEntry(songID: UUID()))
-        let store = AppStore(songs: snapshot.songs, activeSetlist: activeSetlist)
+        let store = AppStore(
+            songs: snapshot.songs,
+            activeSetlist: activeSetlist,
+            audioRoutingProvider: StaticAudioRoutingProvider(snapshotValue: .previewDefault)
+        )
 
         store.runSystemCheck()
 
@@ -438,13 +443,9 @@ struct RuntimeSessionTests {
         }
     }
 
-    @Test func startingSongEntersCountoffWithBeatCount() async {
+    @Test func startingSongImmediatelyEntersCountoffWithBeatCount() {
         let store = AppStore.preview(countoffDurationMultiplier: 100)
         store.startCuedSong()
-
-        for _ in 0..<400 where store.runtime.countoffBeat == nil {
-            try? await Task.sleep(nanoseconds: 500_000)
-        }
 
         // First cued song is "Goodness of God" in 4/4 → four count-in beats.
         #expect(store.runtime.clickState == .countoff)
@@ -464,6 +465,72 @@ struct RuntimeSessionTests {
         #expect(store.runtime.countoffBeat == nil)
         #expect(store.runtime.countoffTotal == nil)
         #expect(store.runtime.clickState == .off)
+    }
+
+    @Test func stoppingLiveClickLeavesPadAndPlayingSongActive() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedSong()
+        let playingID = store.runtime.playingEntryID
+
+        store.stopClick()
+
+        #expect(store.runtime.clickState == .off)
+        #expect(store.runtime.padState == .playing)
+        #expect(store.runtime.playbackPhase == .songPlaying)
+        #expect(store.runtime.playingEntryID == playingID)
+        #expect(!audio.isClickActive)
+        #expect(audio.isPadActive)
+    }
+
+    @Test func canonicalLiveSongEditRetimesClickAndCrossfadesPadWithoutCountoff() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedSong()
+        let entry = try #require(store.playingEntry)
+        let song = try #require(store.song(for: entry))
+
+        let updated = store.updateSong(
+            song.id,
+            title: song.title,
+            defaultKey: .bb,
+            defaultBPM: 96,
+            timeSignature: .sixEight,
+            padPackID: PadPack.bundled.id
+        )
+
+        let canonical = try #require(store.songs.first { $0.id == song.id })
+        #expect(updated)
+        #expect(canonical.defaultKey == .bb)
+        #expect(canonical.defaultBPM == 96)
+        #expect(canonical.timeSignature == .sixEight)
+        #expect(audio.startedPadKeys.last == .bb)
+        #expect(audio.clickBPMHistory.last == 96)
+        #expect(audio.clickTimeSignatureHistory.last == .sixEight)
+        #expect(audio.clickIncludesCountoffHistory.last == false)
+        #expect(store.runtime.clickState == .playing)
+        #expect(store.runtime.padState == .playing)
+    }
+
+    @Test func canonicalSongEditUpdatesEveryDuplicateSetlistOccurrence() throws {
+        let store = AppStore.preview()
+        let song = try #require(store.songs.first)
+        _ = store.addSongToSetlist(song.id)
+
+        store.updateSong(
+            song.id,
+            title: song.title,
+            defaultKey: .a,
+            defaultBPM: 84,
+            timeSignature: song.timeSignature,
+            padPackID: PadPack.bundled.id
+        )
+
+        let matchingEntries = store.activeSetlist.entries.filter { $0.songID == song.id }
+        let canonical = try #require(store.songs.first { $0.id == song.id })
+        #expect(matchingEntries.count == 2)
+        #expect(canonical.defaultKey == .a)
+        #expect(canonical.defaultBPM == 84)
     }
 
     @Test func cuingASongRefreshesReadiness() {

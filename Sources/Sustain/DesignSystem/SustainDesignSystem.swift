@@ -309,14 +309,16 @@ struct MetadataChip: View {
 // MARK: - Notices
 
 /// Inline caution/error banner following the native pattern: the color lives on the
-/// icon, the message text stays at full (primary) contrast, on a subtle tinted chip.
+/// icon, the message text stays at full (primary) contrast, on a readable tinted chip.
 struct SustainInlineNotice: View {
     enum Kind {
+        case success
         case warning
         case error
 
         var tint: Color {
             switch self {
+            case .success: SustainColor.ready
             case .warning: SustainColor.warning
             case .error: SustainColor.destructive
             }
@@ -324,6 +326,7 @@ struct SustainInlineNotice: View {
 
         var systemImage: String {
             switch self {
+            case .success: "checkmark.circle.fill"
             case .warning: "exclamationmark.triangle.fill"
             case .error: "xmark.octagon.fill"
             }
@@ -344,7 +347,11 @@ struct SustainInlineNotice: View {
         .font(.callout)
         .padding(SustainSpace.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(kind.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
+        .background(kind.tint.opacity(0.22), in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous)
+                .stroke(kind.tint.opacity(0.35), lineWidth: 1)
+        }
     }
 }
 
@@ -402,6 +409,8 @@ struct ChannelFader: View {
     var isActive: Bool
     @Binding var value: Double
     var onCommit: () -> Void = {}
+    var controlTitle: String? = nil
+    var onControl: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: SustainSpace.sm) {
@@ -416,6 +425,11 @@ struct ChannelFader: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                if let controlTitle, let onControl {
+                    Button(controlTitle, action: onControl)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
                 Text("\(Int((value * 100).rounded()))%")
                     .font(.caption.weight(.medium))
                     .monospacedDigit()
