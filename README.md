@@ -20,12 +20,10 @@ Requires **macOS 14 (Sonoma) or newer**.
 ### Install
 
 1. Unzip and drag **`Sustain.app`** into your **Applications** folder.
-2. On first launch macOS will block it (Sustain isn't distributed through the App
-   Store). Approve it once via **System Settings → Privacy & Security → Open
-   Anyway** — or on macOS 14, **right-click the app → Open**.
+2. Open Sustain. It is signed with a Developer ID certificate and notarized by
+   Apple, so macOS can verify it normally.
 
-Full step-by-step instructions (including a fix if it still won't open) are in
-**[INSTALL.md](INSTALL.md)**.
+Full installation instructions are in **[INSTALL.md](INSTALL.md)**.
 
 ---
 
@@ -79,9 +77,9 @@ swift test             # run the test suite
 ./scripts/package.sh   # build + zip a distributable into dist/
 ```
 
-> Downloads are ad-hoc signed, not notarized (notarization requires a paid Apple
-> Developer ID). That's why the first-launch approval step above is needed. It
-> does **not** require the Mac App Store.
+> Official GitHub releases are signed with a Developer ID certificate and
+> notarized by Apple. Local builds remain ad-hoc signed unless you sign them with
+> your own Developer ID identity.
 
 ---
 

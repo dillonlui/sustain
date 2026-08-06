@@ -9,39 +9,11 @@ Sustain is a free, native macOS app. It works fully offline. It requires
 2. Double-click the zip to unzip it — you'll get **`Sustain.app`**.
 3. Drag **`Sustain.app`** into your **Applications** folder.
 
-## 2. First launch (important)
+## 2. First launch
 
-Sustain is not distributed through the Mac App Store and is not "notarized" by
-Apple (that requires a paid Apple developer account). Because of that, the
-**first** time you open it, macOS will show a warning and refuse to open it.
-This is expected — here's how to approve it. You only do this once.
-
-**On macOS 15 (Sequoia) and newer:**
-
-1. Double-click **Sustain**. You'll see a message that it "could not be opened
-   because Apple cannot check it for malicious software." Click **Done**.
-2. Open **System Settings → Privacy & Security**.
-3. Scroll down to the **Security** section. You'll see a line saying
-   *"Sustain was blocked to protect your Mac."* Click **Open Anyway**.
-4. Confirm with **Open Anyway** and authenticate (Touch ID / password) if asked.
-5. Sustain now opens normally every time.
-
-**On macOS 14 (Sonoma):**
-
-1. In Finder, **right-click** (or Control-click) **Sustain.app** → **Open**.
-2. In the dialog, click **Open**.
-3. Sustain now opens normally every time.
-
-### If it still won't open
-
-Open **Terminal** (Applications → Utilities) and run this one line, which clears
-the "downloaded from the internet" flag:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/Sustain.app
-```
-
-Then open Sustain normally.
+Sustain is signed with a Developer ID certificate and notarized by Apple. Open
+it normally from Applications; macOS verifies the app without the previous
+**Open Anyway** or right-click workaround.
 
 ## 3. Set up your audio (recommended)
 
