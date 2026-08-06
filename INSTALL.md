@@ -5,9 +5,10 @@ Sustain is a free, native macOS app. It works fully offline. It requires
 
 ## 1. Download & install
 
-1. Download **`Sustain-<version>.zip`** from the release page.
-2. Double-click the zip to unzip it — you'll get **`Sustain.app`**.
-3. Drag **`Sustain.app`** into your **Applications** folder.
+1. Download **`Sustain-<version>.dmg`** from the release page.
+2. Open the downloaded disk image.
+3. In the window that opens, drag **Sustain.app** onto the **Applications**
+   folder shortcut.
 
 ## 2. First launch
 

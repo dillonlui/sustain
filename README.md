@@ -13,13 +13,14 @@ cloud, no internet required.
 ## Download
 
 **[⬇︎ Download the latest release](https://github.com/dillonlui/sustain/releases/latest)**
-— grab `Sustain-<version>.zip`.
+— grab `Sustain-<version>.dmg`.
 
 Requires **macOS 14 (Sonoma) or newer**.
 
 ### Install
 
-1. Unzip and drag **`Sustain.app`** into your **Applications** folder.
+1. Open the downloaded disk image and drag **Sustain.app** onto the
+   **Applications** folder shown in its window.
 2. Open Sustain. It is signed with a Developer ID certificate and notarized by
    Apple, so macOS can verify it normally.
 
@@ -74,7 +75,7 @@ Liquid Glass on macOS 26+).
 swift run Sustain      # run from source
 swift test             # run the test suite
 ./scripts/bundle.sh    # build Sustain.app into ~/Applications (ad-hoc signed)
-./scripts/package.sh   # build + zip a distributable into dist/
+./scripts/package.sh   # build a drag-to-install .dmg into dist/
 ```
 
 > Official GitHub releases are signed with a Developer ID certificate and
