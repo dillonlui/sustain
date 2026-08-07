@@ -15,7 +15,9 @@ cloud, no internet required.
 **[⬇︎ Download the latest release](https://github.com/dillonlui/sustain/releases/latest)**
 — grab `Sustain-<version>.dmg`.
 
-Requires **macOS 14 (Sonoma) or newer**.
+Requires an **Apple-silicon Mac** (M1 or newer) running **macOS 14 (Sonoma) or
+newer**. The current download does not support Intel Macs; universal (Intel +
+Apple-silicon) builds are planned.
 
 ### Install
 
