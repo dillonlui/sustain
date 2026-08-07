@@ -6,8 +6,9 @@
 #
 # Usage: scripts/bundle.sh [debug|release]   (default: release)
 #
-# Note: this is a local/dev bundle. Real distribution needs a Developer ID
-# signature + notarization, done from Xcode 26 once available.
+# Note: this is a local/dev bundle. It is ad-hoc signed; the official release
+# process re-signs it with a Developer ID certificate and notarizes it before
+# publishing.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

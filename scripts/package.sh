@@ -1,12 +1,11 @@
 #!/bin/bash
 #
-# Produces a drag-to-install disk image for web/GitHub download.
+# Produces a local drag-to-install disk image.
 #
-# This is the FREE distribution path: the app is ad-hoc signed (not notarized,
-# which requires a paid Apple Developer ID). Downloaders will see Gatekeeper's
-# "Apple could not verify..." warning on first launch and must approve it once
-# via System Settings > Privacy & Security > Open Anyway. See INSTALL.md — ship
-# that alongside the download.
+# The app assembled by bundle.sh is ad-hoc signed, so this artifact is for local
+# testing only. Before publishing a GitHub release, re-sign the app with the
+# Developer ID certificate and notarize it; published releases then open through
+# macOS's normal first-launch confirmation without an "Open Anyway" workaround.
 #
 # Usage: scripts/package.sh [debug|release]   (default: release)
 # Output: dist/Sustain-<version>.dmg
