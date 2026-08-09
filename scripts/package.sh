@@ -2,10 +2,10 @@
 #
 # Produces a local drag-to-install disk image.
 #
-# The app assembled by bundle.sh is ad-hoc signed, so this artifact is for local
-# testing only. Before publishing a GitHub release, re-sign the app with the
-# Developer ID certificate and notarize it; published releases then open through
-# macOS's normal first-launch confirmation without an "Open Anyway" workaround.
+# By default the app is ad-hoc signed for local testing. Set
+# SUSTAIN_SIGN_IDENTITY to a Developer ID Application identity and
+# SUSTAIN_NOTARY_PROFILE to a notarytool keychain profile to create a signed,
+# notarized, and stapled release artifact.
 #
 # Usage: scripts/package.sh [debug|release]   (default: release)
 # Output: dist/Sustain-<version>.dmg
@@ -16,6 +16,13 @@ cd "$(dirname "$0")/.."
 CONFIG="${1:-release}"
 APP_NAME="Sustain"
 VERSION="$(grep -E '^VERSION=' scripts/bundle.sh | head -1 | sed -E 's/VERSION="?([^"]*)"?/\1/')"
+SIGN_IDENTITY="${SUSTAIN_SIGN_IDENTITY:--}"
+NOTARY_PROFILE="${SUSTAIN_NOTARY_PROFILE:-}"
+
+if [ -n "$NOTARY_PROFILE" ] && [ "$SIGN_IDENTITY" = "-" ]; then
+    echo "ERROR: SUSTAIN_SIGN_IDENTITY is required when notarizing" >&2
+    exit 1
+fi
 
 # Build the .app into a local staging dir (not ~/Applications) so packaging is
 # self-contained and repeatable.
@@ -75,6 +82,24 @@ hdiutil create \
     -format UDZO \
     -ov \
     "$DMG" >/dev/null
+
+if [ "$SIGN_IDENTITY" != "-" ]; then
+    echo "==> Signing disk image"
+    codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG" 2>&1 | sed 's/^/   /'
+    codesign --verify --verbose=2 "$DMG" 2>&1 | sed 's/^/   /'
+fi
+
+if [ -n "$NOTARY_PROFILE" ]; then
+    echo "==> Submitting disk image for notarization"
+    xcrun notarytool submit \
+        "$DMG" \
+        --keychain-profile "$NOTARY_PROFILE" \
+        --wait
+
+    echo "==> Stapling notarization ticket"
+    xcrun stapler staple "$DMG"
+    xcrun stapler validate "$DMG"
+fi
 
 SIZE="$(du -h "$DMG" | cut -f1)"
 echo ""

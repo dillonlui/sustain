@@ -20,6 +20,7 @@ APP_NAME="Sustain"
 BUNDLE_ID="com.sustain.app"
 VERSION="1.0.1"
 BUILD_NUMBER="2"
+SIGN_IDENTITY="${SUSTAIN_SIGN_IDENTITY:--}"
 
 BUILD_ROOT=".build/universal"
 ARCHS=(arm64 x86_64)
@@ -116,7 +117,18 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "==> Ad-hoc signing"
-codesign --force --deep --sign - "$APP" 2>&1 | sed 's/^/   /' || echo "   (codesign skipped)"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+    echo "==> Ad-hoc signing"
+    codesign --force --deep --sign - "$APP" 2>&1 | sed 's/^/   /'
+else
+    echo "==> Developer ID signing"
+    codesign \
+        --force \
+        --deep \
+        --options runtime \
+        --timestamp \
+        --sign "$SIGN_IDENTITY" \
+        "$APP" 2>&1 | sed 's/^/   /'
+fi
 
 echo "==> Done: $APP"
