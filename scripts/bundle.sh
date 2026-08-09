@@ -18,8 +18,8 @@ cd "$(dirname "$0")/.."
 CONFIG="${1:-release}"
 APP_NAME="Sustain"
 BUNDLE_ID="com.sustain.app"
-VERSION="1.0.0"
-BUILD_NUMBER="1"
+VERSION="1.0.1"
+BUILD_NUMBER="2"
 
 BUILD_ROOT=".build/universal"
 ARCHS=(arm64 x86_64)
