@@ -30,6 +30,29 @@ if [ ! -d "$APP" ]; then
     exit 1
 fi
 
+EXECUTABLE="$APP/Contents/MacOS/$APP_NAME"
+echo "==> Verifying Universal 2 app bundle"
+for ARCH in arm64 x86_64; do
+    if ! lipo "$EXECUTABLE" -verify_arch "$ARCH" >/dev/null; then
+        echo "ERROR: $EXECUTABLE is missing the $ARCH architecture" >&2
+        exit 1
+    fi
+
+    BINARY_MINIMUM_SYSTEM_VERSION="$(vtool -show-build -arch "$ARCH" "$EXECUTABLE" | awk '$1 == "minos" { print $2; exit }')"
+    if [ "$BINARY_MINIMUM_SYSTEM_VERSION" != "14.0" ]; then
+        echo "ERROR: expected $ARCH deployment target 14.0, got $BINARY_MINIMUM_SYSTEM_VERSION" >&2
+        exit 1
+    fi
+done
+
+MINIMUM_SYSTEM_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")"
+if [ "$MINIMUM_SYSTEM_VERSION" != "14.0" ]; then
+    echo "ERROR: expected LSMinimumSystemVersion 14.0, got $MINIMUM_SYSTEM_VERSION" >&2
+    exit 1
+fi
+
+codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 | sed 's/^/   /'
+
 mkdir -p dist
 DMG="dist/${APP_NAME}-${VERSION}.dmg"
 DMG_STAGE="build/dmg-stage"
@@ -52,9 +75,6 @@ hdiutil create \
     -format UDZO \
     -ov \
     "$DMG" >/dev/null
-
-echo "==> Verifying signature on the staged app"
-codesign --verify --verbose=2 "$APP" 2>&1 | sed 's/^/   /' || true
 
 SIZE="$(du -h "$DMG" | cut -f1)"
 echo ""

@@ -1,9 +1,8 @@
 # Installing Sustain
 
-Sustain is a free, native macOS app. It works fully offline. The current
-download requires an **Apple-silicon Mac** (M1 or newer) running **macOS 14
-(Sonoma) or newer**. Intel Macs are not supported by the current download;
-universal (Intel + Apple-silicon) builds are planned.
+Sustain is a free, native macOS app. It works fully offline. It requires
+**macOS 14 (Sonoma) or newer**. Release downloads are Universal 2 and run
+natively on both Apple-silicon and Intel Macs.
 
 ## 1. Download & install
 

@@ -3,6 +3,8 @@
 # Packages the SwiftPM executable into a distributable-shaped Sustain.app bundle:
 # proper Info.plist (so it has a menu bar and Preferences/Cmd-,), the bundled pad
 # resources, an app icon rendered from the brand SVG, and an ad-hoc signature.
+# The executable is Universal 2 so the same bundle runs natively on Apple
+# silicon and Intel Macs.
 #
 # Usage: scripts/bundle.sh [debug|release]   (default: release)
 #
@@ -19,11 +21,27 @@ BUNDLE_ID="com.sustain.app"
 VERSION="1.0.0"
 BUILD_NUMBER="1"
 
-echo "==> Building ($CONFIG)"
-swift build -c "$CONFIG"
+BUILD_ROOT=".build/universal"
+ARCHS=(arm64 x86_64)
+BINARIES=()
+RES_BUNDLE=""
 
-BIN_DIR=".build/$CONFIG"
-RES_BUNDLE="$BIN_DIR/${APP_NAME}_${APP_NAME}.bundle"
+for ARCH in "${ARCHS[@]}"; do
+    TRIPLE="${ARCH}-apple-macosx14.0"
+    SCRATCH="$BUILD_ROOT/$ARCH"
+    BIN_DIR="$SCRATCH/${ARCH}-apple-macosx/$CONFIG"
+
+    echo "==> Building $ARCH ($CONFIG, macOS 14+)"
+    swift build \
+        -c "$CONFIG" \
+        --triple "$TRIPLE" \
+        --scratch-path "$SCRATCH"
+
+    BINARIES+=("$BIN_DIR/$APP_NAME")
+    if [ "$ARCH" = "arm64" ]; then
+        RES_BUNDLE="$BIN_DIR/${APP_NAME}_${APP_NAME}.bundle"
+    fi
+done
 # The .app must live OUTSIDE ~/Documents: a bundle inside Documents makes macOS
 # prompt for "access to your Documents folder" whenever the app reads its own
 # resources, and (being ad-hoc signed) that grant resets on every rebuild.
@@ -37,7 +55,16 @@ echo "==> Assembling $APP"
 rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 
-cp "$BIN_DIR/$APP_NAME" "$CONTENTS/MacOS/$APP_NAME"
+echo "==> Creating Universal 2 executable"
+lipo -create "${BINARIES[@]}" -output "$CONTENTS/MacOS/$APP_NAME"
+
+for ARCH in "${ARCHS[@]}"; do
+    if ! lipo "$CONTENTS/MacOS/$APP_NAME" -verify_arch "$ARCH" >/dev/null; then
+        echo "ERROR: bundled executable is missing the $ARCH architecture" >&2
+        exit 1
+    fi
+done
+echo "   Architectures: $(lipo -archs "$CONTENTS/MacOS/$APP_NAME")"
 
 # Resources live in the standard, signable Contents/Resources location. The app
 # finds them via Bundle.sustainResources (see PadAssetResolver), which looks in

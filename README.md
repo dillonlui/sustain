@@ -15,9 +15,8 @@ cloud, no internet required.
 **[⬇︎ Download the latest release](https://github.com/dillonlui/sustain/releases/latest)**
 — grab `Sustain-<version>.dmg`.
 
-Requires an **Apple-silicon Mac** (M1 or newer) running **macOS 14 (Sonoma) or
-newer**. The current download does not support Intel Macs; universal (Intel +
-Apple-silicon) builds are planned.
+Requires **macOS 14 (Sonoma) or newer**. Release downloads are Universal 2 and
+run natively on both Apple-silicon and Intel Macs.
 
 ### Install
 
@@ -76,8 +75,8 @@ Liquid Glass on macOS 26+).
 ```sh
 swift run Sustain      # run from source
 swift test             # run the test suite
-./scripts/bundle.sh    # build Sustain.app into ~/Applications (ad-hoc signed)
-./scripts/package.sh   # build a drag-to-install .dmg into dist/
+./scripts/bundle.sh    # build a Universal 2 app into ~/Applications (ad-hoc signed)
+./scripts/package.sh   # build a Universal 2 drag-to-install .dmg into dist/
 ```
 
 > Official GitHub releases are signed with a Developer ID certificate and
