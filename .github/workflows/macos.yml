@@ -16,9 +16,9 @@ jobs:
       matrix:
         include:
           - name: Apple silicon
-            runner: macos-15
+            runner: macos-26
           - name: Intel
-            runner: macos-15-intel
+            runner: macos-26-intel
     runs-on: ${{ matrix.runner }}
 
     steps:
