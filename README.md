@@ -16,7 +16,9 @@ cloud, no internet required.
 — grab `Sustain-<version>.dmg`.
 
 Requires **macOS 14 (Sonoma) or newer**. Release downloads are Universal 2 and
-run natively on both Apple-silicon and Intel Macs.
+run natively on both Apple-silicon and Intel Macs. Intel support is currently a
+preview: it is covered by an Intel CI build and test run, but still needs
+physical-hardware audio validation. See the [1.0.2 release notes](docs/releases/1.0.2.md).
 
 ### Install
 

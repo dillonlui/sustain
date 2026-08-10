@@ -2,7 +2,9 @@
 
 Sustain is a free, native macOS app. It works fully offline. It requires
 **macOS 14 (Sonoma) or newer**. Release downloads are Universal 2 and run
-natively on both Apple-silicon and Intel Macs.
+natively on both Apple-silicon and Intel Macs. Intel support is a preview until
+it has been validated with real Intel audio hardware; details are in the
+[1.0.2 release notes](docs/releases/1.0.2.md).
 
 ## 1. Download & install
 

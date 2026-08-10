@@ -2,7 +2,8 @@
 #
 # Packages the SwiftPM executable into a distributable-shaped Sustain.app bundle:
 # proper Info.plist (so it has a menu bar and Preferences/Cmd-,), the bundled pad
-# resources, an app icon rendered from the brand SVG, and an ad-hoc signature.
+# resources, an app icon rendered from the brand SVG, and a local or Developer ID
+# signature.
 # The executable is Universal 2 so the same bundle runs natively on Apple
 # silicon and Intel Macs.
 #
@@ -18,8 +19,8 @@ cd "$(dirname "$0")/.."
 CONFIG="${1:-release}"
 APP_NAME="Sustain"
 BUNDLE_ID="com.sustain.app"
-VERSION="1.0.1"
-BUILD_NUMBER="2"
+VERSION="1.0.2"
+BUILD_NUMBER="1"
 SIGN_IDENTITY="${SUSTAIN_SIGN_IDENTITY:--}"
 
 BUILD_ROOT=".build/universal"
@@ -117,18 +118,27 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
+SIGN_ARGS=(--force --sign "$SIGN_IDENTITY")
 if [ "$SIGN_IDENTITY" = "-" ]; then
     echo "==> Ad-hoc signing"
-    codesign --force --deep --sign - "$APP" 2>&1 | sed 's/^/   /'
 else
     echo "==> Developer ID signing"
-    codesign \
-        --force \
-        --deep \
-        --options runtime \
-        --timestamp \
-        --sign "$SIGN_IDENTITY" \
-        "$APP" 2>&1 | sed 's/^/   /'
+    SIGN_ARGS+=(--options runtime --timestamp)
 fi
+
+# Sign every nested code container before signing the outer bundle. Do not use
+# codesign --deep here: it can hide an incorrectly signed framework or helper
+# and makes the bundle harder to audit as new dependencies are added.
+while IFS= read -r -d '' NESTED_CODE; do
+    echo "   Signing nested code: ${NESTED_CODE#$CONTENTS/}"
+    codesign "${SIGN_ARGS[@]}" "$NESTED_CODE" 2>&1 | sed 's/^/   /'
+done < <(
+    find "$CONTENTS" -depth \
+        \( -type d \( -name '*.app' -o -name '*.appex' -o -name '*.framework' -o -name '*.xpc' \) \
+        -o -type f \( -name '*.dylib' -o -name '*.so' \) \) \
+        -print0
+)
+
+codesign "${SIGN_ARGS[@]}" "$APP" 2>&1 | sed 's/^/   /'
 
 echo "==> Done: $APP"
