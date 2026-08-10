@@ -1,0 +1,31 @@
+name: macOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Apple silicon
+            runner: macos-26
+          - name: Intel
+            runner: macos-26-intel
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run tests
+        run: swift test
+      - name: Build and validate a Universal 2 package
+        run: scripts/package.sh debug
+      - name: Verify disk image checksum
+        run: hdiutil verify dist/Sustain-*.dmg
