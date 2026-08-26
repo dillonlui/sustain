@@ -32,6 +32,23 @@ protocol AudioControlling: AnyObject {
 
     func prepare()
     func configureRouting(_ snapshot: AudioRoutingSnapshot) throws
+    func padAssetState(for pad: PadTrack) -> PadAssetState
+    func preparePad(
+        _ pad: PadTrack,
+        completion: @escaping @MainActor @Sendable (Result<PreparedPad, Error>) -> Void
+    )
+    func activatePad(_ prepared: PreparedPad)
+    func discardPreparedPad(_ prepared: PreparedPad)
+    func cancelPendingPadPreparation()
+    func prepareClick(
+        bpm: Int,
+        timeSignature: TimeSignature,
+        includesCountoff: Bool,
+        settings: ClickSettings,
+        completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
+    )
+    func activateClick(_ prepared: PreparedClick)
+    func handleMemoryPressure()
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool
     func preloadPad(for key: MusicalKey, padPack: PadPack)
@@ -60,14 +77,17 @@ final class SustainAudioEngine: AudioControlling {
     private let clickMixer = AVAudioMixerNode()
     private let clickFormat: AVAudioFormat
     private let padAssetResolver: PadAssetResolving
+    private let externalAudioReferencer: any ExternalAudioReferencing
     private let voiceRenderer: CountoffVoiceRendering?
 
     /// Below this beat length a spoken word cannot stay intelligible, so the count-off
     /// falls back to clicks (matching how Ableton only clicks at fast tempos).
-    private static let minSpokenBeatDuration: TimeInterval = 0.33
+    nonisolated private static let minSpokenBeatDuration: TimeInterval = 0.33
     private var activePadIndex: Int?
     private var nextPadIndex = 0
     private var activePadKey: MusicalKey?
+    private var activePadTrackID: PadTrack.ID?
+    private var activePadMemoryKey: PadBufferKey?
     private var activePadAssetName: String?
     private var clickIsActive = false
     private var padVolume: Float = 0.42
@@ -81,6 +101,10 @@ final class SustainAudioEngine: AudioControlling {
     /// Bumped by every startPad/stopPad. A deferred (off-main) decode only commits if it still
     /// matches the latest value, so a stop or newer start during the decode window supersedes it.
     private var padStartGeneration = 0
+    private var preparationGeneration: UInt64 = 0
+    private var preparedKeysByToken: [UUID: PadBufferKey] = [:]
+    private let padMemoryStore: PadBufferMemoryStore
+    private let latestWinsDecoder = LatestWinsPadDecoder()
     private let padBufferCache = PadBufferCache()
     private let padDecodeQueue = DispatchQueue(label: "com.sustain.pad-decode", qos: .userInitiated)
 
@@ -110,9 +134,13 @@ final class SustainAudioEngine: AudioControlling {
 
     init(
         padAssetResolver: PadAssetResolving = DefaultPadAssetResolver(),
+        externalAudioReferencer: any ExternalAudioReferencing = ExternalAudioReferenceService(),
+        padMemoryStore: PadBufferMemoryStore = PadBufferMemoryStore(),
         voiceRenderer: CountoffVoiceRendering? = SpeechCountoffVoiceRenderer()
     ) {
         self.padAssetResolver = padAssetResolver
+        self.externalAudioReferencer = externalAudioReferencer
+        self.padMemoryStore = padMemoryStore
         self.voiceRenderer = voiceRenderer
 
         let hardwareFormat = clickEngine.outputNode.inputFormat(forBus: 0)
@@ -165,6 +193,259 @@ final class SustainAudioEngine: AudioControlling {
         clickOutputChannel = snapshot.clickOutputChannel
         applyOutputChannelRouting()
         routingSummary = snapshot.summary
+    }
+
+    func padAssetState(for pad: PadTrack) -> PadAssetState {
+        switch pad.source {
+        case let .bundled(key):
+            return padAssetResolver.asset(for: .bundled, key: key) == nil
+                ? .missing
+                : .available(PadAudioMetadata(duration: 0, channelCount: 2, sampleRate: 44_100, decodedByteCount: 0))
+        case let .external(reference):
+            return .available(reference.audioMetadata)
+        }
+    }
+
+    func preparePad(
+        _ pad: PadTrack,
+        completion: @escaping @MainActor @Sendable (Result<PreparedPad, Error>) -> Void
+    ) {
+        do {
+            try startPadEngineIfNeeded()
+        } catch {
+            completion(.failure(error))
+            return
+        }
+
+        preparationGeneration &+= 1
+        let generation = preparationGeneration
+        let token = UUID()
+        switch pad.source {
+        case let .bundled(musicalKey):
+            guard let asset = padAssetResolver.asset(for: .bundled, key: musicalKey) else {
+                completion(.failure(AudioEngineError.missingPadFile(pack: PadPack.bundled.name, key: musicalKey)))
+                return
+            }
+            let fingerprint = Self.fileFingerprint(at: asset.url)
+            let key = PadBufferKey(
+                padID: pad.id,
+                resourceIdentityData: fingerprint.resourceIdentifierData,
+                fingerprint: fingerprint
+            )
+            let operation: LatestWinsPadDecoder.Operation = {
+                do {
+                    let file = try AVAudioFile(forReading: asset.url)
+                    let buffer = try Self.makeLoopingBuffer(from: file)
+                    return ImmutablePCMBuffer(buffer: buffer, byteCount: try Self.byteCount(of: buffer))
+                } catch let error as PadMemoryError {
+                    throw error
+                } catch {
+                    throw AudioEngineError.unreadablePadFile(asset.url)
+                }
+            }
+            submitPadDecode(
+                pad: pad,
+                generation: generation,
+                token: token,
+                key: key,
+                operation: operation,
+                completion: completion
+            )
+        case let .external(reference):
+            let referencer = externalAudioReferencer
+            Task { [weak self] in
+                do {
+                    // Validate and re-stat before consulting the PCM store. A file replaced at
+                    // the same path can therefore never hit an entry keyed by stale metadata.
+                    let current = try await referencer.refreshedReference(reference)
+                    guard current.fingerprint == reference.fingerprint else {
+                        throw ExternalAudioReferenceError.changed
+                    }
+                    guard let self, generation == self.preparationGeneration else {
+                        throw CancellationError()
+                    }
+                    let key = PadBufferKey(
+                        padID: pad.id,
+                        resourceIdentityData: current.fingerprint.resourceIdentifierData,
+                        fingerprint: current.fingerprint
+                    )
+                    let operation: LatestWinsPadDecoder.Operation = {
+                        try await referencer.withCoordinatedRead(of: current) { url in
+                            do {
+                                let validated = try AVFoundationExternalAudioValidator().validate(url)
+                                guard validated.fingerprint == current.fingerprint else {
+                                    throw ExternalAudioReferenceError.changed
+                                }
+                                let file = try AVAudioFile(forReading: url)
+                                let buffer = try Self.makeLoopingBuffer(from: file)
+                                return ImmutablePCMBuffer(buffer: buffer, byteCount: try Self.byteCount(of: buffer))
+                            } catch let error as ExternalAudioReferenceError {
+                                throw error
+                            } catch let error as PadMemoryError {
+                                throw error
+                            } catch {
+                                throw AudioEngineError.unreadablePadFile(url)
+                            }
+                        }
+                    }
+                    self.submitPadDecode(
+                        pad: pad,
+                        generation: generation,
+                        token: token,
+                        key: key,
+                        operation: operation,
+                        completion: completion
+                    )
+                } catch {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
+    private func submitPadDecode(
+        pad: PadTrack,
+        generation: UInt64,
+        token: UUID,
+        key: PadBufferKey,
+        operation: @escaping LatestWinsPadDecoder.Operation,
+        completion: @escaping @MainActor @Sendable (Result<PreparedPad, Error>) -> Void
+    ) {
+        if let pcm = padMemoryStore.retainedBuffer(for: key) {
+            let prepared = PreparedPad(
+                padID: pad.id,
+                displayName: pad.label,
+                generation: generation,
+                token: token,
+                key: key,
+                pcm: pcm
+            )
+            preparedKeysByToken[token] = key
+            completion(.success(prepared))
+            return
+        }
+
+        latestWinsDecoder.submit(key: key, operation: operation) { [weak self] result in
+            Task { @MainActor in
+                guard let self else { return }
+                guard generation == self.preparationGeneration else {
+                    completion(.failure(CancellationError()))
+                    return
+                }
+                do {
+                    let pcm = try result.get()
+                    try self.padMemoryStore.admitAndRetain(pcm, for: key)
+                    let prepared = PreparedPad(
+                        padID: pad.id,
+                        displayName: pad.label,
+                        generation: generation,
+                        token: token,
+                        key: key,
+                        pcm: pcm
+                    )
+                    self.preparedKeysByToken[token] = key
+                    completion(.success(prepared))
+                } catch {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
+    func activatePad(_ prepared: PreparedPad) {
+        guard prepared.generation == preparationGeneration,
+              preparedKeysByToken.removeValue(forKey: prepared.token) != nil else {
+            discardPreparedPad(prepared)
+            return
+        }
+        if activePadTrackID == prepared.padID, activePadMemoryKey == prepared.key {
+            padMemoryStore.release(prepared.key)
+            return
+        }
+
+        let oldMemoryKey = activePadMemoryKey
+        commitPad(
+            buffer: prepared.pcm.buffer,
+            key: nil,
+            assetDisplayName: prepared.displayName
+        )
+        activePadTrackID = prepared.padID
+        activePadMemoryKey = prepared.key
+        if let oldMemoryKey, oldMemoryKey != prepared.key {
+            Task { @MainActor [padMemoryStore] in
+                try? await Task.sleep(for: .seconds(1.25))
+                padMemoryStore.release(oldMemoryKey)
+            }
+        }
+    }
+
+    func discardPreparedPad(_ prepared: PreparedPad) {
+        guard preparedKeysByToken.removeValue(forKey: prepared.token) != nil else { return }
+        padMemoryStore.release(prepared.key)
+    }
+
+    func cancelPendingPadPreparation() {
+        preparationGeneration &+= 1
+        latestWinsDecoder.cancelPending()
+        for key in preparedKeysByToken.values { padMemoryStore.release(key) }
+        preparedKeysByToken.removeAll()
+    }
+
+    func prepareClick(
+        bpm: Int,
+        timeSignature: TimeSignature,
+        includesCountoff: Bool,
+        settings: ClickSettings,
+        completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
+    ) {
+        guard bpm > 0 else {
+            completion(.failure(AudioEngineError.invalidBPM(bpm)))
+            return
+        }
+        do { try startClickEngineIfNeeded() } catch {
+            completion(.failure(error))
+            return
+        }
+        let format = clickFormat
+        nonisolated(unsafe) let renderer = voiceRenderer
+        Task.detached(priority: .userInitiated) {
+            do {
+                let loop = try Self.makeClickBuffer(
+                    format: format,
+                    bpm: bpm,
+                    timeSignature: timeSignature,
+                    measures: 1,
+                    settings: settings
+                )
+                let countoff = includesCountoff
+                    ? try Self.makeCountoffBuffer(
+                        format: format,
+                        voiceRenderer: renderer,
+                        bpm: bpm,
+                        timeSignature: timeSignature,
+                        settings: settings
+                    )
+                    : nil
+                let prepared = PreparedClick(
+                    loop: ImmutablePCMBuffer(buffer: loop, byteCount: try Self.byteCount(of: loop)),
+                    countoff: try countoff.map {
+                        ImmutablePCMBuffer(buffer: $0, byteCount: try Self.byteCount(of: $0))
+                    }
+                )
+                await completion(.success(prepared))
+            } catch {
+                await completion(.failure(error))
+            }
+        }
+    }
+
+    func activateClick(_ prepared: PreparedClick) {
+        clickPlayer.stop()
+        clickPlayer.pan = clickOutputChannel.pan
+        if let countoff = prepared.countoff { clickPlayer.scheduleBuffer(countoff.buffer) }
+        clickPlayer.scheduleBuffer(prepared.loop.buffer, at: nil, options: .loops)
+        clickPlayer.play()
+        clickIsActive = true
     }
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
@@ -229,7 +510,7 @@ final class SustainAudioEngine: AudioControlling {
 
     /// Schedules an already-decoded pad buffer on a free player and crossfades from the
     /// previous one. Pure main-actor work — no file IO — so it's cheap and instant.
-    private func commitPad(buffer: AVAudioPCMBuffer, key: MusicalKey, assetDisplayName: String?) {
+    private func commitPad(buffer: AVAudioPCMBuffer, key: MusicalKey?, assetDisplayName: String?) {
         let newIndex = nextPadIndex
         nextPadIndex = (nextPadIndex + 1) % padPlayers.count
 
@@ -272,7 +553,15 @@ final class SustainAudioEngine: AudioControlling {
 
         self.activePadIndex = nil
         activePadKey = nil
+        activePadTrackID = nil
         activePadAssetName = nil
+        if let activePadMemoryKey {
+            Task { @MainActor [padMemoryStore] in
+                try? await Task.sleep(for: .seconds(1))
+                padMemoryStore.release(activePadMemoryKey)
+            }
+        }
+        activePadMemoryKey = nil
     }
 
     func startClick(
@@ -326,6 +615,10 @@ final class SustainAudioEngine: AudioControlling {
     func stopAll() {
         stopClick()
         stopPadsImmediately()
+    }
+
+    func handleMemoryPressure() {
+        padMemoryStore.evictInactive()
     }
 
     private func startPadEngineIfNeeded() throws {
@@ -426,7 +719,12 @@ final class SustainAudioEngine: AudioControlling {
 
         activePadIndex = nil
         activePadKey = nil
+        activePadTrackID = nil
         activePadAssetName = nil
+        if let activePadMemoryKey { padMemoryStore.release(activePadMemoryKey) }
+        activePadMemoryKey = nil
+        for key in preparedKeysByToken.values { padMemoryStore.release(key) }
+        preparedKeysByToken.removeAll()
     }
 
     private func makeClickBuffer(
@@ -444,7 +742,7 @@ final class SustainAudioEngine: AudioControlling {
         )
     }
 
-    private static func makeClickBuffer(
+    nonisolated private static func makeClickBuffer(
         format: AVAudioFormat,
         bpm: Int,
         timeSignature: TimeSignature,
@@ -471,7 +769,7 @@ final class SustainAudioEngine: AudioControlling {
         return buffer
     }
 
-    private static func writeClickTone(
+    nonisolated private static func writeClickTone(
         into buffer: AVAudioPCMBuffer,
         format: AVAudioFormat,
         startFrame: Int,
@@ -515,7 +813,7 @@ final class SustainAudioEngine: AudioControlling {
 
     /// Pure PCM composition entry point for regression tests. It deliberately does not create
     /// AVAudioEngine/player nodes, so count-in behavior can be checked in headless test runners.
-    static func makeCountoffBuffer(
+    nonisolated static func makeCountoffBuffer(
         format: AVAudioFormat,
         voiceRenderer: CountoffVoiceRendering?,
         bpm: Int,
@@ -582,7 +880,7 @@ final class SustainAudioEngine: AudioControlling {
         return buffer
     }
 
-    private static func copyWord(
+    nonisolated private static func copyWord(
         _ word: AVAudioPCMBuffer,
         into buffer: AVAudioPCMBuffer,
         format: AVAudioFormat,
@@ -614,7 +912,7 @@ final class SustainAudioEngine: AudioControlling {
         }
     }
 
-    private static func zeroBuffer(_ buffer: AVAudioPCMBuffer, format: AVAudioFormat) {
+    nonisolated private static func zeroBuffer(_ buffer: AVAudioPCMBuffer, format: AVAudioFormat) {
         guard let channels = buffer.floatChannelData else { return }
         let frames = Int(buffer.frameLength)
         for channel in 0..<Int(format.channelCount) {
@@ -645,6 +943,31 @@ final class SustainAudioEngine: AudioControlling {
                 }
             }
         }
+    }
+
+    nonisolated static func byteCount(of buffer: AVAudioPCMBuffer) throws -> UInt64 {
+        try AVFoundationExternalAudioValidator.decodedByteCount(
+            frameCount: AVAudioFramePosition(buffer.frameLength),
+            channelCount: buffer.format.channelCount,
+            bytesPerFrame: buffer.format.streamDescription.pointee.mBytesPerFrame,
+            isInterleaved: buffer.format.isInterleaved
+        )
+    }
+
+    nonisolated static func fileFingerprint(at url: URL) -> ExternalFileFingerprint {
+        let values = try? url.resourceValues(forKeys: [
+            .fileResourceIdentifierKey,
+            .fileSizeKey,
+            .contentModificationDateKey
+        ])
+        let identity = values?.fileResourceIdentifier.flatMap {
+            try? NSKeyedArchiver.archivedData(withRootObject: $0, requiringSecureCoding: true)
+        }
+        return ExternalFileFingerprint(
+            resourceIdentifierData: identity,
+            fileSize: values?.fileSize.map(Int64.init),
+            modificationDate: values?.contentModificationDate
+        )
     }
 
     /// Reads a file fully into a PCM buffer. `nonisolated` so it can run on the pad
@@ -728,6 +1051,54 @@ final class SilentAudioEngine: AudioControlling {
     func prepare() {}
 
     func configureRouting(_ snapshot: AudioRoutingSnapshot) throws {}
+
+    func padAssetState(for pad: PadTrack) -> PadAssetState {
+        .available(PadAudioMetadata(duration: 1, channelCount: 2, sampleRate: 44_100, decodedByteCount: 8))
+    }
+
+    func preparePad(
+        _ pad: PadTrack,
+        completion: @escaping @MainActor @Sendable (Result<PreparedPad, Error>) -> Void
+    ) {
+        let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1)!
+        buffer.frameLength = 1
+        let fingerprint = ExternalFileFingerprint(resourceIdentifierData: nil, fileSize: 1, modificationDate: nil)
+        let key = PadBufferKey(padID: pad.id, resourceIdentityData: nil, fingerprint: fingerprint)
+        completion(.success(PreparedPad(
+            padID: pad.id,
+            displayName: pad.label,
+            generation: 1,
+            token: UUID(),
+            key: key,
+            pcm: ImmutablePCMBuffer(buffer: buffer, byteCount: 8)
+        )))
+    }
+
+    func activatePad(_ prepared: PreparedPad) { padIsActive = true }
+    func discardPreparedPad(_ prepared: PreparedPad) {}
+    func cancelPendingPadPreparation() {}
+
+    func prepareClick(
+        bpm: Int,
+        timeSignature: TimeSignature,
+        includesCountoff: Bool,
+        settings: ClickSettings,
+        completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
+    ) {
+        guard bpm > 0 else {
+            completion(.failure(AudioEngineError.invalidBPM(bpm)))
+            return
+        }
+        let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1)!
+        buffer.frameLength = 1
+        let pcm = ImmutablePCMBuffer(buffer: buffer, byteCount: 8)
+        completion(.success(PreparedClick(loop: pcm, countoff: includesCountoff ? pcm : nil)))
+    }
+
+    func activateClick(_ prepared: PreparedClick) { clickIsActive = true }
+    func handleMemoryPressure() {}
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
         "Found \(key.rawValue).mp3"

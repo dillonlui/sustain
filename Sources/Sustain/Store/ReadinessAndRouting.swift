@@ -44,8 +44,13 @@ enum RoutingSettingsNormalizer {
 /// and the current routing. Decoupled from `AppStore` (dependencies passed in as closures/values)
 /// so readiness rules can be unit-tested directly without driving the whole store.
 struct SetlistReadinessEvaluator {
-    var hasPadAsset: (PadPack, MusicalKey) -> Bool
-    var padAssetStatus: (PadPack, MusicalKey) -> String
+    enum PadAssignmentReadiness: Equatable {
+        case ready
+        case noPad
+        case blocked(String)
+    }
+
+    var padReadiness: (Song) -> PadAssignmentReadiness
     var routingSnapshot: AudioRoutingSnapshot
     var routingFailureMessage: String?
     var entries: [SetlistEntry]
@@ -61,8 +66,8 @@ struct SetlistReadinessEvaluator {
             blockingMessages.append("\(song.title) needs a valid BPM.")
         }
 
-        if !hasPadAsset(song.padPack, key) {
-            blockingMessages.append(padAssetStatus(song.padPack, key))
+        if case let .blocked(message) = padReadiness(song) {
+            blockingMessages.append(message)
         }
 
         if routingSnapshot.outputs.isEmpty {
@@ -101,15 +106,14 @@ struct SetlistReadinessEvaluator {
             }
 
             var warnings: [String] = []
-            let key = song.defaultKey
             let bpm = song.defaultBPM
 
             if bpm <= 0 {
                 warnings.append("\(song.title): needs a valid BPM.")
             }
 
-            if !hasPadAsset(song.padPack, key) {
-                warnings.append("\(song.title): \(padAssetStatus(song.padPack, key))")
+            if case let .blocked(message) = padReadiness(song) {
+                warnings.append("\(song.title): \(message)")
             }
 
             return warnings

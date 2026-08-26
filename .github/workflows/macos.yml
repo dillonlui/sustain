@@ -22,10 +22,16 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - name: Run tests
         run: swift test
       - name: Build and validate a Universal 2 package
         run: scripts/package.sh debug
       - name: Verify disk image checksum
         run: hdiutil verify dist/Sustain-*.dmg
+      - name: Verify Sparkle archive and container identity
+        run: |
+          VERSION="$(plutil -extract version raw config/release.json)"
+          BUILD="$(plutil -extract build raw config/release.json)"
+          scripts/verify-release-containers.sh build/stage/Sustain.app \
+            "dist/Sustain-$VERSION-$BUILD.dmg" "dist/Sustain-$VERSION-$BUILD.zip"

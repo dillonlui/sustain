@@ -2,6 +2,8 @@ import SwiftUI
 
 struct RehearseView: View {
     @Environment(AppStore.self) private var store
+    @AppStorage("showIncludedPads") private var showIncludedPads = true
+    @State private var padSearchText = ""
 
     private let tempoRange = 40...220
 
@@ -26,6 +28,7 @@ struct RehearseView: View {
             .padding(.top, SustainLayout.topChrome)
         }
         .sustainScreenBackground(.rehearse)
+        .searchable(text: $padSearchText, prompt: "Search pads")
     }
 
     @ViewBuilder
@@ -73,23 +76,44 @@ struct RehearseView: View {
 
                 activePadSurface
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 74), spacing: 10)], spacing: 10) {
-                    ForEach(MusicalKey.allCases) { key in
+                if visiblePads.isEmpty {
+                    ContentUnavailableView(
+                        padSearchText.isEmpty ? "No visible pads" : "No matching pads",
+                        systemImage: "waveform",
+                        description: Text(padSearchText.isEmpty ? "Show included pads or add custom audio in Pad Library." : "Try another label or filename.")
+                    )
+                    .frame(minHeight: 180)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 126), spacing: 10)], spacing: 10) {
+                        ForEach(visiblePads) { pad in
                         Button {
-                            store.startRehearsePad(key: key)
+                            store.startRehearsePad(padID: pad.id)
                         } label: {
                             VStack(spacing: SustainSpace.xs) {
-                                Text(key.rawValue)
-                                    .font(.title3.weight(.semibold))
-                                Text(store.rehearse.selectedKey == key && store.rehearse.padState == .playing ? "Live" : "Pad")
-                                    .font(.caption)
+                                Text(pad.label)
+                                    .font(.body.weight(.semibold))
+                                    .lineLimit(2)
+                                    .truncationMode(.tail)
+                                    .multilineTextAlignment(.center)
+                                Text(padButtonDetail(pad))
+                                    .font(.caption2)
                                     .foregroundStyle(SustainColor.textSecondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
                             }
-                            .frame(maxWidth: .infinity, minHeight: 58)
+                            .frame(maxWidth: .infinity, minHeight: 70, maxHeight: 70)
                         }
-                        .sustainBorderedButton(tint: store.rehearse.selectedKey == key && store.rehearse.padState == .playing ? SustainColor.padActive : SustainColor.accent)
+                        .sustainBorderedButton(tint: isActive(pad) ? SustainColor.padActive : SustainColor.accent)
+                        .disabled(!padState(pad).isAvailable)
+                        .help("\(pad.label). \(padStateLabel(padState(pad)))")
+                        .accessibilityLabel("\(pad.label), \(padVoiceDisambiguator(pad))")
+                        .accessibilityValue(isActive(pad) ? "Playing" : padStateLabel(padState(pad)))
+                        }
                     }
                 }
+
+                Toggle("Show Included Pads", isOn: $showIncludedPads)
+                    .toggleStyle(.checkbox)
 
                 Button(role: .destructive) {
                     store.stopRehearsePad()
@@ -222,10 +246,11 @@ struct RehearseView: View {
 
             HStack {
                 VStack(alignment: .leading, spacing: SustainSpace.xs) {
-                    Text(store.rehearse.selectedKey.rawValue)
+                    Text(store.rehearse.selectedPadLabel)
                         .font(SustainType.display)
-                        .monospacedDigit()
-                    Text(store.rehearse.padState == .playing ? "Pad signal active" : "Select a pad key")
+                        .lineLimit(3)
+                        .truncationMode(.tail)
+                    Text(store.rehearse.padState == .playing ? "Pad signal active" : "Select a pad")
                         .font(.callout)
                         .foregroundStyle(SustainColor.textSecondary)
                 }
@@ -243,6 +268,10 @@ struct RehearseView: View {
             RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous)
                 .stroke(SustainColor.padActive.opacity(store.rehearse.padState == .playing ? 0.4 : 0.14), lineWidth: 1)
         )
+        .help(store.rehearse.selectedPadLabel)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Selected pad")
+        .accessibilityValue("\(store.rehearse.selectedPadLabel), \(store.rehearse.padState.rawValue)")
     }
 
     private var volumeConsole: some View {
@@ -275,7 +304,53 @@ struct RehearseView: View {
     }
 
     private var activePadText: String {
-        store.rehearse.padState == .off ? "Off" : "\(store.rehearse.selectedKey.rawValue) \(store.rehearse.padState.rawValue)"
+        store.rehearse.padState == .off ? "Off" : "\(store.rehearse.selectedPadLabel) \(store.rehearse.padState.rawValue)"
+    }
+
+    private var visiblePads: [PadTrack] {
+        store.padTracks.filter { pad in
+            guard showIncludedPads || !pad.isIncluded else { return false }
+            guard !padSearchText.isEmpty else { return true }
+            return pad.label.localizedStandardContains(padSearchText) ||
+                (pad.source.originalFilename?.localizedStandardContains(padSearchText) ?? false)
+        }
+    }
+
+    private func isActive(_ pad: PadTrack) -> Bool {
+        store.rehearse.selectedPadTrackID == pad.id && store.rehearse.padState != .off
+    }
+
+    private func padState(_ pad: PadTrack) -> PadAssetState {
+        if pad.isIncluded {
+            return .available(PadAudioMetadata(duration: 0, channelCount: 2, sampleRate: 44_100, decodedByteCount: 0))
+        }
+        return store.padAssetStates[pad.id] ?? {
+            if case let .external(reference) = pad.source { return .available(reference.audioMetadata) }
+            return .missing
+        }()
+    }
+
+    private func padButtonDetail(_ pad: PadTrack) -> String {
+        if isActive(pad) { return "Live" }
+        if !padState(pad).isAvailable { return padStateLabel(padState(pad)) }
+        return pad.isIncluded ? "Included" : (pad.source.originalFilename ?? "Custom")
+    }
+
+    private func padVoiceDisambiguator(_ pad: PadTrack) -> String {
+        pad.isIncluded ? "included \(pad.source.bundledKey?.rawValue ?? "pad")" : (pad.source.originalFilename ?? pad.id.uuidString)
+    }
+
+    private func padStateLabel(_ state: PadAssetState) -> String {
+        switch state {
+        case .available: "Available"
+        case .preparing: "Checking"
+        case .externalVolumeUnavailable: "Volume unavailable"
+        case .permissionDenied: "Permission needed"
+        case .missing: "Missing"
+        case .changed: "File changed"
+        case .unsupportedOrProtected: "Unsupported"
+        case .unreadable: "Unreadable"
+        }
     }
 
     private var clickText: String {

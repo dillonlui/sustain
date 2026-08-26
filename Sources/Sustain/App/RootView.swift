@@ -77,7 +77,7 @@ struct RootView: View {
             return .live
         case .rehearse:
             return .rehearse
-        case .songs:
+        case .songs, .pads:
             return .standard
         }
     }
@@ -91,6 +91,8 @@ struct RootView: View {
             RehearseView()
         case .songs:
             SongLibraryView()
+        case .pads:
+            PadLibraryView()
         }
     }
 }
@@ -134,6 +136,7 @@ private struct SidebarView: View {
         case .live: "play.circle"
         case .rehearse: "music.quarternote.3"
         case .songs: "music.note.list"
+        case .pads: "waveform.badge.plus"
         }
     }
 }

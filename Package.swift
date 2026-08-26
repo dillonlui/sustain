@@ -10,9 +10,15 @@ let package = Package(
     products: [
         .executable(name: "Sustain", targets: ["Sustain"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")
+    ],
     targets: [
         .executableTarget(
             name: "Sustain",
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             resources: [
                 .copy("Resources")
             ]

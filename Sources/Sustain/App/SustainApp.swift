@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum AppAppearance: String, CaseIterable, Identifiable {
     case system
@@ -39,22 +40,43 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
 @main
 struct SustainApp: App {
-    @State private var store = AppStore.live()
+    @State private var store: AppStore
+    @State private var updateCoordinator: UpdateCoordinator
+
+    init() {
+        let store = AppStore.live()
+        let updateCoordinator = UpdateCoordinator(
+            isAudioActive: { store.isAnyAudioActivityActive },
+            flushPersistence: { store.flushForUpdaterRelaunch() },
+            statusSink: { store.runtime.lastMessage = $0 }
+        )
+        _store = State(initialValue: store)
+        _updateCoordinator = State(initialValue: updateCoordinator)
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(store)
+                .environment(updateCoordinator)
                 .frame(minWidth: 1200, minHeight: 700)
+                .onAppear { updateCoordinator.startIfEligible() }
+                .onChange(of: store.isAnyAudioActivityActive) {
+                    updateCoordinator.audioActivityDidChange()
+                }
+                .onChange(of: store.saveErrorPrompt) {
+                    if store.saveErrorPrompt == nil { updateCoordinator.persistenceDidRecover() }
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
-            SustainCommands(store: store)
+            SustainCommands(store: store, updateCoordinator: updateCoordinator)
         }
 
         Settings {
             AppSettingsView()
                 .environment(store)
+                .environment(updateCoordinator)
         }
     }
 }
@@ -64,6 +86,8 @@ struct SustainApp: App {
 /// with their keyboard shortcuts so performers can discover them.
 struct SustainCommands: Commands {
     var store: AppStore
+    var updateCoordinator: UpdateCoordinator
+    @AppStorage("showIncludedPads") private var showIncludedPads = true
 
     private var isTransition: Bool {
         store.runtime.playingEntryID != nil &&
@@ -71,6 +95,14 @@ struct SustainCommands: Commands {
     }
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            if updateCoordinator.isEligible {
+                Button("Check for Updates\u{2026}") {
+                    updateCoordinator.requestManualCheck()
+                }
+            }
+        }
+
         CommandMenu("Performance") {
             Button(isTransition ? "Transition" : "Start") {
                 store.startCuedSong()
@@ -94,7 +126,7 @@ struct SustainCommands: Commands {
                 store.stop()
             }
             .keyboardShortcut(".", modifiers: .command)
-            .disabled(store.runtime.playbackPhase == .noSongPlaying)
+            .disabled(!store.isAnyAudioActivityActive)
 
             Divider()
 
@@ -104,11 +136,12 @@ struct SustainCommands: Commands {
             .keyboardShortcut("c", modifiers: [.command, .option])
             .disabled(store.runtime.playbackPhase == .noSongPlaying)
 
-            Button(store.runtime.padState == .off ? "Start Pad" : "Stop Pad") {
-                store.runtime.padState == .off ? store.startPad() : store.stopPad()
+            if let padTitle = store.livePadControlTitle {
+                Button(padTitle) {
+                    store.toggleLivePad()
+                }
+                .keyboardShortcut("p", modifiers: [.command, .option])
             }
-            .keyboardShortcut("p", modifiers: [.command, .option])
-            .disabled(store.runtime.playbackPhase == .noSongPlaying)
         }
 
         CommandMenu("Go") {
@@ -118,6 +151,27 @@ struct SustainCommands: Commands {
                 }
                 .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
             }
+        }
+
+        CommandMenu("Pad") {
+            Button("Show Pad Library") {
+                store.selectedScreen = .pads
+            }
+
+            Button("Add Audio\u{2026}") {
+                let panel = NSOpenPanel()
+                panel.allowedContentTypes = [.audio]
+                panel.allowsMultipleSelection = true
+                panel.canChooseDirectories = false
+                panel.canChooseFiles = true
+                guard panel.runModal() == .OK else { return }
+                let urls = panel.urls
+                Task { _ = await store.importPadFiles(urls) }
+            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+
+            Divider()
+            Toggle("Show Included Pads", isOn: $showIncludedPads)
         }
     }
 }
@@ -129,11 +183,14 @@ struct AppSettingsView: View {
                 .tabItem { Label("General", systemImage: "gear") }
             AudioSettingsView()
                 .tabItem { Label("Audio", systemImage: "speaker.wave.2") }
+            MIDIControllerSettingsView()
+                .tabItem { Label("MIDI Controller", systemImage: "pianokeys") }
         }
     }
 }
 
 private struct GeneralSettingsView: View {
+    @Environment(UpdateCoordinator.self) private var updateCoordinator
     @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
 
     var body: some View {
@@ -145,6 +202,23 @@ private struct GeneralSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+            }
+
+            if updateCoordinator.isEligible {
+                Section("Updates") {
+                    Toggle(
+                        "Automatically check for updates",
+                        isOn: Binding(
+                            get: { updateCoordinator.automaticallyChecksForUpdates },
+                            set: { updateCoordinator.automaticallyChecksForUpdates = $0 }
+                        )
+                    )
+                    if let status = updateCoordinator.statusMessage {
+                        Text(status)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             Section("About") {
@@ -160,10 +234,12 @@ private struct GeneralSettingsView: View {
                         .font(.footnote)
                 }
                 .padding(.vertical, SustainSpace.xxs)
+                LabeledContent("Updates", value: "Sparkle 2.9.6")
+                    .font(.footnote)
             }
         }
         .formStyle(.grouped)
-        .frame(width: 460, height: 300)
+        .frame(width: 460, height: 350)
     }
 
     private static var appVersion: String {

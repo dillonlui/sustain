@@ -13,3 +13,4 @@ DerivedData/
 *.dSYM.zip
 *.dSYM
 dist/
+.local/

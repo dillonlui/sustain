@@ -1,0 +1,113 @@
+name: Protected macOS release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Immutable stable tag at the release commit (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    environment: production-release
+    concurrency:
+      group: sustain-production-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - name: Validate immutable tag and monotonic metadata
+        env:
+          TAG: ${{ inputs.tag }}
+          STABLE_APPCAST_URL: ${{ vars.STABLE_APPCAST_URL }}
+        run: |
+          test "$(git describe --tags --exact-match HEAD)" = "$TAG"
+          curl --fail --silent --show-error "$STABLE_APPCAST_URL" -o build-previous-appcast.xml || true
+          scripts/validate-release.sh config/release.json "$TAG" build-previous-appcast.xml
+      - name: Test once
+        run: swift test
+      - name: Import Developer ID identity
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.RELEASE_KEYCHAIN_PASSWORD }}
+        run: |
+          security create-keychain -p "$KEYCHAIN_PASSWORD" release.keychain-db
+          security set-keychain-settings -lut 21600 release.keychain-db
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" release.keychain-db
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+          security import certificate.p12 -k release.keychain-db -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s release.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" release.keychain-db
+      - name: Configure notarization API key
+        env:
+          NOTARY_KEY_BASE64: ${{ secrets.NOTARY_API_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          printf '%s' "$NOTARY_KEY_BASE64" | base64 --decode > notary-key.p8
+          xcrun notarytool store-credentials sustain-release --key notary-key.p8 --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID"
+      - name: Build, sign, notarize, staple, and verify canonical containers
+        env:
+          SUSTAIN_SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_IDENTITY }}
+          SUSTAIN_NOTARY_PROFILE: sustain-release
+          SUSTAIN_OFFICIAL_STABLE_UPDATES: "1"
+          SUSTAIN_UPDATE_FEED_URL: ${{ vars.STABLE_APPCAST_URL }}
+          SUSTAIN_UPDATE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+        run: scripts/package.sh release
+      - name: Create signed appcast in staging
+        env:
+          TAG: ${{ inputs.tag }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+        run: |
+          VERSION="$(plutil -extract version raw config/release.json)"
+          BUILD="$(plutil -extract build raw config/release.json)"
+          mkdir appcast-stage
+          cp "dist/Sustain-$VERSION-$BUILD.zip" appcast-stage/
+          cp docs/releases/next.md "appcast-stage/Sustain-$VERSION-$BUILD.md"
+          test ! -s build-previous-appcast.xml || cp build-previous-appcast.xml appcast-stage/appcast.xml
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast \
+            --ed-key-file - --embed-release-notes --maximum-deltas 0 \
+            --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/" \
+            appcast-stage
+          scripts/validate-appcast.sh appcast-stage/appcast.xml
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update \
+            --verify --ed-key-file - appcast-stage/appcast.xml
+      - name: Create draft and upload immutable assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'release identifier already exists'
+            exit 1
+          fi
+          gh release create "$TAG" --verify-tag --draft --title "Sustain ${TAG#v}" --notes-file docs/releases/next.md
+          gh release upload "$TAG" dist/Sustain-*
+      - name: Publish assets, verify, then publish signed appcast last
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          SUSTAIN_PUBLISH_PRODUCTION: "1"
+          SUSTAIN_FEED_REPOSITORY: ${{ vars.FEED_REPOSITORY }}
+          SUSTAIN_FEED_BRANCH: ${{ vars.FEED_BRANCH }}
+          SUSTAIN_FEED_PATH: ${{ vars.FEED_PATH }}
+        run: |
+          gh release edit "$TAG" --draft=false --latest
+          VERSION="$(plutil -extract version raw config/release.json)"
+          BUILD="$(plutil -extract build raw config/release.json)"
+          mkdir -p /tmp/dist
+          for ASSET in "Sustain-$VERSION-$BUILD.dmg" "Sustain-$VERSION-$BUILD.zip" "Sustain-$VERSION-$BUILD-SHA256SUMS.txt"; do
+            curl --fail --location --retry 4 "https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/$ASSET" -o "/tmp/dist/$ASSET"
+          done
+          cd /tmp
+          shasum -a 256 -c "dist/Sustain-$VERSION-$BUILD-SHA256SUMS.txt"
+          cd "$GITHUB_WORKSPACE"
+          scripts/publish-appcast-last.sh appcast-stage/appcast.xml

@@ -153,11 +153,11 @@ struct RuntimeSessionTests {
         store.cueNextSong()
         store.startCuedSong()
 
-        // The previous song keeps playing, and the stale countoff badge is cleared
-        // rather than left frozen on screen after the failure.
+        // The previous song and its truthful countoff state remain untouched because target
+        // preparation failed before the transition commit.
         #expect(store.runtime.playingEntryID == playing)
-        #expect(store.runtime.countoffBeat == nil)
-        #expect(store.runtime.padState == .playing)
+        #expect(store.runtime.countoffBeat != nil)
+        #expect(store.runtime.padState != .off)
     }
 
     @Test func systemCheckWarnsAboutMissingPadAssetsLaterInSetlist() {
@@ -168,8 +168,8 @@ struct RuntimeSessionTests {
         store.runSystemCheck()
 
         #expect(store.systemCheck.canStartPlayback)
-        #expect(store.systemCheck.warnings.contains("Holy Forever: Missing included pad A.mp3"))
-        #expect(store.systemCheck.messages.contains("Warning: Holy Forever: Missing included pad A.mp3"))
+        #expect(store.systemCheck.warnings.contains("Holy Forever: Locate the missing file for A."))
+        #expect(store.systemCheck.messages.contains("Warning: Holy Forever: Locate the missing file for A."))
     }
 
     @Test func systemCheckWarnsAboutInvalidBPMLaterInSetlist() throws {
@@ -215,7 +215,7 @@ struct RuntimeSessionTests {
 
         #expect(store.runtime.playingEntryID == playing)
         #expect(store.runtime.playbackPhase == .songPlaying)
-        #expect(store.runtime.padState == .playing)
+        #expect(store.runtime.padState != .off)
         #expect(audio.padStartCount == padStarts)
         #expect(store.runtime.lastMessage == AudioEngineError.invalidOutputFormat.localizedDescription)
     }
@@ -232,7 +232,7 @@ struct RuntimeSessionTests {
         #expect(store.runtime.padState == .off)
         #expect(store.runtime.clickState == .off)
         #expect(!audio.isEngineRunning)
-        #expect(audio.clickStartCount == 1)
+        #expect(audio.clickStartCount == 0)
     }
 
     @Test func stopClearsAudioStatus() {
@@ -422,7 +422,7 @@ struct RuntimeSessionTests {
         store.startRehearsePad(key: .e)
 
         #expect(store.rehearse.selectedKey == .e)
-        #expect(store.rehearse.padState == .playing)
+        #expect(store.rehearse.padState == .fadingIn)
         #expect(audio.padStartCount == 1)
     }
 
@@ -476,19 +476,20 @@ struct RuntimeSessionTests {
         store.stopClick()
 
         #expect(store.runtime.clickState == .off)
-        #expect(store.runtime.padState == .playing)
+        #expect(store.runtime.padState != .off)
         #expect(store.runtime.playbackPhase == .songPlaying)
         #expect(store.runtime.playingEntryID == playingID)
         #expect(!audio.isClickActive)
         #expect(audio.isPadActive)
     }
 
-    @Test func canonicalLiveSongEditRetimesClickAndCrossfadesPadWithoutCountoff() throws {
+    @Test func canonicalLiveSongEditRetimesClickWithoutRestartingAudiblePad() throws {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)
         store.startCuedSong()
         let entry = try #require(store.playingEntry)
         let song = try #require(store.song(for: entry))
+        let padStarts = audio.padStartCount
 
         let updated = store.updateSong(
             song.id,
@@ -504,12 +505,12 @@ struct RuntimeSessionTests {
         #expect(canonical.defaultKey == .bb)
         #expect(canonical.defaultBPM == 96)
         #expect(canonical.timeSignature == .sixEight)
-        #expect(audio.startedPadKeys.last == .bb)
+        #expect(audio.padStartCount == padStarts)
         #expect(audio.clickBPMHistory.last == 96)
         #expect(audio.clickTimeSignatureHistory.last == .sixEight)
         #expect(audio.clickIncludesCountoffHistory.last == false)
         #expect(store.runtime.clickState == .playing)
-        #expect(store.runtime.padState == .playing)
+        #expect(store.runtime.padState != .off)
     }
 
     @Test func canonicalSongEditUpdatesEveryDuplicateSetlistOccurrence() throws {
@@ -541,6 +542,230 @@ struct RuntimeSessionTests {
 
         #expect(store.systemCheck.canStartPlayback)
         #expect(store.systemCheck.messages.contains { $0.hasPrefix("Ready for ") })
+    }
+
+    @Test func idleCuedPadPrerollIsReusedWhenStartingMatchingSong() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        let cuedID = try #require(store.runtime.cuedEntryID)
+
+        store.startCuedPad()
+        #expect(store.runtime.playingEntryID == nil)
+        #expect(store.runtime.audiblePadEntryID == cuedID)
+        #expect(audio.padActivateCount == 1)
+
+        store.startCuedSong()
+        #expect(store.runtime.playingEntryID == cuedID)
+        #expect(store.runtime.audiblePadEntryID == cuedID)
+        #expect(audio.padActivateCount == 1)
+        #expect(audio.clickStartCount == 1)
+    }
+
+    @Test func cueChangeDuringPrerollReplacesOnlyAfterPreparationSucceeds() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedPad()
+        let originalPad = try #require(store.runtime.audiblePadTrackID)
+        let secondEntry = store.activeSetlist.entries[1]
+        store.cue(entryID: secondEntry.id)
+
+        audio.shouldFailClickStart = true
+        store.startCuedSong()
+        #expect(store.runtime.playingEntryID == nil)
+        #expect(store.runtime.cuedEntryID == secondEntry.id)
+        #expect(store.runtime.audiblePadTrackID == originalPad)
+        #expect(audio.padActivateCount == 1)
+
+        audio.shouldFailClickStart = false
+        store.startCuedSong()
+        #expect(store.runtime.playingEntryID == secondEntry.id)
+        #expect(store.runtime.audiblePadTrackID != originalPad)
+        #expect(audio.padActivateCount == 2)
+    }
+
+    @Test func samePadPrerollMismatchTransfersOwnershipWithoutRestart() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedPad()
+        let padID = try #require(store.runtime.audiblePadTrackID)
+        let secondEntry = store.activeSetlist.entries[1]
+        let secondSong = try #require(store.song(for: secondEntry))
+        #expect(store.setSongPadTrackID(secondSong.id, padTrackID: padID))
+        store.cue(entryID: secondEntry.id)
+
+        store.startCuedSong()
+        #expect(store.runtime.playingEntryID == secondEntry.id)
+        #expect(store.runtime.audiblePadEntryID == secondEntry.id)
+        #expect(store.runtime.audiblePadTrackID == padID)
+        #expect(audio.padActivateCount == 1)
+    }
+
+    @Test func playingEntryOwnsPadControlEvenWhenItsPadWasManuallyStopped() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedSong()
+        let playingEntry = try #require(store.playingEntry)
+        let playingPad = try #require(store.song(for: playingEntry)?.padTrackID)
+        let secondEntry = store.activeSetlist.entries[1]
+        store.cue(entryID: secondEntry.id)
+
+        // Represent the post-fade state after the operator manually stopped the current pad.
+        store.runtime.padState = .off
+        store.runtime.audiblePadTrackID = nil
+        store.runtime.audiblePadEntryID = nil
+        store.toggleLivePad()
+
+        #expect(store.runtime.playingEntryID == playingEntry.id)
+        #expect(store.runtime.audiblePadTrackID == playingPad)
+        #expect(store.runtime.audiblePadEntryID == playingEntry.id)
+    }
+
+    @Test func stoppingPrerollRequiresFadeCompletionBeforeIdleRearm() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedPad()
+        store.stopPad()
+
+        #expect(store.runtime.playingEntryID == nil)
+        #expect(store.runtime.padState == .fadingOut)
+        #expect(!store.isFullyIdleForCuedPad)
+        let activations = audio.padActivateCount
+        store.startCuedPad()
+        #expect(audio.padActivateCount == activations)
+    }
+
+    @Test func stopDuringCuedPadPreparationMakesLateCompletionHarmless() {
+        let audio = RecordingAudioEngine()
+        audio.defersPadPreparation = true
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.startCuedPad()
+        #expect(store.runtime.padState == .preparing)
+        store.stop()
+        #expect(store.runtime.padState == .off)
+        audio.completePendingPadPreparation()
+
+        #expect(store.runtime.padState == .off)
+        #expect(store.runtime.audiblePadTrackID == nil)
+        #expect(audio.padActivateCount == 0)
+    }
+
+    @Test func startingNoPadLiveSongInvalidatesPendingRehearsePad() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        audio.defersPadPreparation = true
+
+        store.startRehearsePad(padID: PadTrack.includedID(for: .c))
+        #expect(store.rehearse.padState == .preparing)
+        let cuedSong = try #require(store.song(for: store.cuedEntry))
+        #expect(store.setSongPadTrackID(cuedSong.id, padTrackID: nil))
+
+        store.startCuedSong()
+        #expect(store.runtime.playingEntryID == store.runtime.cuedEntryID)
+        #expect(store.rehearse.padState == .off)
+        audio.completePendingPadPreparation()
+
+        #expect(audio.padActivateCount == 0)
+        #expect(!audio.isPadActive)
+        #expect(store.rehearse.padState == .off)
+    }
+
+    @Test func startingLiveSongCancelsRehearseFadeStateTask() async throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.startRehearsePad(padID: PadTrack.includedID(for: .c))
+        #expect(store.rehearse.padState == .fadingIn)
+        let cuedSong = try #require(store.song(for: store.cuedEntry))
+        #expect(store.setSongPadTrackID(cuedSong.id, padTrackID: nil))
+        store.startCuedSong()
+
+        try await Task.sleep(for: .seconds(1.3))
+        #expect(store.rehearse.padState == .off)
+        #expect(store.runtime.playingEntryID == store.runtime.cuedEntryID)
+    }
+
+    @Test func cueChangeBeforeCommitCannotReplaceExistingPreroll() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedPad()
+        let originalPad = try #require(store.runtime.audiblePadTrackID)
+        let second = store.activeSetlist.entries[1]
+        store.cue(entryID: second.id)
+        audio.defersClickPreparation = true
+        store.startCuedSong()
+        let third = store.activeSetlist.entries[2]
+        store.cue(entryID: third.id)
+
+        audio.completePendingClickPreparation()
+
+        #expect(store.runtime.playingEntryID == nil)
+        #expect(store.runtime.cuedEntryID == third.id)
+        #expect(store.runtime.audiblePadTrackID == originalPad)
+        #expect(audio.padActivateCount == 1)
+        #expect(audio.clickStartCount == 0)
+    }
+
+    @Test func rehearseUsesStablePadIDsAndDoesNotRestartAudibleSelection() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        let first = PadTrack.includedID(for: .c)
+        let second = PadTrack.includedID(for: .db)
+
+        store.startRehearsePad(padID: first)
+        store.startRehearsePad(padID: first)
+        #expect(audio.padActivateCount == 1)
+        #expect(store.rehearse.selectedPadTrackID == first)
+
+        store.startRehearsePad(padID: second)
+        #expect(audio.padActivateCount == 2)
+        #expect(store.rehearse.selectedPadTrackID == second)
+        #expect(store.rehearse.selectedPadLabel == "Db")
+    }
+
+    @Test func typedUnavailablePadCannotLaunchAndPlayRoutingOpensRehearse() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        let padID = PadTrack.includedID(for: .gb)
+        store.padAssetStates[padID] = .permissionDenied
+
+        store.playPadInRehearse(padID)
+
+        #expect(store.selectedScreen == .rehearse)
+        #expect(audio.padActivateCount == 0)
+        #expect(store.rehearse.lastMessage.contains("grant file access"))
+    }
+
+    @Test func rehearseClickPreparationCountsAsAudioAndStopInvalidatesLateCompletion() {
+        let audio = RecordingAudioEngine()
+        audio.defersClickPreparation = true
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.startRehearseClick()
+        #expect(store.rehearse.clickState == .preparing)
+        #expect(store.isAnyAudioActivityActive)
+        store.stopRehearseClick()
+        audio.completePendingClickPreparation()
+
+        #expect(store.rehearse.clickState == .off)
+        #expect(!store.isAnyAudioActivityActive)
+        #expect(audio.clickStartCount == 0)
+    }
+
+    @Test func liveClickStopInvalidatesLatePreparation() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedSong()
+        store.stopClick()
+        audio.defersClickPreparation = true
+
+        store.startClick()
+        #expect(store.runtime.clickState == .preparing)
+        store.stopClick()
+        audio.completePendingClickPreparation()
+
+        #expect(store.runtime.clickState == .off)
+        #expect(audio.clickStartCount == 1)
     }
 
     // NOTE: The AVSpeechSynthesizer render path (SpeechCountoffVoiceRenderer) cannot be

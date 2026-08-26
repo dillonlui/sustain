@@ -35,9 +35,9 @@ extension RuntimeSessionTests {
         #expect(firstEntry.legacyBPMOverride == nil)
 
         // Loading performs the migration durably. The v1 primary is retained as the rolling
-        // backup, while the current Library.json is immediately rewritten in canonical v2.
+        // backup, while the current Library.json is immediately rewritten in the canonical schema.
         let encodedText = try #require(String(data: Data(contentsOf: libraryURL), encoding: .utf8))
-        #expect(encodedText.contains("\"schemaVersion\" : 2"))
+        #expect(encodedText.contains("\"schemaVersion\" : \(LibrarySnapshot.currentSchemaVersion)"))
         #expect(!encodedText.contains("keyOverride"))
         #expect(!encodedText.contains("bpmOverride"))
         let backupURL = libraryURL.deletingLastPathComponent()
@@ -175,8 +175,7 @@ extension RuntimeSessionTests {
         }
 
         let ready = SetlistReadinessEvaluator(
-            hasPadAsset: { _, _ in true },
-            padAssetStatus: { _, _ in "" },
+            padReadiness: { _ in .ready },
             routingSnapshot: .previewDefault,
             routingFailureMessage: nil,
             entries: [cued, later],
@@ -187,8 +186,7 @@ extension RuntimeSessionTests {
         #expect(ready.warnings.contains { $0.contains("Bad") })
 
         let blocked = SetlistReadinessEvaluator(
-            hasPadAsset: { _, _ in false },
-            padAssetStatus: { _, _ in "No pad for this key" },
+            padReadiness: { _ in .blocked("No pad for this key") },
             routingSnapshot: .previewDefault,
             routingFailureMessage: nil,
             entries: [cued],
@@ -245,6 +243,40 @@ extension RuntimeSessionTests {
             // The valid (future) file must be preserved, not quarantined or overwritten.
             #expect(FileManager.default.fileExists(atPath: libraryURL.path))
         }
+    }
+
+    @Test func newerSchemaFallbackCannotOverwritePrimaryOrBackup() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let libraryURL = try libraryStore.applicationSupportDirectory()
+            .appendingPathComponent("Library.json", isDirectory: false)
+
+        try libraryStore.saveLibrary(AppStore.seedSnapshot())
+        try libraryStore.saveLibrary(AppStore.seedSnapshot())
+        let backupURL = directory.appendingPathComponent("Library.bak", isDirectory: false)
+        let originalBackupData = try Data(contentsOf: backupURL)
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: libraryURL)) as? [String: Any]
+        )
+        object["schemaVersion"] = LibrarySnapshot.currentSchemaVersion + 1
+        let futureData = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+        try futureData.write(to: libraryURL, options: [.atomic])
+
+        let store = AppStore.live(
+            libraryStore: libraryStore,
+            audioEngineOverride: RecordingAudioEngine(),
+            audioHardwareMonitorOverride: NoopAudioHardwareMonitor(),
+            powerStateMonitorOverride: NoopPowerStateMonitor(),
+            midiControllerOverride: NoopMIDIController()
+        )
+        #expect(store.persistenceStatus.contains("read-only"))
+        #expect(store.saveErrorPrompt != nil)
+        _ = store.addSong()
+        _ = store.addSong()
+
+        #expect(try Data(contentsOf: libraryURL) == futureData)
+        #expect(try Data(contentsOf: backupURL) == originalBackupData)
     }
 
     @Test func songAssignmentWorkflowPersistsSongAndSetlistEntry() throws {
@@ -413,6 +445,51 @@ extension RuntimeSessionTests {
 
         #expect(!store.activeSetlist.entries.isEmpty)
         #expect(store.runtime.lastMessage == "Stop playback before clearing the setlist")
+    }
+
+    @Test func clearingSetlistIsAtomicUndoableAndPreservesLibraries() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainClearSetlistTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let store = AppStore.preview(libraryStore: libraryStore)
+        let undoManager = UndoManager()
+        let originalSetlist = store.activeSetlist
+        let originalSongs = store.songs
+        let originalPadPacks = store.padPacks
+        let originalCue = store.runtime.cuedEntryID
+
+        #expect(store.clearActiveSetlist(undoManager: undoManager))
+        #expect(store.activeSetlist.entries.isEmpty)
+        #expect(store.songs == originalSongs)
+        #expect(store.padPacks == originalPadPacks)
+        #expect(try libraryStore.loadLibrary()?.activeSetlist.entries.isEmpty == true)
+
+        undoManager.undo()
+        #expect(store.activeSetlist == originalSetlist)
+        #expect(store.runtime.cuedEntryID == originalCue)
+        #expect(store.runtime.playingEntryID == nil)
+        #expect(try libraryStore.loadLibrary()?.activeSetlist == originalSetlist)
+
+        undoManager.redo()
+        #expect(store.activeSetlist.entries.isEmpty)
+        #expect(store.runtime.cuedEntryID == nil)
+        #expect(store.songs == originalSongs)
+        #expect(store.padPacks == originalPadPacks)
+    }
+
+    @Test func clearingEmptySetlistAndClearingDuringRehearseAreNoOps() {
+        let empty = AppStore.preview()
+        empty.activeSetlist.entries.removeAll()
+        empty.runtime.cuedEntryID = nil
+        #expect(!empty.clearActiveSetlist())
+        #expect(empty.runtime.lastMessage == "Setlist is already empty")
+
+        let rehearsing = AppStore.preview()
+        rehearsing.rehearse.padState = .playing
+        let entries = rehearsing.activeSetlist.entries
+        #expect(!rehearsing.clearActiveSetlist())
+        #expect(rehearsing.activeSetlist.entries == entries)
+        #expect(rehearsing.runtime.lastMessage == "Stop playback before clearing the setlist")
     }
 
     @Test func librarySnapshotRequiresUsableSetlist() {

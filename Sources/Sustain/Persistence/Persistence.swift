@@ -5,16 +5,18 @@ struct LibrarySnapshot: Codable, Equatable {
     /// changes in a breaking way, and add a migration branch in `LocalLibraryStore` keyed on the
     /// decoded `schemaVersion`. Establishing the field now (while it's trivial) is what lets a
     /// future versions migrate old files instead of throwing and wiping the user's library.
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     var schemaVersion: Int
     var songs: [Song]
     var padPacks: [PadPack]
+    var padTracks: [PadTrack]
     var activeSetlist: Setlist
     var routingSettings: AudioRoutingSettings
     var padVolume: Double
     var clickVolume: Double
     var clickSettings: ClickSettings
+    var midiControllerSettings: MIDIControllerSettings
     /// Runtime-only signal used by LocalLibraryStore to durably rewrite an older schema.
     /// Omitted from CodingKeys, so it is never part of the persisted format.
     var needsMigrationSave = false
@@ -22,32 +24,38 @@ struct LibrarySnapshot: Codable, Equatable {
     init(
         songs: [Song],
         padPacks: [PadPack]? = nil,
+        padTracks: [PadTrack]? = nil,
         activeSetlist: Setlist,
         routingSettings: AudioRoutingSettings = .default,
         padVolume: Double = 0.42,
         clickVolume: Double = 0.75,
-        clickSettings: ClickSettings = .default
+        clickSettings: ClickSettings = .default,
+        midiControllerSettings: MIDIControllerSettings = .disabled
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         let canonical = Self.promotingLegacyOverrides(in: songs, setlist: activeSetlist)
-        self.songs = Self.normalizedSongs(canonical.songs)
+        self.songs = Self.normalizedSongs(canonical.songs, migratingLegacySchema: false)
         self.padPacks = [Self.includedPadPack(from: padPacks)]
+        self.padTracks = Self.normalizedPadTracks(padTracks)
         self.activeSetlist = canonical.setlist
         self.routingSettings = routingSettings
         self.padVolume = Self.clampedVolume(padVolume)
         self.clickVolume = Self.clampedVolume(clickVolume)
         self.clickSettings = clickSettings
+        self.midiControllerSettings = midiControllerSettings
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
         case songs
         case padPacks
+        case padTracks
         case activeSetlist
         case routingSettings
         case padVolume
         case clickVolume
         case clickSettings
+        case midiControllerSettings
     }
 
     init(from decoder: Decoder) throws {
@@ -58,13 +66,31 @@ struct LibrarySnapshot: Codable, Equatable {
         let decodedPadPacks = try container.decodeIfPresent([PadPack].self, forKey: .padPacks)
         let decodedSetlist = try container.decode(Setlist.self, forKey: .activeSetlist)
         let canonical = Self.promotingLegacyOverrides(in: decodedSongs, setlist: decodedSetlist)
-        songs = Self.normalizedSongs(canonical.songs)
+        if decodedSchemaVersion >= 3,
+           let invalidSongIndex = canonical.songs.firstIndex(where: { $0.padTrackIDDecodingState == .missing }) {
+            throw DecodingError.keyNotFound(
+                Song.CodingKeys.padTrackID,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Current-schema song at index \(invalidSongIndex) is missing required padTrackID; use null for No Pad."
+                )
+            )
+        }
+        songs = Self.normalizedSongs(
+            canonical.songs,
+            migratingLegacySchema: decodedSchemaVersion < 3
+        )
         padPacks = [Self.includedPadPack(from: decodedPadPacks)]
+        padTracks = Self.normalizedPadTracks(try container.decodeIfPresent([PadTrack].self, forKey: .padTracks))
         activeSetlist = canonical.setlist
         routingSettings = try container.decodeIfPresent(AudioRoutingSettings.self, forKey: .routingSettings) ?? .default
         padVolume = Self.clampedVolume(try container.decodeIfPresent(Double.self, forKey: .padVolume) ?? 0.42)
         clickVolume = Self.clampedVolume(try container.decodeIfPresent(Double.self, forKey: .clickVolume) ?? 0.75)
         clickSettings = try container.decodeIfPresent(ClickSettings.self, forKey: .clickSettings) ?? .default
+        midiControllerSettings = try container.decodeIfPresent(
+            MIDIControllerSettings.self,
+            forKey: .midiControllerSettings
+        ) ?? .disabled
 
         // Preserve a future version so LocalLibraryStore can reject it without quarantining.
         // Successfully decoded v1 data is fully migrated in memory to the v2 canonical model.
@@ -79,17 +105,42 @@ struct LibrarySnapshot: Codable, Equatable {
         return !songs.isEmpty && activeSetlist.entries.contains { songIDs.contains($0.songID) }
     }
 
-    private static func normalizedSongs(_ songs: [Song]) -> [Song] {
+    private static func normalizedSongs(_ songs: [Song], migratingLegacySchema: Bool) -> [Song] {
         songs.map { song in
-            Song(
+            var normalized = Song(
                 id: song.id,
                 title: song.title,
                 defaultKey: song.defaultKey,
                 defaultBPM: song.defaultBPM,
                 timeSignature: song.timeSignature,
-                padPack: .bundled
+                padPack: .bundled,
+                padTrackID: migratingLegacySchema ? PadTrack.includedID(for: song.defaultKey) : song.padTrackID
             )
+            normalized.padTrackIDDecodingState = .value
+            return normalized
         }
+    }
+
+    private static func normalizedPadTracks(_ padTracks: [PadTrack]?) -> [PadTrack] {
+        guard let padTracks else { return PadTrack.included }
+
+        let canonicalByID = Dictionary(uniqueKeysWithValues: PadTrack.included.map { ($0.id, $0) })
+        var seenIncludedIDs: Set<PadTrack.ID> = []
+        var normalized: [PadTrack] = []
+        for track in padTracks {
+            if let canonical = canonicalByID[track.id] {
+                guard seenIncludedIDs.insert(track.id).inserted else { continue }
+                normalized.append(canonical)
+            } else {
+                normalized.append(track)
+            }
+        }
+
+        let missingIncluded = PadTrack.included.filter { !seenIncludedIDs.contains($0.id) }
+        guard !missingIncluded.isEmpty else { return normalized }
+        let insertionIndex = normalized.lastIndex(where: \.isIncluded).map { $0 + 1 } ?? normalized.endIndex
+        normalized.insert(contentsOf: missingIncluded, at: insertionIndex)
+        return normalized
     }
 
     /// Promote an unambiguous v1 setlist override into the library Song, then clear every

@@ -32,7 +32,10 @@ private struct SetlistResizeHandle: View {
 
 struct LiveServiceView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.undoManager) private var undoManager
     @State private var editingEntryID: SetlistEntry.ID?
+    @State private var isConfirmingClearSetlist = false
+    @FocusState private var addSongFocused: Bool
     @AppStorage("liveSetlistWidth") private var setlistWidth = 260.0
 
     private let setlistWidthRange = 200.0...340.0
@@ -60,6 +63,23 @@ struct LiveServiceView: View {
         }
         .sustainScreenBackground(.live)
         .onAppear { store.refreshReadiness() }
+        .alert("Clear Setlist?", isPresented: $isConfirmingClearSetlist) {
+            Button("Cancel", role: .cancel) {}
+                .keyboardShortcut(".", modifiers: .command)
+            Button("Clear Setlist", role: .destructive) {
+                editingEntryID = nil
+                if store.clearActiveSetlist(undoManager: undoManager) {
+                    NSAccessibility.post(
+                        element: NSApp as Any,
+                        notification: .announcementRequested,
+                        userInfo: [.announcement: "Setlist cleared"]
+                    )
+                    addSongFocused = true
+                }
+            }
+        } message: {
+            Text("Remove all \(store.activeSetlist.entries.count) songs from \(store.activeSetlist.title)? Songs and pads remain in their libraries.")
+        }
     }
 
     // MARK: Setlist pane
@@ -138,8 +158,20 @@ struct LiveServiceView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .focused($addSongFocused)
 
             Spacer()
+
+            if !store.activeSetlist.entries.isEmpty {
+                Button("Clear Setlist\u{2026}", role: .destructive) {
+                    isConfirmingClearSetlist = true
+                }
+                .buttonStyle(.borderless)
+                .disabled(store.isAnyAudioActivityActive)
+                .help(store.isAnyAudioActivityActive
+                    ? "Stop playback before clearing the setlist."
+                    : "Remove every song from this setlist")
+            }
         }
         .padding(.horizontal, SustainSpace.md)
         .padding(.top, SustainSpace.sm)
@@ -242,14 +274,12 @@ struct LiveServiceView: View {
             subtitle: "Atmosphere",
             systemImage: "waveform",
             tint: SustainColor.accent,
-            isActive: store.runtime.padState == .playing,
+            isActive: store.runtime.padState != .off,
             value: padVolumeBinding,
             onCommit: { store.commitAudioLevels() },
-            controlTitle: store.runtime.playbackPhase == .songPlaying
-                ? (store.runtime.padState == .off ? "Start Pad" : "Stop Pad")
-                : nil,
+            controlTitle: store.livePadControlTitle,
             onControl: {
-                store.runtime.padState == .off ? store.startPad() : store.stopPad()
+                store.toggleLivePad()
             }
         )
     }
@@ -317,7 +347,7 @@ struct LiveServiceView: View {
             .transportButtonStyle()
             .controlSize(.large)
             .tint(SustainColor.destructive)
-            .disabled(store.runtime.playbackPhase == .noSongPlaying)
+            .disabled(!store.isAnyAudioActivityActive)
             .keyboardShortcut(".", modifiers: .command)
             .help("Stop")
         }
@@ -344,6 +374,9 @@ struct LiveServiceView: View {
 
     private var messageStrip: some View {
         VStack(spacing: SustainSpace.sm) {
+            if let prerollMismatchMessage {
+                SustainInlineNotice(message: prerollMismatchMessage, kind: .warning)
+            }
             if let blockingReadinessMessage {
                 // A real blocker (unavailable output, missing pad, invalid BPM) — red.
                 SustainInlineNotice(message: blockingReadinessMessage, kind: .error)
@@ -375,6 +408,17 @@ struct LiveServiceView: View {
 
     private var startTitle: String {
         isTransition ? "Transition" : "Start"
+    }
+
+    private var prerollMismatchMessage: String? {
+        guard store.runtime.playingEntryID == nil,
+              let audiblePadID = store.runtime.audiblePadTrackID,
+              let audibleOwnerID = store.runtime.audiblePadEntryID,
+              audibleOwnerID != store.runtime.cuedEntryID else { return nil }
+        let padLabel = store.padTracks.first(where: { $0.id == audiblePadID })?.label ?? "Pad"
+        let ownerTitle = store.song(for: store.entry(id: audibleOwnerID))?.title ?? "previous cue"
+        let cueTitle = store.song(for: store.cuedEntry)?.title ?? "nothing"
+        return "\(padLabel) is still sounding for \(ownerTitle); \(cueTitle) is cued. Start replaces it safely."
     }
 
     private var padVolumeBinding: Binding<Double> {

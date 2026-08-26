@@ -29,6 +29,7 @@ struct SongLibraryView: View {
                                 ForEach(store.songs) { song in
                                     SongLibraryRow(
                                         song: song,
+                                        padTracks: store.padTracks,
                                         title: titleBinding(for: song.id),
                                         key: keyBinding(for: song.id),
                                         bpm: bpmBinding(for: song.id),
@@ -36,6 +37,9 @@ struct SongLibraryView: View {
                                         isAdded: addConfirmation?.songID == song.id,
                                         onAddToSetlist: {
                                             addToSetlist(song)
+                                        },
+                                        onSetPad: { padTrackID in
+                                            _ = store.setSongPadTrackID(song.id, padTrackID: padTrackID)
                                         },
                                         onDelete: {
                                             store.deleteSong(song.id)
@@ -199,17 +203,20 @@ private struct AddConfirmation: Identifiable {
 
 private struct SongLibraryRow: View {
     var song: Song
+    var padTracks: [PadTrack]
     @Binding var title: String
     @Binding var key: MusicalKey
     @Binding var bpm: Int
     @Binding var timeSignature: TimeSignature
     var isAdded: Bool
     var onAddToSetlist: () -> Void
+    var onSetPad: (PadTrack.ID?) -> Void
     var onDelete: () -> Void
 
     @State private var titleDraft = ""
     @FocusState private var titleFocused: Bool
     @State private var confirmingDelete = false
+    @State private var isAssigningPad = false
 
     var body: some View {
         HStack(alignment: .center, spacing: SustainSpace.lg) {
@@ -237,6 +244,15 @@ private struct SongLibraryRow: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes the song from your library and any setlists. This can\u{2019}t be undone.")
+        }
+        .sheet(isPresented: $isAssigningPad) {
+            PadAssignmentPicker(
+                selectedPadID: song.padTrackID,
+                padTracks: padTracks
+            ) { selection in
+                onSetPad(selection)
+                isAssigningPad = false
+            }
         }
         .onAppear { titleDraft = title }
         .onChange(of: title) { _, newValue in
@@ -296,6 +312,16 @@ private struct SongLibraryRow: View {
             .frame(width: 92)
 
             Button {
+                isAssigningPad = true
+            } label: {
+                Label(assignedPadLabel, systemImage: "waveform")
+                    .lineLimit(1)
+            }
+            .frame(width: 124)
+            .help("Assigned Pad: \(assignedPadLabel)")
+            .accessibilityLabel("Assigned Pad, \(assignedPadLabel)")
+
+            Button {
                 onAddToSetlist()
             } label: {
                 Image(systemName: isAdded ? "checkmark" : "text.badge.plus")
@@ -317,6 +343,84 @@ private struct SongLibraryRow: View {
             .help("More actions")
             .accessibilityLabel("More actions for \(song.title)")
         }
+    }
+
+    private var assignedPadLabel: String {
+        guard let padID = song.padTrackID else { return "No Pad" }
+        return padTracks.first(where: { $0.id == padID })?.label ?? "Missing Pad"
+    }
+}
+
+private struct PadAssignmentPicker: View {
+    var selectedPadID: PadTrack.ID?
+    var padTracks: [PadTrack]
+    var onSelect: (PadTrack.ID?) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var filteredPads: [PadTrack] {
+        guard !query.isEmpty else { return padTracks }
+        return padTracks.filter {
+            $0.label.localizedStandardContains(query) ||
+                ($0.source.originalFilename?.localizedStandardContains(query) ?? false)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Button {
+                    onSelect(nil)
+                } label: {
+                    assignmentRow(title: "No Pad", subtitle: "Click and countoff only", selected: selectedPadID == nil)
+                }
+                .buttonStyle(.plain)
+
+                Section("Pads") {
+                    ForEach(filteredPads) { pad in
+                        Button {
+                            onSelect(pad.id)
+                        } label: {
+                            assignmentRow(
+                                title: pad.label,
+                                subtitle: pad.isIncluded ? "Included" : (pad.source.originalFilename ?? "Custom audio"),
+                                selected: selectedPadID == pad.id
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .searchable(text: $query, prompt: "Search pads")
+            .navigationTitle("Assigned Pad")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .frame(minWidth: 440, minHeight: 480)
+    }
+
+    private func assignmentRow(title: String, subtitle: String, selected: Bool) -> some View {
+        HStack(spacing: SustainSpace.md) {
+            VStack(alignment: .leading, spacing: SustainSpace.xs) {
+                Text(title)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(SustainColor.textSecondary)
+            }
+            Spacer()
+            if selected {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(SustainColor.accent)
+                    .accessibilityHidden(true)
+            }
+        }
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

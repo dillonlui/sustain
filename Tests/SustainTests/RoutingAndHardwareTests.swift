@@ -299,7 +299,7 @@ extension RuntimeSessionTests {
         monitor.simulateChange()
 
         #expect(store.runtime.playbackPhase == .songPlaying)
-        #expect(store.runtime.padState == .playing)
+        #expect(store.runtime.padState != .off)
         #expect(store.audioRouteChangePrompt?.detectedOutputID == 3)
         #expect(audio.stopAllCount == 0)
     }
