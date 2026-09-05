@@ -7,6 +7,11 @@ on:
         description: Immutable stable tag at the release commit (vMAJOR.MINOR.PATCH)
         required: true
         type: string
+      bootstrap:
+        description: Allow a missing stable appcast for the first Sparkle-enabled release only
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -23,13 +28,62 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
+      - name: Validate protected release configuration
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.RELEASE_KEYCHAIN_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_IDENTITY }}
+          NOTARY_KEY_BASE64: ${{ secrets.NOTARY_API_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+          STABLE_APPCAST_URL: ${{ vars.STABLE_APPCAST_URL }}
+          FEED_REPOSITORY: ${{ vars.FEED_REPOSITORY }}
+          FEED_BRANCH: ${{ vars.FEED_BRANCH }}
+          FEED_PATH: ${{ vars.FEED_PATH }}
+        run: |
+          require() {
+            test -n "$2" || { echo "Missing protected release configuration: $1"; exit 1; }
+          }
+          require DEVELOPER_ID_CERTIFICATE_BASE64 "$CERTIFICATE_BASE64"
+          require DEVELOPER_ID_CERTIFICATE_PASSWORD "$CERTIFICATE_PASSWORD"
+          require RELEASE_KEYCHAIN_PASSWORD "$KEYCHAIN_PASSWORD"
+          require DEVELOPER_ID_APPLICATION_IDENTITY "$SIGN_IDENTITY"
+          require NOTARY_API_KEY_BASE64 "$NOTARY_KEY_BASE64"
+          require NOTARY_KEY_ID "$NOTARY_KEY_ID"
+          require NOTARY_ISSUER_ID "$NOTARY_ISSUER_ID"
+          require SPARKLE_PUBLIC_ED_KEY "$SPARKLE_PUBLIC_KEY"
+          require SPARKLE_PRIVATE_ED_KEY "$SPARKLE_PRIVATE_KEY"
+          require STABLE_APPCAST_URL "$STABLE_APPCAST_URL"
+          require FEED_REPOSITORY "$FEED_REPOSITORY"
+          require FEED_BRANCH "$FEED_BRANCH"
+          require FEED_PATH "$FEED_PATH"
+          [[ "$STABLE_APPCAST_URL" =~ ^https://[^[:space:]]+$ ]]
+          [[ "$FEED_REPOSITORY" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]
+          [[ "$FEED_PATH" != /* && "$FEED_PATH" != *..* ]]
       - name: Validate immutable tag and monotonic metadata
         env:
           TAG: ${{ inputs.tag }}
+          BOOTSTRAP: ${{ inputs.bootstrap }}
           STABLE_APPCAST_URL: ${{ vars.STABLE_APPCAST_URL }}
         run: |
           test "$(git describe --tags --exact-match HEAD)" = "$TAG"
-          curl --fail --silent --show-error "$STABLE_APPCAST_URL" -o build-previous-appcast.xml || true
+          HTTP_STATUS="$(curl --silent --show-error --location --output build-previous-appcast.xml --write-out '%{http_code}' "$STABLE_APPCAST_URL")"
+          case "$HTTP_STATUS" in
+            200)
+              test "$BOOTSTRAP" != true || { echo 'Bootstrap was requested, but a stable appcast already exists'; exit 1; }
+              ;;
+            404)
+              test "$BOOTSTRAP" = true || { echo 'Stable appcast is missing; only the explicit one-time bootstrap may continue'; exit 1; }
+              rm -f build-previous-appcast.xml
+              ;;
+            *)
+              echo "Could not read stable appcast (HTTP $HTTP_STATUS)"
+              exit 1
+              ;;
+          esac
           scripts/validate-release.sh config/release.json "$TAG" build-previous-appcast.xml
       - name: Test once
         run: swift test

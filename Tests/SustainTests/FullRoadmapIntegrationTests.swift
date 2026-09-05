@@ -66,6 +66,19 @@ private actor DeterministicExternalAudioReferencer: ExternalAudioReferencing {
 @MainActor
 @Suite("Complete roadmap integration")
 struct FullRoadmapIntegrationTests {
+    private func waitUntil(
+        timeout: Duration,
+        condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !condition() {
+            guard clock.now < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return true
+    }
+
     @Test func importAssignAddPrerollStartStopAndClearIsOneAuthoritativePath() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainRoadmap-\(UUID().uuidString)", isDirectory: true)
@@ -101,8 +114,7 @@ struct FullRoadmapIntegrationTests {
         #expect(audio.padActivateCount == 1)
 
         store.stop()
-        try await Task.sleep(for: .seconds(1.1))
-        #expect(!store.isAnyAudioActivityActive)
+        #expect(await waitUntil(timeout: .seconds(5)) { !store.isAnyAudioActivityActive })
         #expect(store.clearActiveSetlist())
         #expect(store.activeSetlist.entries.isEmpty)
 

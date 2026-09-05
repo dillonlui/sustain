@@ -13,9 +13,12 @@ Developer ID, notarization, Sparkle, or feed credentials.
 2. Review `docs/releases/next.md`, commit, and create the immutable tag
    `v<version>` at that exact commit. Reused versions, builds, tags, and release
    identifiers are rejected.
-3. Manually dispatch the protected workflow with the tag. It tests once, builds
-   one Universal 2 app, signs every Sparkle helper inside-out, notarizes and
-   staples the app, and derives the DMG and full Sparkle ZIP from that app.
+3. Manually dispatch the protected workflow with the tag. Enable its
+   **bootstrap** input only for the first Sparkle-enabled public release, when
+   the stable appcast is expected to return HTTP 404; later releases require a
+   valid existing appcast. The workflow tests once, builds one Universal 2 app,
+   signs every Sparkle helper inside-out, notarizes and staples the app, and
+   derives the DMG and full Sparkle ZIP from that app.
 4. The workflow verifies signatures, hardened runtime, timestamps,
    architectures, entitlements, minimum OS, notarization, archive preservation,
    and recursive DMG/ZIP app identity. It creates a draft release and uploads

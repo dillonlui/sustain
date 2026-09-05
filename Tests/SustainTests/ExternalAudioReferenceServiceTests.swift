@@ -121,6 +121,44 @@ private actor SuspendedInspectionReferencer: ExternalAudioReferencing {
     }
 }
 
+private actor SuspendedFailingCreateReferencer: ExternalAudioReferencing {
+    private var createStarted = false
+    private var createContinuation: CheckedContinuation<ExternalAudioReference, Error>?
+
+    func createReference(for url: URL) async throws -> ExternalAudioReference {
+        createStarted = true
+        return try await withCheckedThrowingContinuation { continuation in
+            createContinuation = continuation
+        }
+    }
+
+    func inspect(_ reference: ExternalAudioReference) async -> PadAssetState { .unreadable }
+    func refreshedReference(_ reference: ExternalAudioReference) async throws -> ExternalAudioReference { reference }
+
+    func importReferences(
+        from urls: [URL],
+        existing: [ExternalAudioReference]
+    ) async -> ExternalAudioImportResult {
+        ExternalAudioImportResult(imported: [], failures: [], skippedDuplicateFilenames: [], wasCancelled: false)
+    }
+
+    func withCoordinatedRead<T: Sendable>(
+        of reference: ExternalAudioReference,
+        operation: @Sendable (URL) throws -> T
+    ) async throws -> T {
+        throw ExternalAudioReferenceError.unreadable
+    }
+
+    func waitUntilCreateStarts() async {
+        while !createStarted { await Task.yield() }
+    }
+
+    func failCreate() {
+        createContinuation?.resume(throwing: ExternalAudioReferenceError.unreadable)
+        createContinuation = nil
+    }
+}
+
 @Suite("External audio references")
 struct ExternalAudioReferenceServiceTests {
     private func temporaryFile(named name: String) throws -> URL {
@@ -346,5 +384,28 @@ struct ExternalAudioReferenceServiceTests {
         await refresh.value
 
         #expect(store.padAssetStates[padID] == .available(newReference.audioMetadata))
+    }
+
+    @Test @MainActor func failedLocateDoesNotRestoreAConcurrentlyRemovedPad() async throws {
+        let referencer = SuspendedFailingCreateReferencer()
+        let store = AppStore.preview(externalAudioReferencer: referencer)
+        let padID = UUID()
+        let reference = ExternalAudioReference(
+            bookmarkData: Data([1]),
+            lastKnownPath: "/tmp/Old.wav",
+            originalFilename: "Old.wav",
+            fingerprint: ExternalFileFingerprint(resourceIdentifierData: Data([1]), fileSize: 64, modificationDate: nil),
+            audioMetadata: PadAudioMetadata(duration: 1, channelCount: 2, sampleRate: 48_000, decodedByteCount: 64)
+        )
+        store.padTracks.append(PadTrack(id: padID, label: "Custom", source: .external(reference)))
+
+        let locate = Task { await store.locateExternalPad(padID, at: URL(fileURLWithPath: "/tmp/New.wav")) }
+        await referencer.waitUntilCreateStarts()
+        store.padTracks.removeAll { $0.id == padID }
+        await referencer.failCreate()
+
+        #expect(await locate.value == false)
+        #expect(!store.padTracks.contains { $0.id == padID })
+        #expect(store.runtime.lastMessage == ExternalAudioReferenceError.unreadable.localizedDescription)
     }
 }

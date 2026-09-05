@@ -621,12 +621,19 @@ final class AppStore {
             runtime.lastMessage = song.padTrackID == nil ? "This song is set to No Pad" : "The assigned pad is missing"
             return
         }
+        liveStartGeneration &+= 1
+        let generation = liveStartGeneration
         runtime.padState = .preparing
         audioEngine.preparePad(pad) { [weak self] result in
             guard let self else { return }
+            guard self.liveStartGeneration == generation else {
+                if case let .success(prepared) = result { self.audioEngine.discardPreparedPad(prepared) }
+                return
+            }
             do {
                 let prepared = try result.get()
                 guard self.runtime.playingEntryID == playingEntry.id,
+                      self.runtime.padState == .preparing,
                       self.song(for: playingEntry)?.padTrackID == prepared.padID else {
                     self.audioEngine.discardPreparedPad(prepared)
                     return
@@ -638,6 +645,7 @@ final class AppStore {
                 self.runtime.lastMessage = "Pad started"
                 self.refreshAudioStatus()
             } catch {
+                guard self.liveStartGeneration == generation else { return }
                 self.runtime.padState = self.runtime.audiblePadTrackID == nil ? .off : .playing
                 self.runtime.lastMessage = error.localizedDescription
                 self.refreshAudioStatus()
@@ -1377,7 +1385,6 @@ final class AppStore {
             runtime.lastMessage = "Located \(previous.label)"
             return true
         } catch {
-            padTracks[index] = previous
             runtime.lastMessage = error.localizedDescription
             return false
         }

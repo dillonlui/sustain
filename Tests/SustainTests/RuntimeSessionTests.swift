@@ -650,6 +650,29 @@ struct RuntimeSessionTests {
         #expect(audio.padActivateCount == 0)
     }
 
+    @Test func stopDuringPlayingPadPreparationMakesLateCompletionHarmless() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        let song = try #require(store.song(for: store.cuedEntry))
+        #expect(store.setSongPadTrackID(song.id, padTrackID: nil))
+        store.startCuedSong()
+        #expect(store.runtime.playingEntryID != nil)
+        #expect(store.runtime.padState == .off)
+
+        #expect(store.setSongPadTrackID(song.id, padTrackID: PadTrack.includedID(for: .c)))
+        audio.defersPadPreparation = true
+        store.startPad()
+        #expect(store.runtime.padState == .preparing)
+        store.stopPad()
+        #expect(store.runtime.padState == .off)
+        audio.completePendingPadPreparation()
+
+        #expect(store.runtime.padState == .off)
+        #expect(store.runtime.audiblePadTrackID == nil)
+        #expect(audio.padActivateCount == 0)
+        #expect(store.runtime.lastMessage == "Pad stopped")
+    }
+
     @Test func startingNoPadLiveSongInvalidatesPendingRehearsePad() throws {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)

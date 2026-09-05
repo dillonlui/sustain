@@ -14,6 +14,11 @@ done
 [ ! -e "$SPARKLE_VERSION/XPCServices/Downloader.xpc" ] || {
     echo "ERROR: unused Downloader.xpc is present" >&2; exit 1;
 }
+FINDER_METADATA="$(find "$APP" -type f -name .DS_Store -print -quit)"
+if [ -n "$FINDER_METADATA" ]; then
+    echo "ERROR: Finder metadata is present in the app bundle" >&2
+    exit 1
+fi
 
 for ARCH in arm64 x86_64; do
     lipo "$EXECUTABLE" -verify_arch "$ARCH" >/dev/null
