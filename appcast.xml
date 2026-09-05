@@ -1,0 +1,60 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Sustain</title>
+        <item>
+            <title>1.1.1</title>
+            <pubDate>Sat, 05 Sep 2026 21:06:32 +0000</pubDate>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[# Sustain 1.1.1
+
+This release adds a custom Pad Library, early-pad Live workflow, catalog-based
+Rehearse surface, safer setlist clearing, and optional MIDI controller mappings.
+
+Custom pads retain stable IDs and reference approved external audio files in
+place. Sustain never deletes source audio. Songs can use an included pad, a
+custom pad, or No Pad. Live playback now prepares files and click buffers before
+an atomic activation, and a cued pad can be pre-rolled only while transport is
+fully idle.
+
+MIDI control is disabled by default. Settings can learn source-specific MIDI
+1.0 Note On and Control Change mappings for Start/Transition, cue navigation,
+Stop all, click, and the context-aware Live pad action. HID keyboard pedals are
+outside this feature's scope.
+
+## Known testing limitations
+
+MIDI controller support has automated coverage but has not been exercised with
+a physical USB or Bluetooth MIDI controller. Intel compatibility passes the
+full automated test, Universal 2 packaging, launch-smoke, and artifact-validation
+jobs on GitHub's Intel macOS runner, but this release has not been used on a
+physical Intel Mac. Real audio interfaces, removable and cloud-hosted external
+files, and assistive-technology workflows also have not completed manual QA.
+These limitations are accepted for 1.1.1 and are not claims of verified hardware
+compatibility.
+
+Official stable Developer ID builds add Sparkle 2's standard native update
+flow. Automatic checks remain opt-in and approximately daily; every install is
+an explicit choice. Checks and updater relaunch defer while Live or Rehearse
+audio is preparing, fading, or playing, and a failed library save blocks
+relaunch. Development, ad-hoc, CI, branch, and unpublished builds do not start
+Sparkle or contact the stable feed.
+
+The first Sparkle-enabled build is a one-time manual-install bootstrap for users
+of older builds. The physical-device and manual QA items above are explicitly
+deferred rather than represented as passed.
+
+The `v1.1.0` tag was not published: its protected workflow stopped before
+creating a release because the generated appcast had not yet received its
+feed-level signature. Version 1.1.1 corrects that release-pipeline ordering.
+]]></description>
+            <enclosure url="https://github.com/dillonlui/sustain/releases/download/v1.1.1/Sustain-1.1.1-4.zip" length="157988417" type="application/octet-stream" sparkle:edSignature="HFl1vZ4CsDIWFD7S4eP9XgN0QzYfK7RLwm+lSDyDHB3EXOt/x9VlL6R3sauNYK8xZffmIHMMu0uzNFs5XwDvCA=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: 9SXX5gGMpF0EKGAR7eCMCdj8DaIs8aGF+9Df2hbnbLsfvwA8XAqOkrAL1I/Uzr2wDpoflB++O3MwQ25iCuq4CA==
+length: 3339
+-->
