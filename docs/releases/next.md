@@ -1,4 +1,4 @@
-# Sustain — next release (unreleased)
+# Sustain 1.1.0 (unreleased)
 
 This release adds a custom Pad Library, early-pad Live workflow, catalog-based
 Rehearse surface, safer setlist clearing, and optional MIDI controller mappings.

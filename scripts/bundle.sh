@@ -68,9 +68,9 @@ BINARIES=()
 RES_BUNDLE=""
 SPARKLE_FRAMEWORK_SOURCE=""
 SPARKLE_LICENSE_SOURCE=""
-SWIFT_BUILD_FLAGS=()
+SWIFT_BUILD_SANDBOX_FLAG=""
 if [ "${SUSTAIN_DISABLE_SWIFTPM_SANDBOX:-0}" = "1" ]; then
-    SWIFT_BUILD_FLAGS+=(--disable-sandbox)
+    SWIFT_BUILD_SANDBOX_FLAG="--disable-sandbox"
 fi
 
 for ARCH in "${ARCHS[@]}"; do
@@ -83,7 +83,7 @@ for ARCH in "${ARCHS[@]}"; do
         -c "$CONFIG" \
         --triple "$TRIPLE" \
         --scratch-path "$SCRATCH" \
-        "${SWIFT_BUILD_FLAGS[@]}"
+        ${SWIFT_BUILD_SANDBOX_FLAG:+"$SWIFT_BUILD_SANDBOX_FLAG"}
 
     BINARIES+=("$BIN_DIR/$APP_NAME")
     if [ "$ARCH" = "arm64" ]; then
@@ -123,6 +123,10 @@ echo "   Architectures: $(lipo -archs "$CONTENTS/MacOS/$APP_NAME")"
 # path (that path is inside ~/Documents and would trigger a TCC prompt).
 if [ -d "$RES_BUNDLE" ]; then
     cp -R "$RES_BUNDLE" "$CONTENTS/Resources/"
+    # SwiftPM's copied resource directory can contain ignored Finder metadata from a
+    # developer checkout. Keep it out of the signed canonical app and distribution
+    # containers; some sandboxed runners cannot read its extended attributes later.
+    find "$CONTENTS/Resources/$(basename "$RES_BUNDLE")" -type f -name .DS_Store -delete
 fi
 
 if [ ! -d "$SPARKLE_FRAMEWORK_SOURCE" ]; then
@@ -192,12 +196,15 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
-SIGN_ARGS=(--force --sign "$SIGN_IDENTITY" --options runtime)
+SIGN_ARGS=(--force --sign "$SIGN_IDENTITY")
 if [ "$SIGN_IDENTITY" = "-" ]; then
     echo "==> Ad-hoc signing"
 else
     echo "==> Developer ID signing"
-    SIGN_ARGS+=(--timestamp)
+    # Hardened runtime is mandatory for notarized distribution. Do not enable it
+    # for ad-hoc builds: library validation cannot establish a common Team ID for
+    # independently ad-hoc-signed app and framework code, so dyld rejects Sparkle.
+    SIGN_ARGS+=(--options runtime --timestamp)
 fi
 
 # Sparkle's documented manual inside-out signing order. Keeping this explicit makes a

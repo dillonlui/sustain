@@ -27,6 +27,8 @@ jobs:
         run: swift test
       - name: Build and validate a Universal 2 package
         run: scripts/package.sh debug
+      - name: Smoke-test packaged app launch
+        run: scripts/verify-app-launch.sh build/stage/Sustain.app
       - name: Verify disk image checksum
         run: hdiutil verify dist/Sustain-*.dmg
       - name: Verify Sparkle archive and container identity
