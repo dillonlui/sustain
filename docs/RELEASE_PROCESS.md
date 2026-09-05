@@ -83,9 +83,9 @@ Rotation is a protected incident/release operation:
 Record the rotation rehearsal and approvals in the tracker. A paper-only
 rotation plan is not release evidence.
 
-## 1.1.0 accepted QA exceptions
+## 1.1.1 accepted QA exceptions
 
-For 1.1.0, Product accepted release without physical USB/Bluetooth MIDI,
+For 1.1.1, Product accepted release without physical USB/Bluetooth MIDI,
 physical Intel Mac, real audio-interface/file-provider, or assistive-technology
 testing. Release notes must disclose these as unverified; automated Intel CI and
 Universal 2 validation must not be described as physical Intel usage. This

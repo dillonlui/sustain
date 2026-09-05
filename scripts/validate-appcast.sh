@@ -3,7 +3,9 @@ set -euo pipefail
 APPCAST="${1:?appcast path required}"
 xmllint --noout "$APPCAST"
 
-grep -q 'sparkle:signature=' "$APPCAST" || { echo "ERROR: signed appcast signature absent" >&2; exit 1; }
+grep -q '<!-- sparkle-signatures:' "$APPCAST" || { echo "ERROR: signed appcast signature block absent" >&2; exit 1; }
+grep -Eq '^edSignature: [A-Za-z0-9+/]+={0,2}$' "$APPCAST" || { echo "ERROR: signed appcast EdDSA signature absent" >&2; exit 1; }
+grep -Eq '^length: [1-9][0-9]*$' "$APPCAST" || { echo "ERROR: signed appcast length absent" >&2; exit 1; }
 grep -q '<sparkle:version>[1-9][0-9]*</sparkle:version>' "$APPCAST" || { echo "ERROR: numeric build absent" >&2; exit 1; }
 grep -Eq '<sparkle:shortVersionString>[0-9]+\.[0-9]+\.[0-9]+</sparkle:shortVersionString>' "$APPCAST" || { echo "ERROR: stable display version absent" >&2; exit 1; }
 grep -Eq '<sparkle:minimumSystemVersion>[0-9]+\.[0-9]+\.[0-9]+</sparkle:minimumSystemVersion>' "$APPCAST" || { echo "ERROR: three-part minimum macOS absent" >&2; exit 1; }
