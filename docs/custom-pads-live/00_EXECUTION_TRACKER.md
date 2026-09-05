@@ -58,6 +58,7 @@ dispatch must wait for schema/action coordination.
 | 2026-08-25 | Updater bootstrap | Release | Existing builds have no Sparkle path and require one manual DMG install. Before bootstrap, prove lower→higher signed Sparkle builds; later releases test from the prior public version. |
 | 2026-08-25 | Baseline verification | Engineering | Initial `swift test` was blocked by the managed sandbox's default Clang cache path; rerun with task-local cache paths under `/tmp`. No product-code failure was observed. |
 | 2026-08-25 | Distribution capability model | Engineering/Release | Chosen model: App Sandbox with app-scoped bookmarks, user-selected read-only files, and outbound network client. No audio-input, USB, or Bluetooth entitlement is present. Slice 08A adds only Sparkle's documented `com.sustain.app-spks`/`-spki` mach-lookup exception required by its Installer XPC service; Downloader.xpc is removed because the app already owns network client access. `config/Sustain.entitlements` is applied by both ad-hoc and Developer ID bundle paths and verified from the signed artifact. Physical capability and Developer ID/notarized evidence remains a Slice 08 release gate. |
+| 2026-09-05 | 1.1.0 physical QA exception | Product/Release | Ship 1.1.0 without physical MIDI-controller, physical Intel Mac, real audio-interface/file-provider, or assistive-technology testing. Disclose each limitation in the public notes and do not represent automated Intel runner coverage as real-machine usage. Signing, notarization, signed artifacts, and appcast-last integrity remain mandatory. |
 
 ## Cross-slice invariants
 
@@ -114,11 +115,12 @@ dispatch must wait for schema/action coordination.
 | 2026-08-25 | 08 | Working tree (no commit requested) | Final full `swift test --disable-sandbox`: 135 passed in 10 suites. Final Universal ad-hoc `scripts/package.sh debug` passed strict nested signatures, capability verification, architecture/minimum-OS/rpath checks, DMG checksum/mount, ZIP extraction, and identical recursive app manifests. | End-to-end integration persists the imported external pad and assignment while atomically clearing only the setlist. Rehearse/Live click preparation is now explicit active audio and generation-guarded against late activation after Stop. README, release notes, third-party notices, protected release/runbook, and both trackers reflect the final software boundary. Remaining items below require a signed/notarized candidate, physical devices/interfaces, assistive-technology/manual observation, credentials, or external staging/hosting and are not claimed passed. |
 | 2026-09-05 | Pre-release hardening and review | Working tree | The formerly flaky full-roadmap test passed 10 focused runs and five consecutive full-suite runs; the final 142-test suite and AddressSanitizer/ThreadSanitizer runs pass. Universal ad-hoc 1.1.0 build 3 packaging passes architecture, signatures, entitlements, DMG/ZIP identity, and checksums after Bash 3.2, Finder-metadata, and ad-hoc Sparkle library-validation fixes. | Review added stale Live-pad preparation and concurrent failed-Locate guards with regression coverage, explicit protected-secret/variable preflight, fail-closed appcast retrieval, and a one-time bootstrap switch. Release metadata is prepared as 1.1.0 build 3, greater than all prior public bundle builds. Protected credentials/environment, signed staging update, hardware, and manual QA remain external gates. |
 
-## Final manual QA still required
+## Manual QA deferred from 1.1.0
 
-All implementable repository work and automated checks are complete. The
-following release gates remain deliberately unchecked; none was inferred from
-the ad-hoc build or published to production.
+All implementable repository work and automated checks are complete. Product
+accepted shipping 1.1.0 with the following items deliberately unchecked; none
+is inferred from the ad-hoc build or represented as passed. They remain follow-up
+QA for a later maintenance release.
 
 - [ ] Finder picker and drag/drop with MP3, M4A, WAV, and one invalid file.
 - [ ] Signed capability spike and final artifact entitlement inspection.
