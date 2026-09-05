@@ -39,7 +39,7 @@ struct ReleasePipelineTests {
     ) -> String {
         """
         <?xml version="1.0" encoding="utf-8"?>
-        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"\(signed ? " sparkle:signature=\"feed-signature\"" : "")>
+        <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
           <channel><item>
             <title>Sustain \(version)</title>
             <sparkle:version>\(build)</sparkle:version>
@@ -48,7 +48,13 @@ struct ReleasePipelineTests {
             <pubDate>Tue, 25 Aug 2026 00:00:00 +0000</pubDate>
             <enclosure url="\(url)" length="1234" type="application/octet-stream" sparkle:edSignature="archive-signature"/>
           </item></channel>
-        </rss>
+        </rss>\(signed ? """
+
+        <!-- sparkle-signatures:
+        edSignature: ZmVlZC1zaWduYXR1cmU=
+        length: 1234
+        -->
+        """ : "")
         """
     }
 

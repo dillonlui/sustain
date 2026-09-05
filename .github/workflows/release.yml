@@ -131,6 +131,8 @@ jobs:
             --ed-key-file - --embed-release-notes --maximum-deltas 0 \
             --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/" \
             appcast-stage
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update \
+            --ed-key-file - appcast-stage/appcast.xml
           scripts/validate-appcast.sh appcast-stage/appcast.xml
           printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update \
             --verify --ed-key-file - appcast-stage/appcast.xml
