@@ -220,6 +220,39 @@ struct RuntimeSessionTests {
         #expect(store.runtime.lastMessage == AudioEngineError.invalidOutputFormat.localizedDescription)
     }
 
+    @Test func lateTransitionPreparationDoesNotRestoreStoppedSong() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedSong()
+        store.cueNextSong()
+
+        audio.defersClickPreparation = true
+        store.startCuedSong()
+        #expect(store.runtime.playbackPhase == .songStarting)
+
+        store.stop()
+        audio.completePendingClickPreparation()
+
+        #expect(store.runtime.playingEntryID == nil)
+        #expect(store.runtime.playbackPhase == .noSongPlaying)
+        #expect(store.runtime.clickState == .off)
+        #expect(!audio.isClickActive)
+    }
+
+    @Test func rejectedPadActivationDoesNotStartClickOrClaimPad() {
+        let audio = RecordingAudioEngine()
+        audio.shouldRejectPadActivation = true
+        let store = AppStore.preview(audioEngine: audio)
+
+        store.startCuedSong()
+
+        #expect(store.runtime.playingEntryID == nil)
+        #expect(store.runtime.padState == .off)
+        #expect(store.runtime.clickState == .off)
+        #expect(store.runtime.audiblePadTrackID == nil)
+        #expect(audio.clickStartCount == 0)
+    }
+
     @Test func padStartupFailureStopsClickForInitialSong() {
         let audio = RecordingAudioEngine()
         audio.shouldFailPadStart = true

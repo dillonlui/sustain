@@ -149,7 +149,14 @@ extension RuntimeSessionTests {
         try Data("{not-json".utf8).write(to: libraryURL)
         let recovered = try #require(try libraryStore.loadLibrary())
         #expect(recovered.activeSetlist.title == "Backup Copy")
-        #expect(!FileManager.default.fileExists(atPath: libraryURL.path))
+        #expect(FileManager.default.fileExists(atPath: libraryURL.path))
+        let reopened = try #require(try libraryStore.loadLibrary())
+        #expect(reopened.activeSetlist.title == "Backup Copy")
+
+        // Recovery must also survive a failed primary rewrite on the prior launch.
+        try FileManager.default.removeItem(at: libraryURL)
+        let recoveredWithoutPrimary = try #require(try libraryStore.loadLibrary())
+        #expect(recoveredWithoutPrimary.activeSetlist.title == "Backup Copy")
     }
 
     @Test func routingNormalizerAppliesOutputResolutionRules() {
@@ -242,6 +249,33 @@ extension RuntimeSessionTests {
             }
             // The valid (future) file must be preserved, not quarantined or overwritten.
             #expect(FileManager.default.fileExists(atPath: libraryURL.path))
+        }
+    }
+
+    @Test func newerSchemaBackupIsNotReplacedWhenPrimaryIsMissing() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let libraryURL = try libraryStore.applicationSupportDirectory()
+            .appendingPathComponent("Library.json", isDirectory: false)
+        let backupURL = directory.appendingPathComponent("Library.bak", isDirectory: false)
+
+        try libraryStore.saveLibrary(AppStore.seedSnapshot())
+        var object = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: libraryURL)) as? [String: Any]
+        )
+        object["schemaVersion"] = LibrarySnapshot.currentSchemaVersion + 1
+        let futureData = try JSONSerialization.data(withJSONObject: object)
+        try futureData.write(to: backupURL)
+        try FileManager.default.removeItem(at: libraryURL)
+
+        do {
+            _ = try libraryStore.loadLibrary()
+            Issue.record("Expected newer-schema backup load to throw")
+        } catch let error as LibraryLoadError {
+            guard case .newerSchema = error else { Issue.record("Wrong error: \(error)"); return }
+            #expect(!FileManager.default.fileExists(atPath: libraryURL.path))
+            #expect(try Data(contentsOf: backupURL) == futureData)
         }
     }
 

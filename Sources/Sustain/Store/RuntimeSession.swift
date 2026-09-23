@@ -395,8 +395,11 @@ final class AppStore {
                 settings: self.clickSettings
             ) { [weak self] clickResult in
                 guard let self else { return }
-                guard self.liveStartGeneration == startGeneration,
-                      self.runtime.cuedEntryID == cuedEntry.id,
+                guard self.liveStartGeneration == startGeneration else {
+                    if let preparedPad { self.audioEngine.discardPreparedPad(preparedPad) }
+                    return
+                }
+                guard self.runtime.cuedEntryID == cuedEntry.id,
                       self.song(for: cuedEntry)?.padTrackID == cuedSong.padTrackID else {
                     if let preparedPad { self.audioEngine.discardPreparedPad(preparedPad) }
                     self.restoreRuntimeAfterFailedPreparation(
@@ -410,10 +413,15 @@ final class AppStore {
                     let countoffStartedAt = ContinuousClock.now
                     // Commit only after every target resource is ready. These activation calls
                     // schedule already-owned buffers and are deliberately nonthrowing.
-                    self.clickStateTask?.cancel()
-                    self.audioEngine.activateClick(preparedClick)
                     if let preparedPad {
-                        self.audioEngine.activatePad(preparedPad)
+                        guard self.audioEngine.activatePad(preparedPad) else {
+                            self.restoreRuntimeAfterFailedPreparation(
+                                previousRuntime,
+                                message: "Pad preparation was superseded; try again"
+                            )
+                            self.refreshAudioStatus()
+                            return
+                        }
                         self.runtime.audiblePadTrackID = preparedPad.padID
                         self.runtime.audiblePadEntryID = cuedEntry.id
                         self.beginPadFadeInState(for: preparedPad.padID, rehearse: false)
@@ -423,6 +431,8 @@ final class AppStore {
                     } else {
                         self.beginLivePadFadeOut(message: nil)
                     }
+                    self.clickStateTask?.cancel()
+                    self.audioEngine.activateClick(preparedClick)
                     self.runtime.playingEntryID = cuedEntry.id
                     self.runtime.playbackPhase = .songPlaying
                     self.beginCountoff(
@@ -597,7 +607,12 @@ final class AppStore {
                     if self.liveStartGeneration == generation { self.runtime.padState = .off }
                     return
                 }
-                self.audioEngine.activatePad(prepared)
+                guard self.audioEngine.activatePad(prepared) else {
+                    self.runtime.padState = .off
+                    self.runtime.lastMessage = "Pad preparation was superseded; try again"
+                    self.refreshAudioStatus()
+                    return
+                }
                 self.runtime.audiblePadTrackID = prepared.padID
                 self.runtime.audiblePadEntryID = cuedEntry.id
                 self.beginPadFadeInState(for: prepared.padID, rehearse: false)
@@ -638,7 +653,12 @@ final class AppStore {
                     self.audioEngine.discardPreparedPad(prepared)
                     return
                 }
-                self.audioEngine.activatePad(prepared)
+                guard self.audioEngine.activatePad(prepared) else {
+                    self.runtime.padState = self.runtime.audiblePadTrackID == nil ? .off : .playing
+                    self.runtime.lastMessage = "Pad preparation was superseded; try again"
+                    self.refreshAudioStatus()
+                    return
+                }
                 self.runtime.audiblePadTrackID = prepared.padID
                 self.runtime.audiblePadEntryID = playingEntry.id
                 self.beginPadFadeInState(for: prepared.padID, rehearse: false)
@@ -704,7 +724,12 @@ final class AppStore {
                     self.audioEngine.discardPreparedPad(prepared)
                     return
                 }
-                self.audioEngine.activatePad(prepared)
+                guard self.audioEngine.activatePad(prepared) else {
+                    self.rehearse.padState = .off
+                    self.rehearse.lastMessage = "Pad preparation was superseded; try again"
+                    self.refreshAudioStatus()
+                    return
+                }
                 self.beginPadFadeInState(for: prepared.padID, rehearse: true)
                 self.rehearse.lastMessage = "\(pad.label) playing in Rehearse"
                 self.refreshAudioStatus()

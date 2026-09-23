@@ -37,7 +37,7 @@ protocol AudioControlling: AnyObject {
         _ pad: PadTrack,
         completion: @escaping @MainActor @Sendable (Result<PreparedPad, Error>) -> Void
     )
-    func activatePad(_ prepared: PreparedPad)
+    @discardableResult func activatePad(_ prepared: PreparedPad) -> Bool
     func discardPreparedPad(_ prepared: PreparedPad)
     func cancelPendingPadPreparation()
     func prepareClick(
@@ -352,15 +352,15 @@ final class SustainAudioEngine: AudioControlling {
         }
     }
 
-    func activatePad(_ prepared: PreparedPad) {
+    @discardableResult func activatePad(_ prepared: PreparedPad) -> Bool {
         guard prepared.generation == preparationGeneration,
               preparedKeysByToken.removeValue(forKey: prepared.token) != nil else {
             discardPreparedPad(prepared)
-            return
+            return false
         }
         if activePadTrackID == prepared.padID, activePadMemoryKey == prepared.key {
             padMemoryStore.release(prepared.key)
-            return
+            return true
         }
 
         let oldMemoryKey = activePadMemoryKey
@@ -377,6 +377,7 @@ final class SustainAudioEngine: AudioControlling {
                 padMemoryStore.release(oldMemoryKey)
             }
         }
+        return true
     }
 
     func discardPreparedPad(_ prepared: PreparedPad) {
@@ -1075,7 +1076,10 @@ final class SilentAudioEngine: AudioControlling {
         )))
     }
 
-    func activatePad(_ prepared: PreparedPad) { padIsActive = true }
+    @discardableResult func activatePad(_ prepared: PreparedPad) -> Bool {
+        padIsActive = true
+        return true
+    }
     func discardPreparedPad(_ prepared: PreparedPad) {}
     func cancelPendingPadPreparation() {}
 

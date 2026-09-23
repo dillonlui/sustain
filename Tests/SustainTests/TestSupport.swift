@@ -29,6 +29,7 @@ final class RecordingAudioEngine: AudioControlling {
     var preloadedKeys: [MusicalKey] = []
     var shouldFailPadStart = false
     var shouldFailClickStart = false
+    var shouldRejectPadActivation = false
     var shouldFailConfigureRouting = false
     var defersPadPreparation = false
     var defersClickPreparation = false
@@ -89,11 +90,13 @@ final class RecordingAudioEngine: AudioControlling {
         }
     }
 
-    func activatePad(_ prepared: PreparedPad) {
+    @discardableResult func activatePad(_ prepared: PreparedPad) -> Bool {
+        guard !shouldRejectPadActivation else { return false }
         padActivateCount += 1
         padStartCount += 1
         if let key = preparedPadKeys.removeValue(forKey: prepared.token) { startedPadKeys.append(key) }
         padIsActive = true
+        return true
     }
 
     func discardPreparedPad(_ prepared: PreparedPad) {}

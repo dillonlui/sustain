@@ -244,7 +244,7 @@ struct LocalLibraryStore {
     func loadLibrary() throws -> LibrarySnapshot? {
         let url = try libraryURL()
         guard fileManager.fileExists(atPath: url.path) else {
-            return nil
+            return try recoverFromBackup(to: url)
         }
 
         do {
@@ -265,7 +265,7 @@ struct LocalLibraryStore {
             // previous good save) before giving up. This turns the common "file got mangled"
             // case from "library wiped, demo seed shown" into "last save recovered".
             try? quarantineLibrary(at: url)
-            if let backup = try? backupURL(), let recovered = try? decodeSnapshot(at: backup) {
+            if let recovered = try recoverFromBackup(to: url) {
                 return recovered
             }
             throw error
@@ -307,6 +307,25 @@ struct LocalLibraryStore {
 
     private func backupURL() throws -> URL {
         try applicationSupportDirectory().appendingPathComponent("Library.bak", isDirectory: false)
+    }
+
+    private func restorePrimary(from backup: URL, to primary: URL) throws {
+        let data = try Data(contentsOf: backup)
+        try data.write(to: primary, options: [.atomic])
+    }
+
+    private func recoverFromBackup(to primary: URL) throws -> LibrarySnapshot? {
+        let backup = try backupURL()
+        guard fileManager.fileExists(atPath: backup.path) else { return nil }
+        do {
+            let recovered = try decodeSnapshot(at: backup)
+            try? restorePrimary(from: backup, to: primary)
+            return recovered
+        } catch let error as LibraryLoadError {
+            throw error
+        } catch {
+            return nil
+        }
     }
 
     private func quarantineLibrary(at url: URL) throws {
