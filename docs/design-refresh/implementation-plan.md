@@ -1,6 +1,6 @@
 # Sustain visual system refresh — implementation plan
 
-**Status:** Foundation committed; Rehearse is the first runtime pilot, pending manual state walkthrough. Live remains a static composition.
+**Status:** Foundation and Rehearse pilot committed; Live and the supporting shell/library palette are implemented on the refresh branch, pending manual audio and accessibility walkthrough.
 **Direction:** [Signal Grid with open Pad/Click status](future-signal/signal-grid-live-open-status.png), informed by [Future Signal research and explorations](future-signal/README.md).
 **Grounding:** [Current design system](../11_Design_System.md), [brand brief](../sustain_brand_assets_final/sustain-brand-brief.md), [Live layout findings](../13_Live_Layout_Investigation.md), and current SwiftUI code.
 
@@ -10,7 +10,7 @@ We are ready for an implementation plan, but not for a screen-by-screen reskin d
 
 ## Current implementation checkpoint
 
-The first pass of [system tokens and state rules](system-spec.md), [interaction rules](interaction-contract.md), reusable SwiftUI components, and static Live/Rehearse compositions was committed as `b68cc0d` on `codex/future-signal-design-system`. Review the [actual SwiftUI renders](renders/README.md) alongside the generated visual reference. The Rehearse runtime pilot now uses the shared components, with its [acceptance walkthrough](rehearse-acceptance.md) still to be completed on an unlocked Mac. Live still uses its previous runtime presentation.
+The first pass of [system tokens and state rules](system-spec.md), [interaction rules](interaction-contract.md), reusable SwiftUI components, and static Live/Rehearse compositions was committed as `b68cc0d` on `codex/future-signal-design-system`. The Rehearse runtime pilot was committed as `b8152ef`. Live now uses the shared readouts, statuses, transport, setlist row, and levels; the shell and library surfaces share the semantic palette. Review both the [static and integrated SwiftUI renders](renders/README.md). The [Live](live-acceptance.md) and [Rehearse](rehearse-acceptance.md) manual audio/accessibility walkthroughs remain before release.
 
 ## Locked direction for the first design-system pass
 
@@ -73,7 +73,7 @@ The first pass of [system tokens and state rules](system-spec.md), [interaction 
 
 ## Work sequencing and current branch
 
-The pre-refresh click-subdivision work was committed as `4758e1e` and the exploration documents as `56a7a41` on `main`, leaving a clean rollback point. The refresh is staged on `codex/future-signal-design-system`: foundation (`b68cc0d`), Rehearse pilot, then Live and remaining screens. Each stage should be committed separately after its build, behavior, and visual review.
+The pre-refresh click-subdivision work was committed as `4758e1e` and the exploration documents as `56a7a41` on `main`, leaving a clean rollback point. The refresh is staged on `codex/future-signal-design-system`: foundation (`b68cc0d`), Rehearse pilot (`b8152ef`), then Live and remaining screens. Each stage should be committed separately after its build, behavior, and visual review.
 
 ## Decisions still to review
 

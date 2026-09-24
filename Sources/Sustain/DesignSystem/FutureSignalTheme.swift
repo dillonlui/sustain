@@ -4,8 +4,12 @@ import SwiftUI
 /// so previews and the app's System / Light / Dark setting share the same source of truth.
 struct FutureSignalColor {
     let canvas: Color
+    let sidebar: Color
     let performanceSurface: Color
+    let panel: Color
+    let panelElevated: Color
     let surfaceEdge: Color
+    let divider: Color
     let activeSignal: Color
     let cuedEdge: Color
     let focus: Color
@@ -19,10 +23,16 @@ struct FutureSignalColor {
         let highContrast = contrast == .increased
 
         canvas = dark ? Self.rgb(14, 16, 15) : Self.rgb(242, 241, 235)
+        sidebar = dark ? Self.rgb(17, 22, 19) : Self.rgb(233, 236, 229)
         performanceSurface = dark ? Self.rgb(18, 23, 21) : Self.rgb(250, 250, 246)
+        panel = dark ? Self.rgb(23, 28, 25) : Self.rgb(255, 255, 255)
+        panelElevated = dark ? Self.rgb(30, 37, 32) : Self.rgb(244, 247, 241)
         surfaceEdge = dark
             ? Self.rgb(highContrast ? 127 : 68, highContrast ? 157 : 92, highContrast ? 136 : 80)
             : Self.rgb(highContrast ? 68 : 151, highContrast ? 98 : 170, highContrast ? 75 : 154)
+        divider = dark
+            ? Self.rgb(highContrast ? 127 : 54, highContrast ? 157 : 72, highContrast ? 136 : 62)
+            : Self.rgb(highContrast ? 68 : 178, highContrast ? 98 : 190, highContrast ? 75 : 175)
         activeSignal = dark
             ? Self.rgb(highContrast ? 183 : 157, highContrast ? 255 : 226, highContrast ? 194 : 173)
             : Self.rgb(highContrast ? 19 : 37, highContrast ? 89 : 120, highContrast ? 48 : 65)

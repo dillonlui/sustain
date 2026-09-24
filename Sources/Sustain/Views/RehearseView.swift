@@ -11,9 +11,10 @@ struct RehearseView: View {
 
     // The click panel's controls (Accent + Countoff segmented rows, tempo, faders)
     // need ~560pt to lay out without crowding; with the pad column (~400) plus
-    // spacing and screen padding the two-column layout needs ~1040pt. Below that we
+    // spacing and screen padding the two-column layout needs ~960pt. This is the
+    // detail pane width, after the root sidebar has taken its 220pt. Below that we
     // stack, so panels always keep their edge margins instead of overflowing.
-    private let twoColumnMinWidth: CGFloat = 1040
+    private let twoColumnMinWidth: CGFloat = 960
 
     private var palette: FutureSignalColor {
         FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
@@ -27,7 +28,7 @@ struct RehearseView: View {
                 ScrollView {
                     VStack(spacing: SustainSpace.xxl) {
                         performanceStatus
-                        columns(isWide: proxy.size.width >= twoColumnMinWidth)
+                        columns(availableWidth: proxy.size.width)
                     }
                         .frame(maxWidth: .infinity, alignment: .top)
                         .padding(SustainSpace.screen)
@@ -41,11 +42,12 @@ struct RehearseView: View {
     }
 
     @ViewBuilder
-    private func columns(isWide: Bool) -> some View {
-        if isWide {
+    private func columns(availableWidth: CGFloat) -> some View {
+        if availableWidth >= twoColumnMinWidth {
+            let padWidth = min(440, availableWidth - 2 * SustainSpace.screen - SustainSpace.xxl - 520)
             HStack(alignment: .top, spacing: SustainSpace.xxl) {
                 padPanel
-                    .frame(minWidth: 360, maxWidth: 440, alignment: .top)
+                    .frame(width: padWidth, alignment: .top)
                 clickPanel
                     .frame(minWidth: 520, maxWidth: .infinity, alignment: .top)
             }
@@ -186,64 +188,29 @@ struct RehearseView: View {
         VStack(alignment: .leading, spacing: 22) {
                 sectionHeading("Click", state: clickChannelState.label)
 
-                HStack(alignment: .center, spacing: 18) {
-                    Button {
-                        if store.rehearse.clickState == .off {
-                            store.startRehearseClick()
-                        } else {
-                            store.stopRehearseClick()
-                        }
-                    } label: {
-                        Label(
-                            store.rehearse.clickState == .off ? "Play Click" : "Pause Click",
-                            systemImage: store.rehearse.clickState == .off ? "play.fill" : "pause.fill"
-                        )
-                        .frame(minWidth: 148)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 18) {
+                        playClickButton
+                        countoffToggle
+                        timeSignaturePicker
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(palette.activeSignal)
-                    .controlSize(.large)
-
-                    LitToggleButton(
-                        title: "Countoff",
-                        systemImage: "timer",
-                        tint: palette.activeSignal,
-                        isOn: countoffBinding
-                    )
-
-                    Picker("Time", selection: timeSignatureBinding) {
-                        ForEach(TimeSignature.common, id: \.self) { timeSignature in
-                            Text(timeSignature.description).tag(timeSignature)
+                    VStack(alignment: .leading, spacing: SustainSpace.sm) {
+                        playClickButton
+                        HStack(spacing: 18) {
+                            countoffToggle
+                            timeSignaturePicker
                         }
                     }
-                    .frame(width: 124)
                 }
 
-                HStack(spacing: 18) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Accent")
-                            .font(.caption)
-                            .foregroundStyle(palette.textSecondary)
-                        Picker("Accent", selection: clickAccentModeBinding) {
-                            ForEach(ClickAccentMode.allCases) { mode in
-                                Text(mode.rawValue).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(maxWidth: .infinity)
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 18) {
+                        accentPicker
+                        countoffSoundPicker
                     }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Countoff")
-                            .font(.caption)
-                            .foregroundStyle(palette.textSecondary)
-                        Picker("Countoff Sound", selection: countoffSoundBinding) {
-                            ForEach(CountoffSound.allCases) { sound in
-                                Text(sound.label).tag(sound)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: SustainSpace.md) {
+                        accentPicker
+                        countoffSoundPicker
                     }
                 }
 
@@ -303,6 +270,71 @@ struct RehearseView: View {
         }
         .padding(SustainSpace.lg)
         .background(panelBackground)
+    }
+
+    private var playClickButton: some View {
+        Button {
+            if store.rehearse.clickState == .off {
+                store.startRehearseClick()
+            } else {
+                store.stopRehearseClick()
+            }
+        } label: {
+            Label(
+                store.rehearse.clickState == .off ? "Play Click" : "Pause Click",
+                systemImage: store.rehearse.clickState == .off ? "play.fill" : "pause.fill"
+            )
+            .frame(minWidth: 148)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(palette.activeSignal)
+        .controlSize(.large)
+    }
+
+    private var countoffToggle: some View {
+        LitToggleButton(
+            title: "Countoff",
+            systemImage: "timer",
+            tint: palette.activeSignal,
+            isOn: countoffBinding
+        )
+    }
+
+    private var timeSignaturePicker: some View {
+        Picker("Time", selection: timeSignatureBinding) {
+            ForEach(TimeSignature.common, id: \.self) { timeSignature in
+                Text(timeSignature.description).tag(timeSignature)
+            }
+        }
+        .frame(width: 124)
+    }
+
+    private var accentPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Accent")
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary)
+            Picker("Accent", selection: clickAccentModeBinding) {
+                ForEach(ClickAccentMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    private var countoffSoundPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Countoff")
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary)
+            Picker("Countoff Sound", selection: countoffSoundBinding) {
+                ForEach(CountoffSound.allCases) { sound in
+                    Text(sound.label).tag(sound)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
     }
 
     private var volumeConsole: some View {

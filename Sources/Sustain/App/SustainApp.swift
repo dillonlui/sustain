@@ -108,7 +108,7 @@ struct SustainCommands: Commands {
                 store.startCuedSong()
             }
             .keyboardShortcut(.return, modifiers: .command)
-            .disabled(store.cuedEntry == nil || store.isCuedSongPlaying)
+            .disabled(store.cuedEntry == nil || store.isCuedSongPlaying || store.runtime.playbackPhase == .songStarting)
 
             Button("Previous Song") {
                 store.cuePreviousSong()
@@ -177,6 +177,13 @@ struct SustainCommands: Commands {
 }
 
 struct AppSettingsView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
+
     var body: some View {
         TabView {
             GeneralSettingsView()
@@ -186,6 +193,7 @@ struct AppSettingsView: View {
             MIDIControllerSettingsView()
                 .tabItem { Label("MIDI Controller", systemImage: "pianokeys") }
         }
+        .tint(palette.activeSignal)
     }
 }
 

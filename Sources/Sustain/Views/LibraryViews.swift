@@ -4,8 +4,14 @@ import SwiftUI
 
 struct SongLibraryView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var addConfirmation: AddConfirmation?
     @State private var confirmationTask: Task<Void, Never>?
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,38 +21,36 @@ struct SongLibraryView: View {
                 VStack(alignment: .leading, spacing: SustainSpace.xxl) {
                     librarySummaryPanel
 
-                    SustainPanel {
-                        VStack(alignment: .leading, spacing: SustainSpace.lg) {
-                            SustainSectionHeader(
-                                title: "Songs",
-                                value: "\(store.songs.count)",
-                                systemImage: "music.note.list",
-                                tint: SustainColor.accent,
-                                isActive: !store.songs.isEmpty
-                            )
+                    VStack(alignment: .leading, spacing: SustainSpace.lg) {
+                        SustainSectionHeader(
+                            title: "Songs",
+                            value: "\(store.songs.count)",
+                            systemImage: "music.note.list",
+                            tint: palette.activeSignal,
+                            isActive: !store.songs.isEmpty
+                        )
 
-                            LazyVStack(spacing: SustainSpace.sm) {
-                                ForEach(store.songs) { song in
-                                    SongLibraryRow(
-                                        song: song,
-                                        padTracks: store.padTracks,
-                                        title: titleBinding(for: song.id),
-                                        key: keyBinding(for: song.id),
-                                        bpm: bpmBinding(for: song.id),
-                                        timeSignature: timeSignatureBinding(for: song.id),
-                                        clickSubdivision: subdivisionBinding(for: song.id),
-                                        isAdded: addConfirmation?.songID == song.id,
-                                        onAddToSetlist: {
-                                            addToSetlist(song)
-                                        },
-                                        onSetPad: { padTrackID in
-                                            _ = store.setSongPadTrackID(song.id, padTrackID: padTrackID)
-                                        },
-                                        onDelete: {
-                                            store.deleteSong(song.id)
-                                        }
-                                    )
-                                }
+                        LazyVStack(spacing: SustainSpace.sm) {
+                            ForEach(store.songs) { song in
+                                SongLibraryRow(
+                                    song: song,
+                                    padTracks: store.padTracks,
+                                    title: titleBinding(for: song.id),
+                                    key: keyBinding(for: song.id),
+                                    bpm: bpmBinding(for: song.id),
+                                    timeSignature: timeSignatureBinding(for: song.id),
+                                    clickSubdivision: subdivisionBinding(for: song.id),
+                                    isAdded: addConfirmation?.songID == song.id,
+                                    onAddToSetlist: {
+                                        addToSetlist(song)
+                                    },
+                                    onSetPad: { padTrackID in
+                                        _ = store.setSongPadTrackID(song.id, padTrackID: padTrackID)
+                                    },
+                                    onDelete: {
+                                        store.deleteSong(song.id)
+                                    }
+                                )
                             }
                         }
                     }
@@ -56,7 +60,7 @@ struct SongLibraryView: View {
         }
         // Clear the window's traffic-light / title-bar zone (the screen fills to the top).
         .padding(.top, SustainLayout.topChrome)
-        .sustainScreenBackground(.standard)
+        .background(palette.canvas)
         .overlay(alignment: .bottom) {
             if let addConfirmation {
                 SustainInlineNotice(message: addConfirmation.message, kind: .success)
@@ -76,34 +80,39 @@ struct SongLibraryView: View {
             Button("Add Song", systemImage: "plus") {
                 _ = store.addSong()
             }
-            .sustainProminentButton()
+            .buttonStyle(.borderedProminent)
+            .tint(palette.activeSignal)
         }
     }
 
     private var librarySummaryPanel: some View {
-        SustainPanel(material: .regularMaterial, isActive: !store.songs.isEmpty) {
-            HStack(alignment: .center, spacing: SustainSpace.xl) {
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(SustainColor.accent)
-                    .frame(width: 44)
+        HStack(alignment: .center, spacing: SustainSpace.xl) {
+            Image(systemName: "music.note.list")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundStyle(palette.activeSignal)
+                .frame(width: 44)
 
-                VStack(alignment: .leading, spacing: SustainSpace.xs) {
-                    Text("\(store.songs.count) songs ready")
-                        .font(.title2.weight(.semibold))
-                    Text(store.persistenceStatus)
-                        .font(.callout)
-                        .foregroundStyle(SustainColor.textSecondary)
-                }
-
-                Spacer()
-
-                SignalIndicator(
-                    label: "\(store.activeSetlist.entries.count) in setlist",
-                    tint: SustainColor.clickActive,
-                    isActive: !store.activeSetlist.entries.isEmpty
-                )
+            VStack(alignment: .leading, spacing: SustainSpace.xs) {
+                Text("\(store.songs.count) songs ready")
+                    .font(.title2.weight(.semibold))
+                Text(store.persistenceStatus)
+                    .font(.callout)
+                    .foregroundStyle(palette.textSecondary)
             }
+
+            Spacer()
+
+            SignalIndicator(
+                label: "\(store.activeSetlist.entries.count) in setlist",
+                tint: palette.activeSignal,
+                isActive: !store.activeSetlist.entries.isEmpty
+            )
+        }
+        .padding(SustainSpace.xl)
+        .background(palette.panel, in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous)
+                .stroke(palette.surfaceEdge.opacity(0.65), lineWidth: 1)
         }
     }
 
@@ -212,6 +221,8 @@ private struct AddConfirmation: Identifiable {
 
 private struct SongLibraryRow: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     var song: Song
     var padTracks: [PadTrack]
     @Binding var title: String
@@ -229,6 +240,10 @@ private struct SongLibraryRow: View {
     @State private var confirmingDelete = false
     @State private var isAssigningPad = false
 
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: SustainSpace.lg) {
             titleField
@@ -236,10 +251,10 @@ private struct SongLibraryRow: View {
             controls
         }
         .padding(SustainSpace.lg)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
+        .background(palette.panel, in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous)
-                .stroke(SustainColor.separator, lineWidth: 1)
+                .stroke(palette.surfaceEdge.opacity(0.65), lineWidth: 1)
         )
         .contextMenu {
             Button("Delete Song\u{2026}", systemImage: "trash", role: .destructive) {
@@ -376,12 +391,18 @@ private struct SongLibraryRow: View {
 }
 
 private struct PadAssignmentPicker: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     var selectedPadID: PadTrack.ID?
     var padTracks: [PadTrack]
     var onSelect: (PadTrack.ID?) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
 
     private var filteredPads: [PadTrack] {
         guard !query.isEmpty else { return padTracks }
@@ -433,12 +454,12 @@ private struct PadAssignmentPicker: View {
                 Text(title)
                 Text(subtitle)
                     .font(.caption)
-                    .foregroundStyle(SustainColor.textSecondary)
+                    .foregroundStyle(palette.textSecondary)
             }
             Spacer()
             if selected {
                 Image(systemName: "checkmark")
-                    .foregroundStyle(SustainColor.accent)
+                    .foregroundStyle(palette.activeSignal)
                     .accessibilityHidden(true)
             }
         }
@@ -449,7 +470,13 @@ private struct PadAssignmentPicker: View {
 }
 
 struct AudioDeviceDiagnosticRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     var output: AudioOutputDevice
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -459,27 +486,33 @@ struct AudioDeviceDiagnosticRow: View {
                 Spacer()
                 if output.isDefault {
                     Text("Default")
-                        .foregroundStyle(SustainColor.textSecondary)
+                        .foregroundStyle(palette.textSecondary)
                 }
             }
 
             Text("ID \(output.id) · \(output.diagnosticSummary)")
                 .font(.callout)
-                .foregroundStyle(SustainColor.textSecondary)
+                .foregroundStyle(palette.textSecondary)
         }
         .padding(.vertical, 4)
     }
 }
 
 struct DiagnosticLine: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     var label: String
     var value: String
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label)
                 .font(SustainType.label)
-                .foregroundStyle(SustainColor.textSecondary)
+                .foregroundStyle(palette.textSecondary)
                 .frame(width: 104, alignment: .leading)
 
             Text(value)

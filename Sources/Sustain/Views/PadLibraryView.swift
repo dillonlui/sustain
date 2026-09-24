@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 struct PadLibraryView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.undoManager) private var undoManager
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @AppStorage("showIncludedPads") private var showIncludedPads = true
 
     @State private var selection = Set<PadTrack.ID>()
@@ -15,6 +17,10 @@ struct PadLibraryView: View {
     @State private var locatePadID: PadTrack.ID?
     @State private var removal: PadRemovalRequest?
     @State private var notice: String?
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
 
     private var visiblePads: [PadTrack] {
         store.padTracks.filter { pad in
@@ -57,6 +63,8 @@ struct PadLibraryView: View {
                     _ = store.movePads(from: offsets, to: destination, undoManager: undoManager)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(palette.canvas)
             .overlay {
                 if visiblePads.isEmpty {
                     ContentUnavailableView(
@@ -76,7 +84,7 @@ struct PadLibraryView: View {
             footer
         }
         .padding(.top, SustainLayout.topChrome)
-        .sustainScreenBackground(.standard)
+        .background(palette.canvas)
         .fileImporter(
             isPresented: $isChoosingAudio,
             allowedContentTypes: [.audio],
@@ -116,7 +124,8 @@ struct PadLibraryView: View {
     private var header: some View {
         SustainScreenHeader(title: "Pad Library", subtitle: "Included and custom audio referenced in place") {
             Button("Add Audio\u{2026}", systemImage: "plus") { isChoosingAudio = true }
-                .sustainProminentButton()
+                .buttonStyle(.borderedProminent)
+                .tint(palette.activeSignal)
                 .disabled(isImporting)
         }
     }
@@ -127,10 +136,10 @@ struct PadLibraryView: View {
                 Toggle("Show Included Pads", isOn: $showIncludedPads)
                     .toggleStyle(.checkbox)
                 Text("\(visiblePads.count) of \(store.padTracks.count) pads")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
                 if isImporting { ProgressView().controlSize(.small) }
                 if let notice {
-                    Text(notice).foregroundStyle(.secondary).lineLimit(1)
+                    Text(notice).foregroundStyle(palette.textSecondary).lineLimit(1)
                 }
                 Spacer()
                 Button("Remove\u{2026}", role: .destructive) { requestRemoval(ids: selection) }
@@ -138,10 +147,13 @@ struct PadLibraryView: View {
             }
             Text("Sustain plays files as supplied; it does not normalize loudness or repair loop boundaries.")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
         }
         .padding(SustainSpace.md)
-        .background(.bar)
+        .background(palette.panel)
+        .overlay(alignment: .top) {
+            Rectangle().fill(palette.divider).frame(height: 1)
+        }
     }
 
     @ViewBuilder
@@ -248,6 +260,8 @@ struct PadLibraryView: View {
 }
 
 private struct PadLibraryRow: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     var pad: PadTrack
     var state: PadAssetState
     var assignmentCount: Int
@@ -262,10 +276,14 @@ private struct PadLibraryRow: View {
     @State private var draft = ""
     @FocusState private var editing: Bool
 
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
+
     var body: some View {
         HStack(spacing: SustainSpace.lg) {
             Image(systemName: isAudible ? "speaker.wave.2.fill" : (pad.isIncluded ? "shippingbox.fill" : "waveform"))
-                .foregroundStyle(isAudible ? SustainColor.accent : .secondary)
+                .foregroundStyle(isAudible ? palette.activeSignal : palette.textSecondary)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: SustainSpace.xs) {
                 if pad.isIncluded {
@@ -280,16 +298,16 @@ private struct PadLibraryRow: View {
                 }
                 Text(detail)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(palette.textSecondary)
                     .lineLimit(1)
             }
             Spacer()
             Text(stateLabel)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(state.isAvailable ? SustainColor.ready : SustainColor.warning)
+                .foregroundStyle(state.isAvailable ? palette.activeSignal : palette.warning)
             Text("\(assignmentCount) assigned")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(palette.textSecondary)
                 .frame(width: 76, alignment: .trailing)
             Button(action: onPlay) {
                 Image(systemName: "play.fill")

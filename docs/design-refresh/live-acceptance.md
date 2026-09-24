@@ -1,0 +1,33 @@
+# Future Signal Live — runtime acceptance
+
+**Scope:** acceptance for integrating the shared Future Signal components into `LiveServiceView`. The [dark Live specimen](renders/signal-grid-live-dark.png) defines visual intent. `RuntimeSession`, `AppStore`, `systemCheck`, and `routingSnapshot` define runtime truth. Compare against the [interaction contract](interaction-contract.md) and [system specification](system-spec.md).
+
+## State and identity scenarios
+
+| Scenario | Expected presentation and behavior |
+| --- | --- |
+| Empty setlist | No row marker. NOW says `No song playing`; NEXT says `Nothing cued`. Start is disabled, Add Song remains reachable, and the empty state does not imply an audio fault. |
+| Idle with a cue | Only `runtime.cuedEntryID` has the cue edge and **Cued** text. NOW stays empty; NEXT names that exact setlist occurrence. `List(selection:)` cues on row selection; it is not a separate playback or editor selection. |
+| Repeated song in setlist | Playing and cued treatment follow **entry IDs**, not `Song.ID` or matching titles. If the same song occurs twice, only `runtime.playingEntryID` gets the small Playing glyph and text; another occurrence can be Cued. |
+| Cued pad pre-roll | No song is marked Playing. Open Pad status names the actual `audiblePadTrackID` and `audiblePadEntryID`, with its preparing/fading/playing state and cued ownership; Click remains independent. Start promotes a matching pre-roll without relabeling its earlier audio as song playback. |
+| Start or transition preparation | Existing Playing entry remains marked until the new entry activates. Target entry remains Cued; new Pad/Click preparation is explicit. A rejected or superseded start restores previous identity and displays the failure. Do not infer success from button press. |
+| Countoff | On successful activation, the exact new entry is Playing, while NOW/central status says **Count in** and the fixed countoff overlay shows numbered beats. Click says Count in; Pad follows its own state. Stop remains available. Do not label the click as ordinary Playing yet. |
+| Playing, then cue another entry | Playing marker stays on the current entry; cue edge and NEXT move. Pad/Click audible status does not change merely because the cue moved. Start becomes **Transition** for a different cue; when cue and Playing coincide, both roles remain discoverable and Start is disabled. |
+| Stop with pad fade | NOW clears and the Playing marker disappears; cue remains. Click says Off immediately. Open Pad retains its old pad label/owner and **Fading out** until the engine clears it. Stop remains enabled during fade. |
+| Click off, preparing, or changing rhythm | Open Click says the actual state. While off, describe the configured next-start subdivision; while running, name `audibleClickSubdivision`. A pending change says `At next measure` separately and clears on commit, failure, supersession, or stop. NEXT always shows the cued song's committed default. |
+| Missing route, blocking check, or advisory | A genuine `systemCheck` blocker is a persistent error notice; advisory warnings and pad/click shared-output information remain distinct. `routingSnapshot.summary` and its missing-selection messages supply device/channel words. No hard-coded route or green ready claim when selection is unavailable. A failed start never gains a Playing marker. |
+
+## Controls and layout
+
+1. Preserve the custom `HStack` shell: fixed 220-point root sidebar, draggable 200–340-point setlist, performance pane, and optional 320-point editor. Do not switch to `NavigationSplitView` or `.inspector`; those previously caused a playback layout jump. The setlist header/footer and editor remain usable at **1200 × 700**, a wider window, and with the editor open.
+2. The dark, subtly glassy performance surface contains NOW, NEXT, open Pad/Click readouts, and transport. Notices remain in a stable adjacent strip. Pad and Click have no individual status cards. Reserve space for long titles, status words, subdivision text, warnings, and countoff. Idle → preparation → countoff → playing → transition → stopped must not move the shell or transport. Keep countoff pinned at the bottom of the performance pane and verify it is visible without scrolling at the minimum window size, including with the editor open.
+3. Keep Previous → Start/Transition → Next → Stop, native button focus/roles, and shortcuts: Left Arrow, Return, Right Arrow, Command–Period. Preserve current disabled rules, including Start with no cue or the already Playing cue, Stop only when any audio activity exists, and Clear Setlist disabled while audio is active. A second Start during `.songStarting` must not launch another preparation. Pad/Click action buttons retain their store-derived labels and enablement.
+4. Setlist rows retain cue-on-select, reorder, editor action, and guarded remove. The small Playing symbol is paired with **Playing** text; Cued uses a distinct edge and **Cued** text. When both apply, neither state disappears. Missing-song and disabled states remain legible.
+5. Pad/Click sliders display persisted 0–100% **settings**, never measured signal levels. Keep native slider keyboard adjustment and commit paths. A nonzero level never claims the channel is sounding.
+6. Song editor retains title, key, BPM, time signature, subdivision, and removal behavior. During countoff, the playing song's subdivision picker stays disabled with an explanation. A pending subdivision in the editor may show the request, but NOW and open Click continue to name the audible value until the engine commits it.
+
+## Accessibility and review gate
+
+- Every meaningful state has words and an icon/edge; green hue, glow, and motion only reinforce it. Decorative corner lines and any passive pulse are hidden from VoiceOver. Row accessibility conveys Playing, Cued, or both, and long row/route/status text has a full accessible value or help.
+- Verify visible keyboard focus on rows, editor controls, route/settings navigation, transport, and both sliders in dark, light, and increased contrast. With Reduce Motion, static glyphs and labels retain all state meaning; avoid per-beat or frame-by-frame announcements.
+- Capture real-runtime screens for empty, cue only, pre-roll, preparation, countoff, playing/cue apart, transition, pad fade, blocked, advisory, and pending rhythm at minimum size and with the editor open. Compare displayed labels against store fields, then run the existing build/tests. Screenshots alone cannot prove which audio is audible; verify pad/click identity and transition outcomes during a manual audio walkthrough.

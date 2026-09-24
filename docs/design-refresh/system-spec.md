@@ -79,7 +79,7 @@ Build a deterministic SwiftUI preview gallery (or equivalent in-app debug board)
 
 ## Composition and acceptance examples
 
-1. At **1200 × 700** and one wide size, Live retains its resizable setlist and optional editor pane, NOW/NEXT hierarchy, large frame, four-control transport order, and stable countoff placement. No content or pane shifts when playback starts, countoff ends, or the editor opens. Rehearse stacks columns below its existing 1040 pt threshold without horizontal overflow.
+1. At **1200 × 700** and one wide size, Live retains its resizable setlist and optional editor pane, NOW/NEXT hierarchy, large frame, four-control transport order, and stable countoff placement. No content or pane shifts when playback starts, countoff ends, or the editor opens. Rehearse stacks columns below a 960 pt detail-pane width without horizontal overflow; this permits two columns beside the 220 pt sidebar at the minimum app width.
 2. Fixture: `Build My Life` playing; `Goodness of God` cued; Pad `C` still audible for `Build My Life`; Click playing at `Beat`; `2 per beat` change pending. Expect one playing row with glyph+`Playing`, one `Cued` row, Pad owner text, `Current: Beat · Switching to 2 per beat next measure`, and no animated bars pretending to measure signal.
 3. Fixture: no song playing, `Holy Forever` cued, earlier Pad `G` fading out. Expect no playing glyph, NOW empty, NEXT cued, Pad `Fading Out` with owner/mismatch notice, and Stop available until fade completes.
 4. Fixture: Rehearse pad `Warm Atmosphere — Extended Mix` selected but off, Click countoff active, output unavailable. Expect selected pad styling without `Playing`, stable count numeral, route fault wording, and a visible blocked/warning notice. Long text remains accessible.

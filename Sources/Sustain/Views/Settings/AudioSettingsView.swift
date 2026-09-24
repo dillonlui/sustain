@@ -3,6 +3,12 @@ import SwiftUI
 
 struct AudioSettingsView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
 
     var body: some View {
         Form {
@@ -63,6 +69,7 @@ struct AudioSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .tint(palette.activeSignal)
         // A definite size lets the Settings window grow to fit this tab (macOS keeps the
         // window at the first tab's height otherwise, clipping the routing sections). The
         // grouped Form scrolls internally if a machine reports many output devices.

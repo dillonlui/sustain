@@ -4,18 +4,26 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @AppStorage("appearance") private var appearanceRaw = AppAppearance.system.rawValue
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
 
     var body: some View {
         @Bindable var store = store  // local binding shadow for `$store` (alert item) under @Observable
         ZStack {
-            SustainAppBackground(mood: backgroundMood)
+            palette.canvas.ignoresSafeArea()
 
             HStack(spacing: 0) {
                 SidebarView()
                     .frame(width: 220)
 
-                Divider()
+                Rectangle()
+                    .fill(palette.divider)
+                    .frame(width: 1)
 
                 selectedScreen
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -25,7 +33,7 @@ struct RootView: View {
             // across columns. One rule, no per-screen padding (that was the old hack; see docs/13).
             .ignoresSafeArea(.container, edges: .top)
         }
-        .tint(SustainColor.accent)
+        .tint(palette.activeSignal)
         .onAppear { applyAppearance() }
         .onChange(of: appearanceRaw) { applyAppearance() }
         // Last-chance flush of unsaved work when the app leaves the foreground (a backstop for
@@ -71,17 +79,6 @@ struct RootView: View {
         }
     }
 
-    private var backgroundMood: SustainBackgroundMood {
-        switch store.selectedScreen {
-        case .live:
-            return .live
-        case .rehearse:
-            return .rehearse
-        case .songs, .pads:
-            return .standard
-        }
-    }
-
     @ViewBuilder
     private var selectedScreen: some View {
         switch store.selectedScreen {
@@ -99,6 +96,12 @@ struct RootView: View {
 
 private struct SidebarView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
 
     var body: some View {
         List(selection: selectionBinding) {
@@ -110,6 +113,9 @@ private struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(palette.sidebar)
+        .foregroundStyle(palette.textPrimary)
         .safeAreaInset(edge: .top, spacing: 0) {
             // Sidebar material fills to the window top; the brand insets by topChrome to clear
             // the traffic lights and align with the detail's top content.
@@ -142,14 +148,18 @@ private struct SidebarView: View {
 }
 
 private struct BrandHeader: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
+
     var body: some View {
-        HStack(spacing: SustainSpace.sm) {
-            BrandMarkView()
-                .frame(width: 34, height: 20)
-            Text("SUSTAIN")
-                .font(.headline)
-                .tracking(3)
-        }
+        Text("SUSTAIN")
+            .font(.system(size: 14, weight: .semibold))
+            .tracking(5)
+            .foregroundStyle(palette.activeSignal)
     }
 }
 
