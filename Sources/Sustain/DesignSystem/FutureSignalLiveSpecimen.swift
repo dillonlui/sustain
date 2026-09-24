@@ -217,13 +217,17 @@ struct FutureSignalLiveSpecimen: View {
     private var transport: some View {
         HStack(spacing: 10) {
             transportButton("Previous", symbol: "backward.fill")
-            transportButton("Transition", symbol: "arrow.triangle.2.circlepath", prominent: true)
+            transportButton("Transition", symbol: "arrow.triangle.2.circlepath", role: .primary)
             transportButton("Next", symbol: "forward.fill")
-            transportButton("Stop", symbol: "stop.fill")
+            transportButton("Stop", symbol: "stop.fill", role: .stop)
         }
     }
 
-    private func transportButton(_ title: String, symbol: String, prominent: Bool = false) -> some View {
+    private func transportButton(
+        _ title: String,
+        symbol: String,
+        role: FutureSignalTransportRole = .secondary
+    ) -> some View {
         Button {} label: {
             VStack(spacing: 5) {
                 Image(systemName: symbol)
@@ -231,16 +235,10 @@ struct FutureSignalLiveSpecimen: View {
                 Text(title)
                     .font(.system(size: 11))
             }
-            .foregroundStyle(prominent ? palette.activeSignal : palette.textPrimary)
-            .frame(maxWidth: .infinity)
-            .frame(height: 54)
-            .background(prominent ? palette.activeSignal.opacity(0.09) : palette.canvas.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(prominent ? palette.activeSignal.opacity(0.8) : palette.surfaceEdge.opacity(0.6), lineWidth: 1)
-            }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(FutureSignalTransportStyle(role: role))
+        .frame(maxWidth: .infinity)
+        .frame(height: 54)
         .accessibilityLabel(title)
     }
 }

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct RehearseView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @AppStorage("showIncludedPads") private var showIncludedPads = true
     @State private var padSearchText = ""
 
@@ -13,13 +15,20 @@ struct RehearseView: View {
     // stack, so panels always keep their edge margins instead of overflowing.
     private let twoColumnMinWidth: CGFloat = 1040
 
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
+
     var body: some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
                 header
 
                 ScrollView {
-                    columns(isWide: proxy.size.width >= twoColumnMinWidth)
+                    VStack(spacing: SustainSpace.xxl) {
+                        performanceStatus
+                        columns(isWide: proxy.size.width >= twoColumnMinWidth)
+                    }
                         .frame(maxWidth: .infinity, alignment: .top)
                         .padding(SustainSpace.screen)
                 }
@@ -27,7 +36,7 @@ struct RehearseView: View {
             // Clear the window's traffic-light / title-bar zone (the screen fills to the top).
             .padding(.top, SustainLayout.topChrome)
         }
-        .sustainScreenBackground(.rehearse)
+        .background(palette.canvas)
         .searchable(text: $padSearchText, prompt: "Search pads")
     }
 
@@ -49,32 +58,88 @@ struct RehearseView: View {
     }
 
     private var header: some View {
-        SustainScreenHeader(title: "Rehearse", subtitle: "Free play pads, click, countoff, and live levels") {
+        HStack(alignment: .top, spacing: SustainSpace.lg) {
+            VStack(alignment: .leading, spacing: SustainSpace.xs) {
+                Text("Rehearse")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(palette.textPrimary)
+                Text("Free play pads, click, countoff, and live levels")
+                    .font(.callout)
+                    .foregroundStyle(palette.textSecondary)
+            }
+            Spacer(minLength: SustainSpace.md)
             VStack(alignment: .trailing, spacing: 4) {
                 Text(store.audioStatus)
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
                 Text(store.routingSnapshot.summary)
-                    .font(.caption)
-                    .foregroundStyle(SustainColor.textSecondary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(palette.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .help(store.routingSnapshot.summary)
+            }
+        }
+        .padding(.horizontal, SustainSpace.screen)
+        .padding(.top, SustainSpace.sm)
+    }
+
+    private var performanceStatus: some View {
+        FutureSignalPerformanceSurface(state: performanceSurfaceState) {
+            VStack(alignment: .leading, spacing: SustainSpace.lg) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: SustainSpace.xs) {
+                        Text("SELECTED PAD")
+                            .font(.system(size: 12, weight: .semibold))
+                            .tracking(2)
+                            .foregroundStyle(palette.textSecondary)
+                        Text(store.rehearse.selectedPadLabel)
+                            .font(.system(size: 32, weight: .semibold))
+                            .foregroundStyle(palette.textPrimary)
+                            .lineLimit(2)
+                            .help(store.rehearse.selectedPadLabel)
+                    }
+                    Spacer(minLength: SustainSpace.md)
+                    Text(clickText)
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(palette.textSecondary)
+                        .lineLimit(2)
+                }
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: SustainSpace.section) {
+                        padStatus
+                        clickStatus
+                    }
+                    VStack(alignment: .leading, spacing: SustainSpace.lg) {
+                        padStatus
+                        clickStatus
+                    }
+                }
+                if store.pendingRehearseClickSubdivision != nil {
+                    Text(clickStatusDetail)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(palette.textPrimary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text(store.rehearse.lastMessage)
+                    .font(.system(size: 12))
+                    .foregroundStyle(palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
 
-    private var padPanel: some View {
-        SustainPanel(material: .regularMaterial, isActive: store.rehearse.padState == .playing) {
-            VStack(alignment: .leading, spacing: SustainSpace.lg) {
-                SustainSectionHeader(
-                    title: "Pads",
-                    value: store.rehearse.padState.rawValue,
-                    systemImage: "waveform",
-                    tint: SustainColor.padActive,
-                    isActive: store.rehearse.padState == .playing
-                )
+    private var padStatus: some View {
+        FutureSignalOpenChannelStatus(kind: .pad, state: padChannelState, detail: padStatusDetail)
+    }
 
-                activePadSurface
+    private var clickStatus: some View {
+        FutureSignalOpenChannelStatus(kind: .click, state: clickChannelState, detail: clickStatusDetail)
+    }
+
+    private var padPanel: some View {
+        VStack(alignment: .leading, spacing: SustainSpace.lg) {
+                sectionHeading("Pads", state: padChannelState.label)
 
                 if visiblePads.isEmpty {
                     ContentUnavailableView(
@@ -86,28 +151,17 @@ struct RehearseView: View {
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 126), spacing: 10)], spacing: 10) {
                         ForEach(visiblePads) { pad in
-                        Button {
-                            store.startRehearsePad(padID: pad.id)
-                        } label: {
-                            VStack(spacing: SustainSpace.xs) {
-                                Text(pad.label)
-                                    .font(.body.weight(.semibold))
-                                    .lineLimit(2)
-                                    .truncationMode(.tail)
-                                    .multilineTextAlignment(.center)
-                                Text(padButtonDetail(pad))
-                                    .font(.caption2)
-                                    .foregroundStyle(SustainColor.textSecondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                            FutureSignalPadTile(
+                                title: pad.label,
+                                detail: padButtonDetail(pad),
+                                isSelected: store.rehearse.selectedPadTrackID == pad.id,
+                                isPlaying: store.rehearse.selectedPadTrackID == pad.id && store.rehearse.padState == .playing,
+                                isAvailable: padState(pad).isAvailable
+                            ) {
+                                store.startRehearsePad(padID: pad.id)
                             }
-                            .frame(maxWidth: .infinity, minHeight: 70, maxHeight: 70)
-                        }
-                        .sustainBorderedButton(tint: isActive(pad) ? SustainColor.padActive : SustainColor.accent)
-                        .disabled(!padState(pad).isAvailable)
-                        .help("\(pad.label). \(padStateLabel(padState(pad)))")
-                        .accessibilityLabel("\(pad.label), \(padVoiceDisambiguator(pad))")
-                        .accessibilityValue(isActive(pad) ? "Playing" : padStateLabel(padState(pad)))
+                            .help("\(pad.label), \(padVoiceDisambiguator(pad)). \(padStateLabel(padState(pad)))")
+                            .accessibilityLabel("\(pad.label), \(padVoiceDisambiguator(pad))")
                         }
                     }
                 }
@@ -123,20 +177,14 @@ struct RehearseView: View {
                 }
                 .controlSize(.large)
                 .disabled(store.rehearse.padState == .off)
-            }
         }
+        .padding(SustainSpace.lg)
+        .background(panelBackground)
     }
 
     private var clickPanel: some View {
-        SustainPanel(material: .regularMaterial, isActive: store.rehearse.clickState != .off) {
-            VStack(alignment: .leading, spacing: 22) {
-                SustainSectionHeader(
-                    title: "Click",
-                    value: store.rehearse.clickState.rawValue,
-                    systemImage: "metronome",
-                    tint: SustainColor.clickActive,
-                    isActive: store.rehearse.clickState != .off
-                )
+        VStack(alignment: .leading, spacing: 22) {
+                sectionHeading("Click", state: clickChannelState.label)
 
                 HStack(alignment: .center, spacing: 18) {
                     Button {
@@ -152,13 +200,14 @@ struct RehearseView: View {
                         )
                         .frame(minWidth: 148)
                     }
-                    .sustainProminentButton(tint: SustainColor.clickActive)
+                    .buttonStyle(.borderedProminent)
+                    .tint(palette.activeSignal)
                     .controlSize(.large)
 
                     LitToggleButton(
                         title: "Countoff",
                         systemImage: "timer",
-                        tint: SustainColor.clickActive,
+                        tint: palette.activeSignal,
                         isOn: countoffBinding
                     )
 
@@ -174,7 +223,7 @@ struct RehearseView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Accent")
                             .font(.caption)
-                            .foregroundStyle(SustainColor.textSecondary)
+                            .foregroundStyle(palette.textSecondary)
                         Picker("Accent", selection: clickAccentModeBinding) {
                             ForEach(ClickAccentMode.allCases) { mode in
                                 Text(mode.rawValue).tag(mode)
@@ -187,7 +236,7 @@ struct RehearseView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Countoff")
                             .font(.caption)
-                            .foregroundStyle(SustainColor.textSecondary)
+                            .foregroundStyle(palette.textSecondary)
                         Picker("Countoff Sound", selection: countoffSoundBinding) {
                             ForEach(CountoffSound.allCases) { sound in
                                 Text(sound.label).tag(sound)
@@ -201,7 +250,7 @@ struct RehearseView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Subdivision")
                         .font(.caption)
-                        .foregroundStyle(SustainColor.textSecondary)
+                        .foregroundStyle(palette.textSecondary)
                     Picker("Subdivision", selection: clickSubdivisionBinding) {
                         ForEach(ClickSubdivision.allCases) { subdivision in
                             Text(subdivision.compactLabel)
@@ -216,7 +265,7 @@ struct RehearseView: View {
                         : "Choose clicks per BPM beat")
                     Text("Clicks per BPM beat")
                         .font(.caption)
-                        .foregroundStyle(SustainColor.textSecondary)
+                        .foregroundStyle(palette.textSecondary)
                 }
 
                 VStack(alignment: .leading, spacing: 14) {
@@ -228,7 +277,7 @@ struct RehearseView: View {
 
                         Text("BPM")
                             .font(.title2.weight(.medium))
-                            .foregroundStyle(SustainColor.textSecondary)
+                            .foregroundStyle(palette.textSecondary)
 
                         Spacer()
 
@@ -237,7 +286,7 @@ struct RehearseView: View {
                     }
 
                     Slider(value: bpmSliderBinding, in: Double(tempoRange.lowerBound)...Double(tempoRange.upperBound), step: 1)
-                        .tint(SustainColor.clickActive)
+                        .tint(palette.activeSignal)
 
                     HStack {
                         Text("\(tempoRange.lowerBound)")
@@ -247,85 +296,133 @@ struct RehearseView: View {
                         Text("\(tempoRange.upperBound)")
                     }
                     .font(.caption)
-                    .foregroundStyle(SustainColor.textSecondary)
+                    .foregroundStyle(palette.textSecondary)
                 }
 
                 volumeConsole
-
-                HStack(spacing: SustainSpace.lg) {
-                    RehearseStateTile(label: "Pad", value: activePadText, systemImage: "waveform", tint: SustainColor.padActive, isActive: store.rehearse.padState == .playing)
-                    RehearseStateTile(label: "Click", value: clickText, systemImage: "metronome", tint: SustainColor.clickActive, isActive: store.rehearse.clickState != .off)
-                }
-            }
         }
-    }
-
-    private var activePadSurface: some View {
-        ZStack(alignment: .leading) {
-            AudioPatternView(tint: SustainColor.padActive, isActive: store.rehearse.padState == .playing)
-                .frame(height: 82)
-
-            HStack {
-                VStack(alignment: .leading, spacing: SustainSpace.xs) {
-                    Text(store.rehearse.selectedPadLabel)
-                        .font(SustainType.display)
-                        .lineLimit(3)
-                        .truncationMode(.tail)
-                    Text(store.rehearse.padState == .playing ? "Pad signal active" : "Select a pad")
-                        .font(.callout)
-                        .foregroundStyle(SustainColor.textSecondary)
-                }
-
-                Spacer()
-
-                Image(systemName: "speaker.wave.2.fill")
-                    .font(.title2)
-                    .foregroundStyle(store.rehearse.padState == .playing ? SustainColor.padActive : SustainColor.textTertiary)
-            }
-            .padding(SustainSpace.lg)
-        }
-        .background(SustainColor.accentSoft, in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous)
-                .stroke(SustainColor.padActive.opacity(store.rehearse.padState == .playing ? 0.4 : 0.14), lineWidth: 1)
-        )
-        .help(store.rehearse.selectedPadLabel)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Selected pad")
-        .accessibilityValue("\(store.rehearse.selectedPadLabel), \(store.rehearse.padState.rawValue)")
+        .padding(SustainSpace.lg)
+        .background(panelBackground)
     }
 
     private var volumeConsole: some View {
         VStack(alignment: .leading, spacing: SustainSpace.md) {
             Text("Channels")
                 .font(.headline)
+                .foregroundStyle(palette.textPrimary)
 
-            HStack(spacing: SustainSpace.lg) {
-                ChannelFader(
-                    title: "Pad",
-                    subtitle: "Atmosphere level",
-                    systemImage: "waveform",
-                    tint: SustainColor.padActive,
-                    isActive: store.rehearse.padState == .playing,
-                    value: padVolumeBinding,
-                    onCommit: { store.commitAudioLevels() }
-                )
-
-                ChannelFader(
-                    title: "Click",
-                    subtitle: "Guide level",
-                    systemImage: "metronome",
-                    tint: SustainColor.clickActive,
-                    isActive: store.rehearse.clickState != .off,
-                    value: clickVolumeBinding,
-                    onCommit: { store.commitAudioLevels() }
-                )
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: SustainSpace.lg) {
+                    padLevel
+                    clickLevel
+                }
+                VStack(spacing: SustainSpace.lg) {
+                    padLevel
+                    clickLevel
+                }
             }
         }
     }
 
-    private var activePadText: String {
-        store.rehearse.padState == .off ? "Off" : "\(store.rehearse.selectedPadLabel) \(store.rehearse.padState.rawValue)"
+    private var padLevel: some View {
+        FutureSignalChannelLevel(
+            kind: .pad,
+            value: padVolumeBinding,
+            isActive: store.rehearse.padState != .off,
+            onCommit: { store.commitAudioLevels() }
+        )
+        .frame(minWidth: 160)
+    }
+
+    private var clickLevel: some View {
+        FutureSignalChannelLevel(
+            kind: .click,
+            value: clickVolumeBinding,
+            isActive: store.rehearse.clickState != .off,
+            onCommit: { store.commitAudioLevels() }
+        )
+        .frame(minWidth: 160)
+    }
+
+    private func sectionHeading(_ title: String, state: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(palette.textPrimary)
+            Spacer()
+            Text(state)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(palette.textSecondary)
+        }
+    }
+
+    private var panelBackground: some View {
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(palette.performanceSurface)
+            .overlay {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(palette.surfaceEdge, lineWidth: 1)
+            }
+    }
+
+    private var performanceSurfaceState: FutureSignalSurfaceState {
+        if store.rehearse.clickState == .countoff { return .countoff }
+        if store.rehearse.padState == .preparing || store.rehearse.clickState == .preparing {
+            return .preparing
+        }
+        if store.rehearse.padState == .fadingIn || store.rehearse.padState == .fadingOut {
+            return .transition
+        }
+        if store.rehearse.padState == .playing || store.rehearse.clickState == .playing {
+            return .playing
+        }
+        if padChannelState == .unavailable { return .warning }
+        return .idle
+    }
+
+    private var padChannelState: FutureSignalChannelState {
+        if store.rehearse.padState == .off,
+           let selectedID = store.rehearse.selectedPadTrackID,
+           let selectedPad = store.padTracks.first(where: { $0.id == selectedID }),
+           !padState(selectedPad).isAvailable {
+            return .unavailable
+        }
+        return switch store.rehearse.padState {
+        case .off: .off
+        case .preparing: .preparing
+        case .fadingIn: .fadingIn
+        case .playing: .playing
+        case .fadingOut: .fadingOut
+        }
+    }
+
+    private var clickChannelState: FutureSignalChannelState {
+        switch store.rehearse.clickState {
+        case .off: .off
+        case .preparing: .preparing
+        case .countoff: .countoff
+        case .playing: .playing
+        }
+    }
+
+    private var clickStatusDetail: String {
+        if let pending = store.pendingRehearseClickSubdivision {
+            let audible = store.audibleClickSubdivision ?? store.rehearse.clickSubdivision
+            return "Current: \(audible.label) · Switching to \(pending.label) next measure"
+        }
+        if store.rehearse.clickState == .off {
+            return "Next start: \(store.rehearse.clickSubdivision.label)"
+        }
+        return clickText
+    }
+
+    private var padStatusDetail: String {
+        guard padChannelState == .unavailable,
+              let selectedID = store.rehearse.selectedPadTrackID,
+              let selectedPad = store.padTracks.first(where: { $0.id == selectedID }) else {
+            return store.rehearse.selectedPadLabel
+        }
+        return "\(selectedPad.label) · \(padStateLabel(padState(selectedPad)))"
     }
 
     private var visiblePads: [PadTrack] {
@@ -352,7 +449,9 @@ struct RehearseView: View {
     }
 
     private func padButtonDetail(_ pad: PadTrack) -> String {
-        if isActive(pad) { return "Live" }
+        if isActive(pad) && store.rehearse.padState != .playing {
+            return store.rehearse.padState.rawValue
+        }
         if !padState(pad).isAvailable { return padStateLabel(padState(pad)) }
         return pad.isIncluded ? "Included" : (pad.source.originalFilename ?? "Custom")
     }
@@ -375,7 +474,10 @@ struct RehearseView: View {
     }
 
     private var clickText: String {
-        "\(store.rehearse.bpm) BPM · \(store.rehearse.timeSignature.description) · \((store.audibleClickSubdivision ?? store.rehearse.clickSubdivision).label)"
+        let subdivision = store.rehearse.clickState == .off
+            ? store.rehearse.clickSubdivision
+            : (store.audibleClickSubdivision ?? store.rehearse.clickSubdivision)
+        return "\(store.rehearse.bpm) BPM · \(store.rehearse.timeSignature.description) · \(subdivision.label)"
     }
 
     private var bpmBinding: Binding<Int> {
@@ -448,40 +550,6 @@ struct RehearseView: View {
         } set: { volume in
             store.setClickVolumeLive(volume)
         }
-    }
-}
-
-private struct RehearseStateTile: View {
-    var label: String
-    var value: String
-    var systemImage: String
-    var tint: Color
-    var isActive: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.title2)
-                .foregroundStyle(tint)
-                .frame(width: 30)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(label)
-                    .font(.caption)
-                    .foregroundStyle(SustainColor.textSecondary)
-                Text(value)
-                    .font(.headline)
-            }
-
-            Spacer()
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 78)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isActive ? tint.opacity(0.4) : SustainColor.separator, lineWidth: 1)
-        )
     }
 }
 
