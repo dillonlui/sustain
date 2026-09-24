@@ -8,6 +8,10 @@
 
 We are ready for an implementation plan, but not for a screen-by-screen reskin directly from a generated image. The remaining pre-work is bounded and belongs in the first phase of this plan: define semantic tokens, interaction/state rules, and a component specimen set, then approve one static Live composition and one Rehearse composition using real Sustain content. That gives the implementation a source of truth beyond the mockup.
 
+## Current implementation checkpoint
+
+The first pass of [system tokens and state rules](system-spec.md), [interaction rules](interaction-contract.md), reusable SwiftUI components, and static Live/Rehearse compositions is implemented on `codex/future-signal-design-system`. Review the [actual SwiftUI renders](renders/README.md) alongside the generated visual reference before wiring runtime behavior. The app screens themselves still use the previous presentation.
+
 ## Locked direction for the first design-system pass
 
 - Dark, graphite and olive foundation with one green family. No gold in the working palette.
