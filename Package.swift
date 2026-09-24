@@ -14,9 +14,11 @@ let package = Package(
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.6")
     ],
     targets: [
+        .target(name: "ClickAtomics"),
         .executableTarget(
             name: "Sustain",
             dependencies: [
+                "ClickAtomics",
                 .product(name: "Sparkle", package: "Sparkle")
             ],
             resources: [

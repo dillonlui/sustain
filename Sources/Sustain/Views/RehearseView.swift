@@ -198,6 +198,27 @@ struct RehearseView: View {
                     }
                 }
 
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Subdivision")
+                        .font(.caption)
+                        .foregroundStyle(SustainColor.textSecondary)
+                    Picker("Subdivision", selection: clickSubdivisionBinding) {
+                        ForEach(ClickSubdivision.allCases) { subdivision in
+                            Text(subdivision.compactLabel)
+                                .accessibilityLabel(subdivision.accessibilityLabel)
+                                .tag(subdivision)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(store.rehearse.clickState == .countoff)
+                    .help(store.rehearse.clickState == .countoff
+                        ? "Subdivision can change after countoff"
+                        : "Choose clicks per BPM beat")
+                    Text("Clicks per BPM beat")
+                        .font(.caption)
+                        .foregroundStyle(SustainColor.textSecondary)
+                }
+
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .firstTextBaseline, spacing: 16) {
                         Text("\(store.rehearse.bpm)")
@@ -354,7 +375,7 @@ struct RehearseView: View {
     }
 
     private var clickText: String {
-        "\(store.rehearse.bpm) BPM \(store.rehearse.timeSignature.description)"
+        "\(store.rehearse.bpm) BPM · \(store.rehearse.timeSignature.description) · \((store.audibleClickSubdivision ?? store.rehearse.clickSubdivision).label)"
     }
 
     private var bpmBinding: Binding<Int> {
@@ -394,6 +415,14 @@ struct RehearseView: View {
             store.clickSettings.accentMode
         } set: { accentMode in
             store.setClickAccentMode(accentMode)
+        }
+    }
+
+    private var clickSubdivisionBinding: Binding<ClickSubdivision> {
+        Binding {
+            store.pendingRehearseClickSubdivision ?? store.rehearse.clickSubdivision
+        } set: { subdivision in
+            store.setRehearseClickSubdivision(subdivision)
         }
     }
 

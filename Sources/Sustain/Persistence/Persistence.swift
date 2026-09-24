@@ -5,7 +5,7 @@ struct LibrarySnapshot: Codable, Equatable {
     /// changes in a breaking way, and add a migration branch in `LocalLibraryStore` keyed on the
     /// decoded `schemaVersion`. Establishing the field now (while it's trivial) is what lets a
     /// future versions migrate old files instead of throwing and wiping the user's library.
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     var schemaVersion: Int
     var songs: [Song]
@@ -76,6 +76,16 @@ struct LibrarySnapshot: Codable, Equatable {
                 )
             )
         }
+        if decodedSchemaVersion >= 4,
+           let invalidSongIndex = canonical.songs.firstIndex(where: \.clickSubdivisionWasMissing) {
+            throw DecodingError.keyNotFound(
+                Song.CodingKeys.clickSubdivision,
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Current-schema song at index \(invalidSongIndex) is missing clickSubdivision."
+                )
+            )
+        }
         songs = Self.normalizedSongs(
             canonical.songs,
             migratingLegacySchema: decodedSchemaVersion < 3
@@ -113,6 +123,7 @@ struct LibrarySnapshot: Codable, Equatable {
                 defaultKey: song.defaultKey,
                 defaultBPM: song.defaultBPM,
                 timeSignature: song.timeSignature,
+                clickSubdivision: song.clickSubdivision,
                 padPack: .bundled,
                 padTrackID: migratingLegacySchema ? PadTrack.includedID(for: song.defaultKey) : song.padTrackID
             )

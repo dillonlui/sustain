@@ -21,6 +21,7 @@ final class RecordingAudioEngine: AudioControlling {
     var clickTimeSignatureHistory: [TimeSignature] = []
     var clickIncludesCountoffHistory: [Bool] = []
     var clickSettingsHistory: [ClickSettings] = []
+    var clickSubdivisionHistory: [ClickSubdivision] = []
     var configureRoutingCount = 0
     var lastConfiguredSnapshot: AudioRoutingSnapshot?
     var lastPadVolume = 0.42
@@ -33,8 +34,10 @@ final class RecordingAudioEngine: AudioControlling {
     var shouldFailConfigureRouting = false
     var defersPadPreparation = false
     var defersClickPreparation = false
+    var defersClickSwitch = false
     private var pendingPadPreparation: (@MainActor () -> Void)?
     private var pendingClickPreparation: (@MainActor () -> Void)?
+    private var pendingClickSwitch: (@MainActor () -> Void)?
     private var preparedPadKeys: [UUID: MusicalKey] = [:]
     var statusSummary: String { isEngineRunning ? "Running" : "Stopped" }
     var isPadActive: Bool { padIsActive }
@@ -111,12 +114,14 @@ final class RecordingAudioEngine: AudioControlling {
     func prepareClick(
         bpm: Int,
         timeSignature: TimeSignature,
+        subdivision: ClickSubdivision,
         includesCountoff: Bool,
         settings: ClickSettings,
         completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
     ) {
         clickBPMHistory.append(bpm)
         clickTimeSignatureHistory.append(timeSignature)
+        clickSubdivisionHistory.append(subdivision)
         clickIncludesCountoffHistory.append(includesCountoff)
         clickSettingsHistory.append(settings)
         if shouldFailClickStart {
@@ -141,10 +146,28 @@ final class RecordingAudioEngine: AudioControlling {
         pending?()
     }
 
-    func activateClick(_ prepared: PreparedClick) {
+    func activateClick(_ prepared: PreparedClick) throws {
         clickStartCount += 1
         clickIsActive = true
     }
+
+    func scheduleClickChange(
+        _ prepared: PreparedClick,
+        completion: @escaping @MainActor @Sendable (Result<Void, Error>) -> Void
+    ) {
+        clickStartCount += 1
+        if defersClickSwitch {
+            pendingClickSwitch = { completion(.success(())) }
+        } else {
+            completion(.success(()))
+        }
+    }
+    func completePendingClickSwitch() {
+        let pending = pendingClickSwitch
+        pendingClickSwitch = nil
+        pending?()
+    }
+    func cancelScheduledClickChange() { pendingClickSwitch = nil }
 
     func handleMemoryPressure() {}
 
@@ -174,10 +197,11 @@ final class RecordingAudioEngine: AudioControlling {
         padIsActive = false
     }
 
-    func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool, settings: ClickSettings) throws {
+    func startClick(bpm: Int, timeSignature: TimeSignature, subdivision: ClickSubdivision, includesCountoff: Bool, settings: ClickSettings) throws {
         clickStartCount += 1
         clickBPMHistory.append(bpm)
         clickTimeSignatureHistory.append(timeSignature)
+        clickSubdivisionHistory.append(subdivision)
         clickIncludesCountoffHistory.append(includesCountoff)
         clickSettingsHistory.append(settings)
         if shouldFailClickStart {

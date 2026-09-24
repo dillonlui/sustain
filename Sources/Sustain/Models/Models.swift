@@ -35,6 +35,25 @@ struct TimeSignature: Codable, Equatable, Hashable, CustomStringConvertible {
     static let twelveEight = TimeSignature(beatsPerMeasure: 12, beatUnit: 8)
 }
 
+enum ClickSubdivision: Int, CaseIterable, Codable, Identifiable, Hashable, Sendable {
+    case beat = 1
+    case two = 2
+    case three = 3
+    case four = 4
+
+    var id: Int { rawValue }
+    var label: String { self == .beat ? "Beat" : "\(rawValue) per beat" }
+    var compactLabel: String { self == .beat ? "Beat" : "\(rawValue)" }
+    var accessibilityLabel: String {
+        switch self {
+        case .beat: "One click per beat"
+        case .two: "Two clicks per beat"
+        case .three: "Three clicks per beat, triplets"
+        case .four: "Four clicks per beat"
+        }
+    }
+}
+
 enum ClickAccentMode: String, CaseIterable, Codable, Identifiable {
     case none = "No Accent"
     case downbeat = "Downbeat"
@@ -168,9 +187,11 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
     var defaultKey: MusicalKey
     var defaultBPM: Int
     var timeSignature: TimeSignature
+    var clickSubdivision: ClickSubdivision
     var padPack: PadPack
     var padTrackID: PadTrack.ID?
     var padTrackIDDecodingState: PadTrackIDDecodingState = .value
+    var clickSubdivisionWasMissing = false
 
     init(
         id: UUID = UUID(),
@@ -178,6 +199,7 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         defaultKey: MusicalKey,
         defaultBPM: Int,
         timeSignature: TimeSignature,
+        clickSubdivision: ClickSubdivision = .beat,
         padPack: PadPack
     ) {
         self.id = id
@@ -185,6 +207,7 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         self.defaultKey = defaultKey
         self.defaultBPM = defaultBPM
         self.timeSignature = timeSignature
+        self.clickSubdivision = clickSubdivision
         self.padPack = padPack
         self.padTrackID = PadTrack.includedID(for: defaultKey)
     }
@@ -195,6 +218,7 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         defaultKey: MusicalKey,
         defaultBPM: Int,
         timeSignature: TimeSignature,
+        clickSubdivision: ClickSubdivision = .beat,
         padPack: PadPack,
         padTrackID: PadTrack.ID?
     ) {
@@ -204,13 +228,14 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
             defaultKey: defaultKey,
             defaultBPM: defaultBPM,
             timeSignature: timeSignature,
+            clickSubdivision: clickSubdivision,
             padPack: padPack
         )
         self.padTrackID = padTrackID
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, defaultKey, defaultBPM, timeSignature, padPack, padTrackID
+        case id, title, defaultKey, defaultBPM, timeSignature, clickSubdivision, padPack, padTrackID
     }
 
     init(from decoder: Decoder) throws {
@@ -220,6 +245,10 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         defaultKey = try container.decode(MusicalKey.self, forKey: .defaultKey)
         defaultBPM = try container.decode(Int.self, forKey: .defaultBPM)
         timeSignature = try container.decode(TimeSignature.self, forKey: .timeSignature)
+        clickSubdivisionWasMissing = !container.contains(.clickSubdivision)
+        clickSubdivision = clickSubdivisionWasMissing
+            ? .beat
+            : try container.decode(ClickSubdivision.self, forKey: .clickSubdivision)
         padPack = try container.decodeIfPresent(PadPack.self, forKey: .padPack) ?? .bundled
 
         if !container.contains(.padTrackID) {
@@ -241,6 +270,7 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         try container.encode(defaultKey, forKey: .defaultKey)
         try container.encode(defaultBPM, forKey: .defaultBPM)
         try container.encode(timeSignature, forKey: .timeSignature)
+        try container.encode(clickSubdivision, forKey: .clickSubdivision)
         try container.encode(padPack, forKey: .padPack)
         try container.encode(padTrackID, forKey: .padTrackID)
     }
@@ -248,6 +278,7 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
     static func == (lhs: Song, rhs: Song) -> Bool {
         lhs.id == rhs.id && lhs.title == rhs.title && lhs.defaultKey == rhs.defaultKey &&
             lhs.defaultBPM == rhs.defaultBPM && lhs.timeSignature == rhs.timeSignature &&
+            lhs.clickSubdivision == rhs.clickSubdivision &&
             lhs.padPack == rhs.padPack && lhs.padTrackID == rhs.padTrackID
     }
 
@@ -257,6 +288,7 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         hasher.combine(defaultKey)
         hasher.combine(defaultBPM)
         hasher.combine(timeSignature)
+        hasher.combine(clickSubdivision)
         hasher.combine(padPack)
         hasher.combine(padTrackID)
     }

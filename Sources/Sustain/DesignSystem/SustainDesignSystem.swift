@@ -404,6 +404,7 @@ struct CountoffIndicator: View {
 struct ChannelFader: View {
     var title: String
     var subtitle: String
+    var detail: String? = nil
     var systemImage: String
     var tint: Color
     var isActive: Bool
@@ -444,6 +445,13 @@ struct ChannelFader: View {
                 }
                 .tint(tint)
                 .accessibilityLabel(Text("\(title) Volume"))
+            }
+            if let detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(detail)
             }
         }
         .padding(SustainSpace.md)

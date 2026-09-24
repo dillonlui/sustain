@@ -241,6 +241,7 @@ struct LiveServiceView: View {
             isActive: store.runtime.playbackPhase == .songPlaying,
             entry: store.playingEntry,
             song: store.song(for: store.playingEntry),
+            clickDescription: liveClickDescription,
             emptyText: "No song playing"
         )
     }
@@ -251,6 +252,7 @@ struct LiveServiceView: View {
             isActive: false,
             entry: store.cuedEntry,
             song: store.song(for: store.cuedEntry),
+            clickDescription: store.song(for: store.cuedEntry).map { "Click: \($0.clickSubdivision.label)" },
             emptyText: "Nothing cued"
         )
     }
@@ -288,6 +290,7 @@ struct LiveServiceView: View {
         ChannelFader(
             title: "Click",
             subtitle: "Guide",
+            detail: liveClickDescription,
             systemImage: "metronome",
             tint: SustainColor.accent,
             isActive: store.runtime.clickState != .off,
@@ -406,6 +409,17 @@ struct LiveServiceView: View {
         store.runtime.playingEntryID != nil && store.runtime.cuedEntryID != store.runtime.playingEntryID
     }
 
+    private var liveClickDescription: String? {
+        guard let song = store.song(for: store.playingEntry) else { return nil }
+        if store.runtime.clickState == .off {
+            return "Click off · next start: \(song.clickSubdivision.label)"
+        }
+        if store.runtime.clickState == .preparing {
+            return "Preparing click: \(song.clickSubdivision.label)"
+        }
+        return "Click: \((store.audibleClickSubdivision ?? song.clickSubdivision).label)"
+    }
+
     private var startTitle: String {
         isTransition ? "Transition" : "Start"
     }
@@ -467,6 +481,7 @@ private struct StatePanel: View {
     var isActive: Bool
     var entry: SetlistEntry?
     var song: Song?
+    var clickDescription: String?
     var emptyText: String
 
     var body: some View {
@@ -495,6 +510,11 @@ private struct StatePanel: View {
                         MetadataChip(label: "BPM", value: "\(song.defaultBPM)")
                         MetadataChip(label: "Time", value: song.timeSignature.description)
                     }
+                    Text(clickDescription ?? "Click: \(song.clickSubdivision.label)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .help(clickDescription ?? "Click: \(song.clickSubdivision.label)")
                 } else {
                     Text(emptyText)
                         .font(.title3)
@@ -619,6 +639,20 @@ private struct SongInspectorPane: View {
                                 Text(signature.description).tag(signature)
                             }
                         }
+                        Picker("Subdivision", selection: subdivisionBinding(song)) {
+                            ForEach(ClickSubdivision.allCases) { subdivision in
+                                Text(subdivision.label)
+                                    .accessibilityLabel(subdivision.accessibilityLabel)
+                                    .tag(subdivision)
+                            }
+                        }
+                        .disabled(store.runtime.playingEntryID == entryID && store.runtime.clickState == .countoff)
+                        .help(store.runtime.playingEntryID == entryID && store.runtime.clickState == .countoff
+                            ? "Subdivision can change after countoff"
+                            : "Choose clicks per BPM beat")
+                        Text("Adds evenly spaced clicks inside each BPM beat.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         LabeledContent("Pads", value: "Included")
                         Text("Changes update this song everywhere it appears.")
                             .font(.caption)
@@ -675,6 +709,14 @@ private struct SongInspectorPane: View {
                 timeSignature: signature,
                 padPackID: PadPack.bundled.id
             )
+        }
+    }
+
+    private func subdivisionBinding(_ song: Song) -> Binding<ClickSubdivision> {
+        Binding {
+            store.pendingClickSubdivision(for: song.id) ?? currentSong(song.id)?.clickSubdivision ?? song.clickSubdivision
+        } set: { subdivision in
+            store.setSongClickSubdivision(song.id, subdivision: subdivision)
         }
     }
 

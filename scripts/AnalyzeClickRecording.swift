@@ -6,6 +6,7 @@ import Foundation
 struct Options {
     var fileURL: URL?
     var bpm: Double?
+    var subdivision = 1
     var thresholdRatio = 0.25
     var maxMeanJitterSeconds = 0.015
     var maxWorstJitterSeconds = 0.06
@@ -20,8 +21,8 @@ struct Analysis {
     var medianInterval: Double
     var meanAbsoluteJitter: Double
     var worstJitter: Double
-    var missingBeats: Int
-    var extraBeats: Int
+    var missingClicks: Int
+    var extraClicks: Int
     var passed: Bool
 }
 
@@ -29,6 +30,7 @@ enum AnalyzerError: LocalizedError {
     case missingFile
     case missingBPM
     case invalidBPM(String)
+    case invalidSubdivision(String)
     case unreadableAudio(String)
     case noSignal
     case tooFewClicks(Int)
@@ -41,6 +43,8 @@ enum AnalyzerError: LocalizedError {
             return "Missing --bpm value."
         case .invalidBPM(let value):
             return "Invalid BPM: \(value)."
+        case .invalidSubdivision(let value):
+            return "Invalid subdivision: \(value). Choose 1, 2, 3, or 4."
         case .unreadableAudio(let path):
             return "Could not read audio file: \(path)."
         case .noSignal:
@@ -58,11 +62,12 @@ func parseOptions() throws -> Options {
     if args.contains("--help") || args.contains("-h") {
         print("""
         Usage:
-          swift scripts/AnalyzeClickRecording.swift --file recording.wav --bpm 72
+          swift scripts/AnalyzeClickRecording.swift --file recording.wav --bpm 72 --subdivision 3
 
         Options:
           --file PATH              Recording to analyze. WAV, AIFF, M4A, and other AVFoundation-readable files are supported.
           --bpm BPM                Expected click BPM.
+          --subdivision N          Clicks per beat (1, 2, 3, or 4). Default: 1.
           --threshold-ratio VALUE  Peak threshold as a ratio of max amplitude. Default: 0.25.
 
         Best results come from recording the click output alone, without pads or room noise.
@@ -83,6 +88,11 @@ func parseOptions() throws -> Options {
                 throw AnalyzerError.invalidBPM(value)
             }
             options.bpm = bpm
+        case "--subdivision":
+            guard let subdivision = Int(value), (1...4).contains(subdivision) else {
+                throw AnalyzerError.invalidSubdivision(value)
+            }
+            options.subdivision = subdivision
         case "--threshold-ratio":
             options.thresholdRatio = max(0.05, min(0.95, Double(value) ?? options.thresholdRatio))
         default:
@@ -127,13 +137,13 @@ func readMonoSamples(from url: URL) throws -> (samples: [Float], sampleRate: Dou
     return (samples, buffer.format.sampleRate)
 }
 
-func detectClickFrames(samples: [Float], sampleRate: Double, bpm: Double, thresholdRatio: Double) throws -> [Int] {
+func detectClickFrames(samples: [Float], sampleRate: Double, bpm: Double, subdivision: Int, thresholdRatio: Double) throws -> [Int] {
     guard let maxAmplitude = samples.max(), maxAmplitude > 0 else {
         throw AnalyzerError.noSignal
     }
 
     let threshold = maxAmplitude * Float(thresholdRatio)
-    let expectedIntervalFrames = sampleRate * 60.0 / bpm
+    let expectedIntervalFrames = sampleRate * 60.0 / (bpm * Double(subdivision))
     let minimumGapFrames = Int(expectedIntervalFrames * 0.45)
     var peaks: [Int] = []
     var index = 0
@@ -188,6 +198,7 @@ func analyze(options: Options) throws -> Analysis {
         samples: audio.samples,
         sampleRate: audio.sampleRate,
         bpm: bpm,
+        subdivision: options.subdivision,
         thresholdRatio: options.thresholdRatio
     )
 
@@ -198,19 +209,19 @@ func analyze(options: Options) throws -> Analysis {
     let intervals = zip(peaks, peaks.dropFirst()).map { previous, next in
         Double(next - previous) / audio.sampleRate
     }
-    let expectedInterval = 60.0 / bpm
+    let expectedInterval = 60.0 / (bpm * Double(options.subdivision))
     let medianInterval = median(intervals)
-    let observedBPM = 60.0 / medianInterval
+    let observedBPM = 60.0 / (medianInterval * Double(options.subdivision))
     let jitters = intervals.map { abs($0 - expectedInterval) }
     let meanJitter = jitters.reduce(0, +) / Double(jitters.count)
     let worstJitter = jitters.max() ?? 0
-    let missingBeats = intervals.reduce(0) { total, interval in
+    let missingClicks = intervals.reduce(0) { total, interval in
         total + max(0, Int(round(interval / expectedInterval)) - 1)
     }
-    let extraBeats = intervals.filter { $0 < expectedInterval * 0.55 }.count
+    let extraClicks = intervals.filter { $0 < expectedInterval * 0.55 }.count
     let duration = Double(audio.samples.count) / audio.sampleRate
-    let passed = missingBeats == 0
-        && extraBeats == 0
+    let passed = missingClicks == 0
+        && extraClicks == 0
         && abs(observedBPM - bpm) <= options.maxBPMError
         && meanJitter <= options.maxMeanJitterSeconds
         && worstJitter <= options.maxWorstJitterSeconds
@@ -223,8 +234,8 @@ func analyze(options: Options) throws -> Analysis {
         medianInterval: medianInterval,
         meanAbsoluteJitter: meanJitter,
         worstJitter: worstJitter,
-        missingBeats: missingBeats,
-        extraBeats: extraBeats,
+        missingClicks: missingClicks,
+        extraClicks: extraClicks,
         passed: passed
     )
 }
@@ -246,8 +257,8 @@ do {
     print("Median interval: \(format(result.medianInterval)) sec")
     print("Mean jitter: \(format(result.meanAbsoluteJitter * 1000)) ms")
     print("Worst jitter: \(format(result.worstJitter * 1000)) ms")
-    print("Missing beats: \(result.missingBeats)")
-    print("Extra/doubled beats: \(result.extraBeats)")
+    print("Missing clicks: \(result.missingClicks)")
+    print("Extra/doubled clicks: \(result.extraClicks)")
 
     Foundation.exit(result.passed ? 0 : 1)
 } catch {

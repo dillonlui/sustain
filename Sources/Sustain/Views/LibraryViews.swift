@@ -34,6 +34,7 @@ struct SongLibraryView: View {
                                         key: keyBinding(for: song.id),
                                         bpm: bpmBinding(for: song.id),
                                         timeSignature: timeSignatureBinding(for: song.id),
+                                        clickSubdivision: subdivisionBinding(for: song.id),
                                         isAdded: addConfirmation?.songID == song.id,
                                         onAddToSetlist: {
                                             addToSetlist(song)
@@ -171,6 +172,14 @@ struct SongLibraryView: View {
         }
     }
 
+    private func subdivisionBinding(for songID: Song.ID) -> Binding<ClickSubdivision> {
+        Binding {
+            store.pendingClickSubdivision(for: songID) ?? song(songID)?.clickSubdivision ?? .beat
+        } set: { subdivision in
+            store.setSongClickSubdivision(songID, subdivision: subdivision)
+        }
+    }
+
     private func addToSetlist(_ song: Song) {
         guard store.addSongToSetlist(song.id) != nil else { return }
 
@@ -202,12 +211,14 @@ private struct AddConfirmation: Identifiable {
 }
 
 private struct SongLibraryRow: View {
+    @Environment(AppStore.self) private var store
     var song: Song
     var padTracks: [PadTrack]
     @Binding var title: String
     @Binding var key: MusicalKey
     @Binding var bpm: Int
     @Binding var timeSignature: TimeSignature
+    @Binding var clickSubdivision: ClickSubdivision
     var isAdded: Bool
     var onAddToSetlist: () -> Void
     var onSetPad: (PadTrack.ID?) -> Void
@@ -287,6 +298,19 @@ private struct SongLibraryRow: View {
                 MetadataChip(label: "BPM", value: "\(bpm)")
                 MetadataChip(label: "Time", value: timeSignature.description)
             }
+            Picker("Click", selection: $clickSubdivision) {
+                ForEach(ClickSubdivision.allCases) { subdivision in
+                    Text(subdivision.label)
+                        .accessibilityLabel(subdivision.accessibilityLabel)
+                        .tag(subdivision)
+                }
+            }
+            .pickerStyle(.menu)
+            .fixedSize(horizontal: true, vertical: false)
+            .disabled(song.id == store.playingEntry?.songID && store.runtime.clickState == .countoff)
+            .help(song.id == store.playingEntry?.songID && store.runtime.clickState == .countoff
+                ? "Subdivision can change after countoff"
+                : "Choose clicks per BPM beat")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

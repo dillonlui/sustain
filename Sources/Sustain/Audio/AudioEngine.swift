@@ -43,18 +43,24 @@ protocol AudioControlling: AnyObject {
     func prepareClick(
         bpm: Int,
         timeSignature: TimeSignature,
+        subdivision: ClickSubdivision,
         includesCountoff: Bool,
         settings: ClickSettings,
         completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
     )
-    func activateClick(_ prepared: PreparedClick)
+    func activateClick(_ prepared: PreparedClick) throws
+    func scheduleClickChange(
+        _ prepared: PreparedClick,
+        completion: @escaping @MainActor @Sendable (Result<Void, Error>) -> Void
+    )
+    func cancelScheduledClickChange()
     func handleMemoryPressure()
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String
     func hasPadAsset(for padPack: PadPack, key: MusicalKey) -> Bool
     func preloadPad(for key: MusicalKey, padPack: PadPack)
     func startPad(for key: MusicalKey, padPack: PadPack) throws
     func stopPad()
-    func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool, settings: ClickSettings) throws
+    func startClick(bpm: Int, timeSignature: TimeSignature, subdivision: ClickSubdivision, includesCountoff: Bool, settings: ClickSettings) throws
     func stopClick()
     func setPadVolume(_ volume: Double)
     func setClickVolume(_ volume: Double)
@@ -73,7 +79,8 @@ final class SustainAudioEngine: AudioControlling {
     private let clickEngine = AVAudioEngine()
     private let padPlayers = [AVAudioPlayerNode(), AVAudioPlayerNode()]
     private let padMixers = [AVAudioMixerNode(), AVAudioMixerNode()]
-    private let clickPlayer = AVAudioPlayerNode()
+    private var clickSourceNode: AVAudioSourceNode!
+    private var clickRenderer: ClickLoopRenderer!
     private let clickMixer = AVAudioMixerNode()
     private let clickFormat: AVAudioFormat
     private let padAssetResolver: PadAssetResolving
@@ -90,6 +97,8 @@ final class SustainAudioEngine: AudioControlling {
     private var activePadMemoryKey: PadBufferKey?
     private var activePadAssetName: String?
     private var clickIsActive = false
+    private var clickSwitchSerial = 0
+    private var clickSwitchTask: Task<Void, Never>?
     private var padVolume: Float = 0.42
     private var clickVolume: Float = 0.75
     private var routingSummary = "Default output"
@@ -160,10 +169,15 @@ final class SustainAudioEngine: AudioControlling {
             padEngine.connect(padMixers[index], to: padEngine.mainMixerNode, format: nil)
         }
 
-        clickEngine.attach(clickPlayer)
+        let renderer = ClickLoopRenderer(format: clickFormat)
+        clickRenderer = renderer
+        clickSourceNode = AVAudioSourceNode(format: clickFormat) { _, _, frameCount, audioBufferList in
+            renderer.render(frameCount: frameCount, audioBufferList: audioBufferList)
+        }
+        clickEngine.attach(clickSourceNode)
         clickEngine.attach(clickMixer)
         clickMixer.outputVolume = clickVolume
-        clickEngine.connect(clickPlayer, to: clickMixer, format: clickFormat)
+        clickEngine.connect(clickSourceNode, to: clickMixer, format: clickFormat)
         clickEngine.connect(clickMixer, to: clickEngine.mainMixerNode, format: clickFormat)
 
         voiceRenderer?.prewarm(numbers: Array(1...12), format: clickFormat)
@@ -395,6 +409,7 @@ final class SustainAudioEngine: AudioControlling {
     func prepareClick(
         bpm: Int,
         timeSignature: TimeSignature,
+        subdivision: ClickSubdivision,
         includesCountoff: Bool,
         settings: ClickSettings,
         completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
@@ -415,6 +430,7 @@ final class SustainAudioEngine: AudioControlling {
                     format: format,
                     bpm: bpm,
                     timeSignature: timeSignature,
+                    subdivision: subdivision,
                     measures: 1,
                     settings: settings
                 )
@@ -424,6 +440,7 @@ final class SustainAudioEngine: AudioControlling {
                         voiceRenderer: renderer,
                         bpm: bpm,
                         timeSignature: timeSignature,
+                        subdivision: subdivision,
                         settings: settings
                     )
                     : nil
@@ -440,13 +457,49 @@ final class SustainAudioEngine: AudioControlling {
         }
     }
 
-    func activateClick(_ prepared: PreparedClick) {
-        clickPlayer.stop()
-        clickPlayer.pan = clickOutputChannel.pan
-        if let countoff = prepared.countoff { clickPlayer.scheduleBuffer(countoff.buffer) }
-        clickPlayer.scheduleBuffer(prepared.loop.buffer, at: nil, options: .loops)
-        clickPlayer.play()
+    func activateClick(_ prepared: PreparedClick) throws {
+        clickSwitchTask?.cancel()
+        if clickIsActive {
+            // stop() drains the source callback before a slot can be reused by a full restart.
+            clickEngine.stop()
+            clickRenderer.stop()
+            clickIsActive = false
+        }
+        clickMixer.pan = clickOutputChannel.pan
+        try clickRenderer.start(prepared)
+        try startClickEngineIfNeeded()
         clickIsActive = true
+    }
+
+    func scheduleClickChange(
+        _ prepared: PreparedClick,
+        completion: @escaping @MainActor @Sendable (Result<Void, Error>) -> Void
+    ) {
+        guard clickIsActive else {
+            completion(.failure(AudioEngineError.invalidOutputFormat))
+            return
+        }
+        clickSwitchSerial &+= 1
+        let serial = clickSwitchSerial
+        do {
+            try clickRenderer.queue(prepared, serial: serial)
+        } catch {
+            completion(.failure(error))
+            return
+        }
+        clickSwitchTask?.cancel()
+        clickSwitchTask = Task { @MainActor in
+            while !Task.isCancelled && clickIsActive && clickRenderer.lastAppliedSerial < serial {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+            guard !Task.isCancelled, clickIsActive else { return }
+            completion(.success(()))
+        }
+    }
+
+    func cancelScheduledClickChange() {
+        clickSwitchTask?.cancel()
+        clickRenderer.cancelPending()
     }
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
@@ -568,6 +621,7 @@ final class SustainAudioEngine: AudioControlling {
     func startClick(
         bpm: Int,
         timeSignature: TimeSignature,
+        subdivision: ClickSubdivision = .beat,
         includesCountoff: Bool = true,
         settings: ClickSettings = .default
     ) throws {
@@ -577,25 +631,31 @@ final class SustainAudioEngine: AudioControlling {
 
         // Build every replacement buffer before touching a currently running click. A live
         // BPM/time-signature edit can then fail safely without silencing the old loop.
-        let loop = try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, measures: 1, settings: settings)
+        let loop = try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, subdivision: subdivision, measures: 1, settings: settings)
         let countoff = includesCountoff
-            ? try makeCountoffBuffer(bpm: bpm, timeSignature: timeSignature, settings: settings)
+            ? try makeCountoffBuffer(bpm: bpm, timeSignature: timeSignature, subdivision: subdivision, settings: settings)
             : nil
 
-        try startClickEngineIfNeeded()
-
-        clickPlayer.stop()
-        clickPlayer.pan = clickOutputChannel.pan
-        if let countoff {
-            clickPlayer.scheduleBuffer(countoff)
+        let prepared = PreparedClick(
+            loop: ImmutablePCMBuffer(buffer: loop, byteCount: try Self.byteCount(of: loop)),
+            countoff: try countoff.map { ImmutablePCMBuffer(buffer: $0, byteCount: try Self.byteCount(of: $0)) }
+        )
+        clickSwitchTask?.cancel()
+        if clickIsActive {
+            clickEngine.stop()
+            clickRenderer.stop()
+            clickIsActive = false
         }
-        clickPlayer.scheduleBuffer(loop, at: nil, options: .loops)
-        clickPlayer.play()
+        try clickRenderer.start(prepared)
+        try startClickEngineIfNeeded()
+        clickMixer.pan = clickOutputChannel.pan
         clickIsActive = true
     }
 
     func stopClick() {
-        clickPlayer.stop()
+        clickSwitchTask?.cancel()
+        clickRenderer.stop()
+        clickEngine.stop()
         clickIsActive = false
     }
 
@@ -657,7 +717,7 @@ final class SustainAudioEngine: AudioControlling {
         for player in padPlayers {
             player.pan = padOutputChannel.pan
         }
-        clickPlayer.pan = clickOutputChannel.pan
+        clickMixer.pan = clickOutputChannel.pan
     }
 
     private func fade(mixer: AVAudioMixerNode, at index: Int, to target: Float, duration: TimeInterval) {
@@ -731,6 +791,7 @@ final class SustainAudioEngine: AudioControlling {
     private func makeClickBuffer(
         bpm: Int,
         timeSignature: TimeSignature,
+        subdivision: ClickSubdivision,
         measures: Int,
         settings: ClickSettings
     ) throws -> AVAudioPCMBuffer {
@@ -738,15 +799,17 @@ final class SustainAudioEngine: AudioControlling {
             format: clickFormat,
             bpm: bpm,
             timeSignature: timeSignature,
+            subdivision: subdivision,
             measures: measures,
             settings: settings
         )
     }
 
-    nonisolated private static func makeClickBuffer(
+    nonisolated static func makeClickBuffer(
         format: AVAudioFormat,
         bpm: Int,
         timeSignature: TimeSignature,
+        subdivision: ClickSubdivision,
         measures: Int,
         settings: ClickSettings
     ) throws -> AVAudioPCMBuffer {
@@ -765,6 +828,18 @@ final class SustainAudioEngine: AudioControlling {
             let startFrame = Int(Double(beat) * secondsPerBeat * sampleRate)
             let accented = settings.accentMode == .downbeat && beat % timeSignature.beatsPerMeasure == 0
             writeClickTone(into: buffer, format: format, startFrame: startFrame, accented: accented)
+            if subdivision != .beat {
+                for slot in 1..<subdivision.rawValue {
+                    let position = (Double(beat) + Double(slot) / Double(subdivision.rawValue)) * secondsPerBeat * sampleRate
+                    writeClickTone(
+                        into: buffer,
+                        format: format,
+                        startFrame: Int(position),
+                        accented: false,
+                        gain: 0.48
+                    )
+                }
+            }
         }
 
         return buffer
@@ -801,6 +876,7 @@ final class SustainAudioEngine: AudioControlling {
     private func makeCountoffBuffer(
         bpm: Int,
         timeSignature: TimeSignature,
+        subdivision: ClickSubdivision,
         settings: ClickSettings
     ) throws -> AVAudioPCMBuffer {
         try Self.makeCountoffBuffer(
@@ -808,6 +884,7 @@ final class SustainAudioEngine: AudioControlling {
             voiceRenderer: voiceRenderer,
             bpm: bpm,
             timeSignature: timeSignature,
+            subdivision: subdivision,
             settings: settings
         )
     }
@@ -819,6 +896,7 @@ final class SustainAudioEngine: AudioControlling {
         voiceRenderer: CountoffVoiceRendering?,
         bpm: Int,
         timeSignature: TimeSignature,
+        subdivision: ClickSubdivision = .beat,
         settings: ClickSettings
     ) throws -> AVAudioPCMBuffer {
         if settings.countoffSound == .click {
@@ -826,6 +904,7 @@ final class SustainAudioEngine: AudioControlling {
                 format: format,
                 bpm: bpm,
                 timeSignature: timeSignature,
+                subdivision: subdivision,
                 measures: 1,
                 settings: settings
             )
@@ -842,6 +921,7 @@ final class SustainAudioEngine: AudioControlling {
                 format: format,
                 bpm: bpm,
                 timeSignature: timeSignature,
+                subdivision: subdivision,
                 measures: 1,
                 settings: settings
             )
@@ -1086,6 +1166,7 @@ final class SilentAudioEngine: AudioControlling {
     func prepareClick(
         bpm: Int,
         timeSignature: TimeSignature,
+        subdivision: ClickSubdivision,
         includesCountoff: Bool,
         settings: ClickSettings,
         completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
@@ -1101,7 +1182,12 @@ final class SilentAudioEngine: AudioControlling {
         completion(.success(PreparedClick(loop: pcm, countoff: includesCountoff ? pcm : nil)))
     }
 
-    func activateClick(_ prepared: PreparedClick) { clickIsActive = true }
+    func activateClick(_ prepared: PreparedClick) throws { clickIsActive = true }
+    func scheduleClickChange(
+        _ prepared: PreparedClick,
+        completion: @escaping @MainActor @Sendable (Result<Void, Error>) -> Void
+    ) { completion(.success(())) }
+    func cancelScheduledClickChange() {}
     func handleMemoryPressure() {}
 
     func padAssetStatus(for padPack: PadPack, key: MusicalKey) -> String {
@@ -1120,7 +1206,7 @@ final class SilentAudioEngine: AudioControlling {
         padIsActive = false
     }
 
-    func startClick(bpm: Int, timeSignature: TimeSignature, includesCountoff: Bool, settings: ClickSettings) throws {
+    func startClick(bpm: Int, timeSignature: TimeSignature, subdivision: ClickSubdivision, includesCountoff: Bool, settings: ClickSettings) throws {
         guard bpm > 0 else {
             throw AudioEngineError.invalidBPM(bpm)
         }
