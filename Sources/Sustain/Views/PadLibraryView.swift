@@ -155,7 +155,7 @@ struct PadLibraryView: View {
             Button("Remove Pad\u{2026}", systemImage: "trash", role: .destructive) { requestRemoval(ids: [pad.id]) }
                 .disabled(isPadAudible(pad.id))
         } else {
-            Text("Included pads are immutable")
+            Text("Included pad · Not editable.")
         }
     }
 

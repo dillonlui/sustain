@@ -9,7 +9,7 @@ struct ClickSubdivisionTests {
         try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
     }
 
-    private func peak(_ buffer: AVAudioPCMBuffer, around frame: Int, width: Int = 1_500) throws -> Float {
+    nonisolated private func peak(_ buffer: AVAudioPCMBuffer, around frame: Int, width: Int = 1_500) throws -> Float {
         let samples = try #require(buffer.floatChannelData?[0])
         let end = min(Int(buffer.frameLength), frame + width)
         return (frame..<end).reduce(Float(0)) { max($0, abs(samples[$1])) }
@@ -45,7 +45,9 @@ struct ClickSubdivisionTests {
         }
     }
 
-    @Test func everySupportedMeterAndSampleRateHasExpectedGrid() throws {
+    // Buffer generation is CPU-heavy and does not use AppStore. Keep it off the main
+    // actor so timed playback state transitions can complete during the full suite.
+    @Test nonisolated func everySupportedMeterAndSampleRateHasExpectedGrid() throws {
         for sampleRate in [44_100.0, 48_000.0] {
             let format = try #require(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2))
             for bpm in [40, 72, 220] {

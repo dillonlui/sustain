@@ -189,9 +189,9 @@ struct SongEditorView: View {
     private var clickSection: some View {
         VStack(alignment: .leading, spacing: SustainSpace.md) {
             sectionTitle("Click", symbol: "metronome")
-            ClickFieldsLayout(spacing: SustainSpace.md) {
-                tempoField.frame(width: 150, alignment: .leading)
-                timeSignatureField.frame(width: 145, alignment: .leading)
+            ClickFieldsLayout(spacing: SustainSpace.sm) {
+                tempoField.frame(width: 135, alignment: .leading)
+                timeSignatureField.frame(width: 120, alignment: .leading)
                 subdivisionField.frame(width: 200, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

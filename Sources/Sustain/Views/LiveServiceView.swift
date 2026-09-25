@@ -6,6 +6,7 @@ import SwiftUI
 private struct SetlistResizeHandle: View {
     @Binding var width: Double
     var range: ClosedRange<Double>
+    var onCommit: (Double) -> Void
     @State private var startWidth: Double?
     @FocusState private var isFocused: Bool
 
@@ -19,16 +20,20 @@ private struct SetlistResizeHandle: View {
                         if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
                     }
                     .gesture(
-                        DragGesture()
+                        DragGesture(coordinateSpace: .global)
                             .onChanged { value in
                                 let base = startWidth ?? width
                                 if startWidth == nil { startWidth = width }
                                 width = min(range.upperBound, max(range.lowerBound, base + Double(value.translation.width)))
                             }
-                            .onEnded { _ in startWidth = nil }
+                            .onEnded { _ in
+                                startWidth = nil
+                                onCommit(width)
+                            }
                     )
             )
             .focusable()
+            .focusEffectDisabled()
             .focused($isFocused)
             .onMoveCommand { direction in
                 switch direction {
@@ -51,6 +56,7 @@ private struct SetlistResizeHandle: View {
 
     private func adjustWidth(by amount: Double) {
         width = min(range.upperBound, max(range.lowerBound, width + amount))
+        onCommit(width)
     }
 }
 
@@ -93,7 +99,8 @@ struct LiveServiceView: View {
     @State private var isSetlistExpanded = false
     @State private var isConfirmingClearSetlist = false
     @FocusState private var addSongFocused: Bool
-    @AppStorage("liveSetlistWidth") private var setlistWidth = 260.0
+    @AppStorage("liveSetlistWidth") private var savedSetlistWidth = 260.0
+    @State private var setlistWidth = 260.0
 
     private let setlistWidthRange = 200.0...340.0
 
@@ -120,7 +127,7 @@ struct LiveServiceView: View {
                     setlistPane(compact: false)
                         .frame(width: setlistWidth)
 
-                    SetlistResizeHandle(width: $setlistWidth, range: setlistWidthRange)
+                    SetlistResizeHandle(width: $setlistWidth, range: setlistWidthRange) { savedSetlistWidth = $0 }
 
                     performanceSurface(compactTop: false)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -138,7 +145,10 @@ struct LiveServiceView: View {
             }
         }
         .background(palette.canvas)
-        .onAppear { store.refreshReadiness() }
+        .onAppear {
+            setlistWidth = min(setlistWidthRange.upperBound, max(setlistWidthRange.lowerBound, savedSetlistWidth))
+            store.refreshReadiness()
+        }
         .alert("Clear Setlist?", isPresented: $isConfirmingClearSetlist) {
             Button("Cancel", role: .cancel) {}
                 .keyboardShortcut(".", modifiers: .command)
@@ -245,7 +255,7 @@ struct LiveServiceView: View {
             }
             .onMove { store.moveSetlistEntry(from: $0, to: $1) }
         }
-        .listStyle(.inset)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(palette.performanceSurface.opacity(0.3))
         .safeAreaInset(edge: .top, spacing: 0) { setlistHeader(compact: compact) }
@@ -356,13 +366,13 @@ struct LiveServiceView: View {
             FutureSignalPerformanceSurface(state: performanceSurfaceState) {
                 VStack(alignment: .leading, spacing: 20) {
                     nowNextReadouts
-
-                    if let beat = store.runtime.countoffBeat {
-                        FutureSignalCountoffBadge(beat: beat, total: store.runtime.countoffTotal)
-                            .frame(maxWidth: .infinity)
-                    }
-
                     transportCluster
+                        .overlay {
+                            if let beat = store.runtime.countoffBeat {
+                                FutureSignalCountoffBadge(beat: beat, total: store.runtime.countoffTotal)
+                                    .allowsHitTesting(false)
+                            }
+                        }
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -439,7 +449,9 @@ struct LiveServiceView: View {
         } else {
             VStack(spacing: 12) {
                 padCard
+                    .fixedSize(horizontal: false, vertical: true)
                 clickCard
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -470,13 +482,13 @@ struct LiveServiceView: View {
     }
 
     private var padChannelStatus: some View {
-        FutureSignalOpenChannelStatus(kind: .pad, state: padChannelState, detail: padStatusDetail)
-            .accessibilityValue("Pad \(padChannelState.label). \(padStatusDetail)")
+        FutureSignalOpenChannelStatus(kind: .pad, state: padChannelState, detail: padOutputDetail, showsStateLabel: false, detailLineLimit: 1)
+            .accessibilityValue("Pad output: \(padOutputDetail)")
     }
 
     private var clickChannelStatus: some View {
-        FutureSignalOpenChannelStatus(kind: .click, state: clickChannelState, detail: clickStatusDetail)
-            .accessibilityValue("Click \(clickChannelState.label). \(clickStatusDetail)")
+        FutureSignalOpenChannelStatus(kind: .click, state: clickChannelState, detail: clickOutputDetail, showsStateLabel: false, detailLineLimit: 1)
+            .accessibilityValue("Click output: \(clickOutputDetail)")
     }
 
     private var padFader: some View {
@@ -601,20 +613,15 @@ struct LiveServiceView: View {
                 }
             }
 
-            if let pendingLiveClickMessage {
-                Text(pendingLiveClickMessage)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(palette.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
             HStack(spacing: SustainSpace.sm) {
                 Image(systemName: "info.circle")
                     .foregroundStyle(.secondary)
                 Text(store.runtime.lastMessage)
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(store.runtime.lastMessage)
                 Spacer(minLength: SustainSpace.md)
                 LiveRoutingBadge(snapshot: store.routingSnapshot)
             }
@@ -655,70 +662,16 @@ struct LiveServiceView: View {
         }
     }
 
-    private var padStatusDetail: String {
-        let route = store.routingSnapshot.padRouteName
-        if store.runtime.padState == .off && !store.routingSnapshot.isPadRouteReady {
-            return store.routingSnapshot.padOutputID == nil
-                ? "No pad output selected"
-                : "Pad route unavailable · \(route)"
-        }
-        if store.runtime.padState == .preparing {
-            let targetPad = store.song(for: store.cuedEntry).flatMap { store.padTrack(for: $0) }
-            let target = targetPad?.label ?? "Pad"
-            if let oldID = store.runtime.audiblePadTrackID,
-               let oldPad = store.padTracks.first(where: { $0.id == oldID }),
-               oldID != targetPad?.id {
-                return "Preparing \(target) · \(oldPad.label) still sounding · \(route)"
-            }
-            return "Preparing \(target) · \(route)"
-        }
-        if let padID = store.runtime.audiblePadTrackID {
-            let pad = store.padTracks.first(where: { $0.id == padID })
-            let owner = store.runtime.audiblePadEntryID.flatMap { store.entry(id: $0) }
-            let ownerTitle = store.song(for: owner)?.title
-            let identity = [pad?.label, ownerTitle].compactMap { $0 }.joined(separator: " · ")
-            return "\(identity) · \(route)"
-        }
-        return "\(route) · No pad sounding"
+    private var padOutputDetail: String {
+        store.routingSnapshot.padOutputID == nil
+            ? "No pad output selected"
+            : store.routingSnapshot.padRouteName
     }
 
-    private var clickStatusDetail: String {
-        if store.runtime.clickState == .off && !store.routingSnapshot.isClickRouteReady {
-            return store.routingSnapshot.clickOutputID == nil
-                ? "No click output selected"
-                : "Click route unavailable · \(store.routingSnapshot.clickRouteName)"
-        }
-        let route = store.routingSnapshot.clickRouteName
-        let song = store.song(for: store.playingEntry) ?? store.song(for: store.cuedEntry)
-        let audible = store.audibleClickSubdivision
-        if store.runtime.clickState == .off {
-            if let song { return "Next start: \(song.clickSubdivision.label) · \(route)" }
-            return "No song cued · \(route)"
-        }
-        if let beat = store.runtime.countoffBeat, let total = store.runtime.countoffTotal {
-            return "Beat \(beat) of \(total) · \(route)"
-        }
-        if store.runtime.clickState == .preparing {
-            let target = store.song(for: store.cuedEntry)?.clickSubdivision.label ?? "Click"
-            if let audible {
-                return "Preparing \(target) · \(audible.label) still audible · \(route)"
-            }
-            return "Preparing \(target) · \(route)"
-        }
-        let pattern = audible ?? song?.clickSubdivision ?? .beat
-        if let playingSong = store.song(for: store.playingEntry),
-           let pending = store.pendingClickSubdivision(for: playingSong.id) {
-            return "\(pattern.label) audible · \(pending.label) at next measure · \(route)"
-        }
-        return "\(pattern.label) · \(route)"
-    }
-
-    private var pendingLiveClickMessage: String? {
-        guard let song = store.song(for: store.playingEntry),
-              let pending = store.pendingClickSubdivision(for: song.id),
-              store.runtime.clickState != .off else { return nil }
-        let audible = store.audibleClickSubdivision ?? song.clickSubdivision
-        return "Current: \(audible.label) · Switching to \(pending.label) next measure"
+    private var clickOutputDetail: String {
+        store.routingSnapshot.clickOutputID == nil
+            ? "No click output selected"
+            : store.routingSnapshot.clickRouteName
     }
 
     private var isTransition: Bool {
@@ -767,7 +720,7 @@ struct LiveServiceView: View {
 
 // MARK: - Routing badge
 
-/// Count-in centered in a reserved area between the song and channel readouts.
+/// Count-in badge, displayed over the Live transport without changing its layout.
 struct FutureSignalCountoffBadge: View {
     var beat: Int
     var total: Int?
@@ -877,7 +830,7 @@ private struct SetlistRowView: View {
             .help("Adjust \(song?.title ?? "song")")
             .accessibilityLabel("Adjust \(song?.title ?? "song")")
             .frame(width: 30, height: 30)
-            .padding(.trailing, 10)
+            .padding(.trailing, SustainSpace.xs)
         }
         .frame(maxWidth: .infinity, minHeight: 44)
         .background {
@@ -892,6 +845,7 @@ private struct SetlistRowView: View {
             }
         }
         .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
+        .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
     }
 }
@@ -918,6 +872,7 @@ private struct SongInspectorPane: View {
                     onSaved: { _ in
                         baseline = draft
                         isDirty = false
+                        onClose()
                     },
                     onClose: requestClose,
                     onDeleted: onClose

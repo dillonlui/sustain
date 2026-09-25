@@ -24,7 +24,7 @@ struct FutureSignalSetlistRowContent: View {
             Text("\(index)")
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(palette.textSecondary)
-                .frame(width: 24, alignment: .trailing)
+                .frame(width: 20, alignment: .trailing)
 
             VStack(alignment: .leading, spacing: SustainSpace.xxs) {
                 Text(title)
@@ -43,7 +43,8 @@ struct FutureSignalSetlistRowContent: View {
                 }
             }
         }
-        .padding(.horizontal, SustainSpace.sm)
+        .padding(.leading, SustainSpace.xs)
+        .padding(.trailing, SustainSpace.sm)
         .padding(.vertical, SustainSpace.sm)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .background {

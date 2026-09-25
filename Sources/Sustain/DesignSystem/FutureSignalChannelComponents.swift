@@ -54,6 +54,8 @@ struct FutureSignalOpenChannelStatus: View {
     var kind: FutureSignalChannelKind
     var state: FutureSignalChannelState
     var detail: String? = nil
+    var showsStateLabel = true
+    var detailLineLimit = 2
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
@@ -77,16 +79,18 @@ struct FutureSignalOpenChannelStatus: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(kind.title) \(state.label)")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(state.isAudible ? palette.textPrimary : signalColor)
-                    .lineLimit(1)
+                if showsStateLabel {
+                    Text("\(kind.title) \(state.label)")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(state.isAudible ? palette.textPrimary : signalColor)
+                        .lineLimit(1)
+                }
 
                 if let detail, !detail.isEmpty {
                     Text(detail)
                         .font(.system(size: 12))
                         .foregroundStyle(palette.textSecondary)
-                        .lineLimit(2)
+                        .lineLimit(detailLineLimit)
                         .truncationMode(.tail)
                         .help(detail)
                 }

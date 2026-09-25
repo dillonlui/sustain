@@ -121,18 +121,13 @@ struct RehearseView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 64)
-                if store.pendingRehearseClickSubdivision != nil {
-                    Text(clickStatusDetail)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(palette.textPrimary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let statusNotice {
-                    Text(statusNotice)
-                        .font(.system(size: 12))
-                        .foregroundStyle(palette.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                Text(store.rehearse.lastMessage)
+                    .font(.system(size: 12))
+                    .foregroundStyle(palette.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(store.rehearse.lastMessage)
             }
         }
     }
@@ -448,10 +443,6 @@ struct RehearseView: View {
     }
 
     private var clickStatusDetail: String {
-        if let pending = store.pendingRehearseClickSubdivision {
-            let audible = store.audibleClickSubdivision ?? store.rehearse.clickSubdivision
-            return "Current: \(audible.label) · Switching to \(pending.label) next measure"
-        }
         if store.rehearse.clickState == .off {
             return "Next start: \(store.rehearse.clickSubdivision.label)"
         }
@@ -484,16 +475,6 @@ struct RehearseView: View {
     private func padButtonDetail(_ pad: PadTrack) -> String {
         if !padState(pad).isAvailable { return padStateLabel(padState(pad)) }
         return ""
-    }
-
-    private var statusNotice: String? {
-        let message = store.rehearse.lastMessage
-        if message == "Ready to rehearse" || message == "Pad stopped" ||
-            message.hasSuffix(" playing in Rehearse") ||
-            message.hasSuffix(" is already playing") {
-            return nil
-        }
-        return message
     }
 
     private func padVoiceDisambiguator(_ pad: PadTrack) -> String {
