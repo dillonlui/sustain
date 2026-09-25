@@ -1,6 +1,35 @@
 import AVFoundation
+import Dispatch
 import Testing
 @testable import Sustain
+
+private final class OfflineRenderProbe: @unchecked Sendable {
+    let engine = AVAudioEngine()
+    let format: AVAudioFormat
+    let buffer: AVAudioPCMBuffer
+    var status: AVAudioEngineManualRenderingStatus?
+    var error: Error?
+
+    init(format: AVAudioFormat) throws {
+        self.format = format
+        buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 128))
+        let renderer = ClickLoopRenderer(format: format)
+        let source = SustainAudioEngine.makeClickSourceNode(format: format, renderer: renderer)
+        engine.attach(source)
+        engine.connect(source, to: engine.mainMixerNode, format: format)
+        try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 128)
+    }
+
+    func renderOnBackgroundQueue() {
+        do {
+            try engine.start()
+            status = try engine.renderOffline(128, to: buffer)
+            engine.stop()
+        } catch {
+            self.error = error
+        }
+    }
+}
 
 /// Returns a deterministic voice buffer with a marker after the 45ms click transient. The old
 /// voice-or-click implementation is silent near the beat boundary with this renderer; the new
@@ -27,6 +56,19 @@ private final class MarkerVoiceRenderer: CountoffVoiceRendering {
 
 @MainActor
 struct CountoffAudioTests {
+    @Test func clickSourceRenderCallbackDoesNotRequireMainActor() throws {
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2))
+        let probe = try OfflineRenderProbe(format: format)
+        let complete = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            probe.renderOnBackgroundQueue()
+            complete.signal()
+        }
+        #expect(complete.wait(timeout: .now() + 5) == .success)
+        #expect(probe.error == nil)
+        #expect(probe.status == .success)
+    }
+
     @Test func countedCountoffMixesClickAndExistingVoiceOnEveryBeat() throws {
         let bpm = 72
         let signature = TimeSignature.fourFour

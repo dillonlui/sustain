@@ -4,7 +4,7 @@
 
 ## Intent and hierarchy
 
-Use a near-black, graphite, and deep-olive instrument face with one restrained sage-to-mint signal family. Live's dominant element is a large, dark, subtly glassy **square-like performance surface**: opaque enough for crisp content, a low-contrast internal gradient, a hairline edge, and sparse corner ticks. Keep NOW, NEXT, open Pad/Click readouts, and transport inside this single frame. Pad/Click get spacing or one faint divider, never individual status cards. The setlist stays beside it; channel level controls and route summary may sit below. Preserve the real Live pane geometry and transport order. Do not copy the mockup's invented navigation, route pickers, or labels.
+Use a near-black, graphite, and deep-olive instrument face with one restrained sage-to-mint signal family. Live's dominant element is a large, dark, subtly glassy **square-like performance surface**: opaque enough for crisp content, a low-contrast internal gradient, a hairline edge, and sparse corner ticks. Keep NOW, NEXT, countoff, and transport inside this frame. Place Pad and Click in two adjacent cards below it, each containing its own status, volume setting, and action. The setlist stays beside the performance surface; route notices remain visible nearby. Preserve the real Live pane geometry and transport order.
 
 Priority: **NOW → NEXT → Pad/Click and routing truth → transport → level settings → secondary metadata**. Green light indicates actionable or active state, not decoration. The Sustain wave belongs in the app mark and rare transition use; do not repeat it across rows or controls. No gold is used in this direction.
 
@@ -27,11 +27,11 @@ Tokens resolve for the app appearance (`System`, `Light`, `Dark`) and `accessibi
 | `textTertiary` | `#92A096` | `#607064` | Never use for live state, route fault, or action labels. |
 | `warning` / `blocked` | system orange / system red | system orange / system red | Icon + explicit message + stable notice placement. |
 
-`selected` is an interaction state; `cued` is the target of Start; `playing` is playback identity; `audible` describes active audio. Do not collapse these into one green fill. Native selected-list treatment can remain, but a cue edge/label and playback glyph/text must still be independently visible. The active signal may light a single region or control at a time; inactive frames stay mostly dark. Do not use a global neon bloom.
+`selected` is an interaction state; `cued` is the target of Start; `playing` is playback identity; `audible` describes active audio. Do not collapse these into one green fill. The Live row cues through its own button and uses a brand-colored fill and edge, with no native blue selection. The cue edge/label and playback glyph/text must still be independently visible. The active signal may light a single region or control at a time; inactive frames stay mostly dark. Do not use a global neon bloom.
 
 ## Geometry, type, and effects
 
-- **Spacing:** preserve the existing 4/8/12/16/20/24/32 pt scale. Main pane inset 24 pt, setlist row hit height at least 44 pt, open channel readouts separated by at least 24 pt. Avoid shrinking the 1200 × 700 composition below readable native type.
+- **Spacing:** preserve the existing 4/8/12/16/20/24/32 pt scale. Main pane inset 24 pt, setlist row hit height at least 44 pt, and clear separation between the Pad and Click cards. Avoid shrinking the 1200 × 700 composition below readable native type.
 - **Shape:** performance frame radius 8–10 pt and thin corner ticks only on that frame. Secondary panels radius 8–10 pt; controls 6–8 pt. Avoid nested framed cards inside the performance frame.
 - **Stroke:** default 1 pt hairline; active frame 1 pt signal edge at moderate opacity; focus uses the native ring. No thick outline around every row. At increased contrast, use an opaque 1–2 pt outline where required.
 - **Glass and light:** dark performance frame uses an opaque base and at most a 4–7% directional gradient lift; edge light can brighten locally for active/transition. Text sits on stable fill. Use native system material for appropriate control chrome on supported macOS, with an opaque fallback for macOS 14. No blur behind dense Live content.
@@ -52,7 +52,7 @@ Read identity from `runtime.playingEntryID`, cue from `runtime.cuedEntryID`, aud
 | Cued pad pre-roll, no song playing | NOW still empty; NEXT stays cued; no playing glyph | Pad `Playing` or `Fading In`, with audible pad owner named if it differs from cue; Click Off | Show mismatch warning when cue changes while old pad sounds. |
 | Start preparing | `Preparing <cued title>` in stable NOW footprint; no playing glyph until `playingEntryID` exists | Pad/Click `Preparing` as applicable | Start disabled/guarded by store; previous playback, if present, remains explicitly shown. |
 | Countoff | NOW shows actual playing entry and `Playing` row; NEXT remains cue, possibly same entry | Pad phase from runtime; Click `Count in` and beat/total | Countoff overlay has reserved/stable placement. |
-| Playing | NOW title + key/BPM/meter; row glyph + `Playing`; NEXT shows cue even if same | Pad `Playing`/`Fading In`/Off; Click `Playing`/Off | Start disabled when cue equals playing entry; Stop available. |
+| Playing | NOW title + assigned pad/BPM/meter; row glyph + `Playing`; NEXT shows cue even if same | Pad `Playing`/`Fading In`/Off; Click `Playing`/Off | Start disabled when cue equals playing entry; Stop available. |
 | Cue changed during playback | NOW and playing glyph stay on original entry; NEXT and `Cued` move | Audible pad owner remains original until actually switched | Start label may become `Transition`. |
 | Transition | Keep old NOW until store commits new playing entry, then update atomically; no invented dual-playing rows | Show actual pad fades and click state | Do not imply both songs are audible merely from cue state. |
 | Stop / pad tail | NOW empty once playing ID clears; no playing glyph | Pad `Fading Out` until actual off; Click Off | Stop remains available while audio activity persists. |
@@ -60,7 +60,7 @@ Read identity from `runtime.playingEntryID`, cue from `runtime.cuedEntryID`, aud
 
 For Live and Rehearse, the click subdivision label shows **audible** `AppStore.audibleClickSubdivision` while click sounds. If `pendingLiveClickSubdivision` for the playing song or `pendingRehearseClickSubdivision` exists, show `Current: … · Switching to … next measure` in text; the selected value must not masquerade as already audible. While countoff is active, subdivision editing stays disabled as in current behavior. Click Off may show the configured value as `Next start: …`. Pad and Click use the same green family, distinguished by name and icon, never by gold.
 
-In Rehearse, a pad can be selected while off; selected key/pad is not `Playing`. A tile becomes `Preparing`, `Fading In`, `Playing`, or `Fading Out` only from `rehearse.padState` and the selected pad ID. Unavailable assets show their real condition (`Missing`, `Permission needed`, etc.) and disabled action. Rehearse click shows `Off`, `Preparing`, `Count in`, or `Playing` from `rehearse.clickState`, with BPM/meter/subdivision visible. Pad and Click remain independent channel readouts; one active channel must not light the other.
+In Rehearse, a pad can be selected while off; selection is not `Playing`. The main Pad status names `Preparing`, `Fading In`, `Playing`, or `Fading Out` from `rehearse.padState` and the selected pad ID; the tile uses only the short `Playing` label once playback starts. Unavailable assets show their real condition (`Missing`, `Permission needed`, etc.) and disabled action. Rehearse click shows `Off`, `Preparing`, `Count in`, or `Playing` from `rehearse.clickState`, with BPM/meter/subdivision visible. Pad and Click remain independent channel readouts; one active channel must not light the other.
 
 ## Component variants and specimen board
 
@@ -69,7 +69,7 @@ Build a deterministic SwiftUI preview gallery (or equivalent in-app debug board)
 | Component | Required variants / content |
 | --- | --- |
 | `PerformanceFrame` | idle, cued, preparing, countoff, playing, transition, warning, blocked; stable bounds and corner ticks; long NOW/NEXT titles. |
-| `SongReadout` | empty, title/key/BPM/meter, same song NOW+NEXT, long title, missing song. |
+| `SongReadout` | empty, title/assigned pad/BPM/meter, same song NOW+NEXT, long title, missing song. |
 | `SetlistRow` | plain, selected, cued, playing, playing+selected/cued, missing, disabled edit; static and animated playing glyph. |
 | `OpenChannelStatus` | Pad/Click off, preparing, countoff, fading in/out, playing, unavailable; owner mismatch text. No local card. |
 | `ChannelLevel` | 0, 50, 100%, active/off, focus, disabled; native keyboard-accessible slider. Label as `volume setting`, never `signal meter`; remove or rename the current `LevelMeter` bars if they imply measured amplitude. |
@@ -79,7 +79,7 @@ Build a deterministic SwiftUI preview gallery (or equivalent in-app debug board)
 
 ## Composition and acceptance examples
 
-1. At **1200 × 700** and one wide size, Live retains its resizable setlist and optional editor pane, NOW/NEXT hierarchy, large frame, four-control transport order, and stable countoff placement. No content or pane shifts when playback starts, countoff ends, or the editor opens. Rehearse stacks columns below a 960 pt detail-pane width without horizontal overflow; this permits two columns beside the 220 pt sidebar at the minimum app width.
+1. At **640 × 600**, **1200 × 700**, and one wide size, Live retains access to its setlist, editor, NOW/NEXT hierarchy, four-control transport order, and centered countoff. The root sidebar becomes an icon rail below 900 points; Live uses an expandable setlist and sheet editor below 680 points of detail width. Rehearse stacks columns below a 960-point detail-pane width without horizontal overflow.
 2. Fixture: `Build My Life` playing; `Goodness of God` cued; Pad `C` still audible for `Build My Life`; Click playing at `Beat`; `2 per beat` change pending. Expect one playing row with glyph+`Playing`, one `Cued` row, Pad owner text, `Current: Beat · Switching to 2 per beat next measure`, and no animated bars pretending to measure signal.
 3. Fixture: no song playing, `Holy Forever` cued, earlier Pad `G` fading out. Expect no playing glyph, NOW empty, NEXT cued, Pad `Fading Out` with owner/mismatch notice, and Stop available until fade completes.
 4. Fixture: Rehearse pad `Warm Atmosphere — Extended Mix` selected but off, Click countoff active, output unavailable. Expect selected pad styling without `Playing`, stable count numeral, route fault wording, and a visible blocked/warning notice. Long text remains accessible.

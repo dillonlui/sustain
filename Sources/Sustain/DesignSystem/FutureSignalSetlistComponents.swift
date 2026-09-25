@@ -1,43 +1,5 @@
 import SwiftUI
 
-/// A playback-identity mark for a setlist entry. It is deliberately unrelated to
-/// volume or measured signal level.
-struct FutureSignalPlayingGlyph: View {
-    var isPlaying: Bool
-
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.colorSchemeContrast) private var contrast
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var palette: FutureSignalColor {
-        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
-    }
-
-    var body: some View {
-        Group {
-            if isPlaying && !reduceMotion {
-                PhaseAnimator([false, true]) { phase in
-                    mark
-                        .opacity(phase ? 0.76 : 1)
-                        .scaleEffect(phase ? 0.94 : 1)
-                } animation: { _ in
-                    .easeInOut(duration: 0.85)
-                }
-            } else {
-                mark
-            }
-        }
-        .frame(width: 16, height: 16)
-        .accessibilityHidden(true)
-    }
-
-    private var mark: some View {
-        Image(systemName: "play.fill")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(palette.activeSignal)
-    }
-}
-
 /// Visual content for a native setlist row. The caller owns selection, cue actions,
 /// editing, and the source of playback identity; none are inferred from the title.
 struct FutureSignalSetlistRowContent: View {
@@ -48,6 +10,7 @@ struct FutureSignalSetlistRowContent: View {
     var isCued: Bool = false
     var isSelected: Bool = false
     var isMissing: Bool = false
+    var showsContainer = true
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
@@ -78,30 +41,20 @@ struct FutureSignalSetlistRowContent: View {
                         .lineLimit(1)
                         .help(detail)
                 }
-                if isPlaying || isCued {
-                    HStack(spacing: SustainSpace.xs) {
-                        if isPlaying {
-                            FutureSignalPlayingGlyph(isPlaying: true)
-                        }
-                        Text(statusText)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(isPlaying ? palette.activeSignal : palette.cuedEdge)
-                            .lineLimit(1)
-                    }
-                    .accessibilityHidden(true)
-                }
             }
         }
         .padding(.horizontal, SustainSpace.sm)
         .padding(.vertical, SustainSpace.sm)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(isPlaying ? palette.activeSignal.opacity(0.08) :
-                        isSelected ? palette.surfaceEdge.opacity(0.16) : .clear)
+            if showsContainer {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(isPlaying ? palette.activeSignal.opacity(0.08) :
+                            isSelected ? palette.surfaceEdge.opacity(0.16) : .clear)
+            }
         }
         .overlay {
-            if isCued {
+            if showsContainer && isCued {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .strokeBorder(palette.cuedEdge.opacity(contrast == .increased ? 1 : 0.72), lineWidth: 1)
             }
@@ -118,11 +71,6 @@ struct FutureSignalSetlistRowContent: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(index), \(title)\(detail.map { ", \($0)" } ?? "")")
         .accessibilityValue(accessibilityState)
-    }
-
-    private var statusText: String {
-        if isPlaying && isCued { return "Playing · Cued" }
-        return isPlaying ? "Playing" : "Cued"
     }
 
     private var accessibilityState: String {

@@ -190,6 +190,8 @@ struct LitToggleButton: View {
         }
         .toggleStyle(LitButtonToggleStyle(tint: tint))
         .controlSize(.large)
+        .accessibilityLabel(title)
+        .accessibilityValue(isOn ? "On" : "Off")
     }
 }
 
@@ -311,18 +313,13 @@ struct MetadataChip: View {
 /// Inline caution/error banner following the native pattern: the color lives on the
 /// icon, the message text stays at full (primary) contrast, on a readable tinted chip.
 struct SustainInlineNotice: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+
     enum Kind {
         case success
         case warning
         case error
-
-        var tint: Color {
-            switch self {
-            case .success: SustainColor.ready
-            case .warning: SustainColor.warning
-            case .error: SustainColor.destructive
-            }
-        }
 
         var systemImage: String {
             switch self {
@@ -336,10 +333,22 @@ struct SustainInlineNotice: View {
     var message: String
     var kind: Kind = .warning
 
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
+
+    private var tint: Color {
+        switch kind {
+        case .success: palette.activeSignal
+        case .warning: palette.warning
+        case .error: palette.blocked
+        }
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: SustainSpace.sm) {
             Image(systemName: kind.systemImage)
-                .foregroundStyle(kind.tint)
+                .foregroundStyle(tint)
             Text(message)
                 .foregroundStyle(.primary)
             Spacer(minLength: 0)
@@ -347,10 +356,10 @@ struct SustainInlineNotice: View {
         .font(.callout)
         .padding(SustainSpace.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(kind.tint.opacity(0.22), in: RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous))
+        .background(tint.opacity(0.22), in: RoundedRectangle(cornerRadius: FutureSignalEffects.surfaceRadius, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: SustainRadius.panel, style: .continuous)
-                .stroke(kind.tint.opacity(0.35), lineWidth: 1)
+            RoundedRectangle(cornerRadius: FutureSignalEffects.surfaceRadius, style: .continuous)
+                .stroke(tint.opacity(0.35), lineWidth: 1)
         }
     }
 }

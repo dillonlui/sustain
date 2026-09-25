@@ -51,6 +51,8 @@ struct RehearseSession: Equatable {
     var selectedPadLabel = "C"
     var padState: PadPlaybackState = .off
     var clickState: ClickPlaybackState = .off
+    var countoffBeat: Int?
+    var countoffTotal: Int?
     var bpm: Int = 72
     var timeSignature: TimeSignature = .fourFour
     var clickSubdivision: ClickSubdivision = .beat
@@ -784,6 +786,27 @@ final class AppStore {
         startRehearsePad(padID: padID)
     }
 
+    /// One playback identity for pad controls shown on different screens.
+    func padPlaybackState(for padID: PadTrack.ID) -> PadPlaybackState {
+        if runtime.audiblePadTrackID == padID, runtime.padState != .off {
+            return runtime.padState
+        }
+        if rehearse.selectedPadTrackID == padID, rehearse.padState != .off {
+            return rehearse.padState
+        }
+        return .off
+    }
+
+    func togglePadPlayback(for padID: PadTrack.ID) {
+        if runtime.audiblePadTrackID == padID, runtime.padState != .off {
+            stopPad()
+        } else if rehearse.selectedPadTrackID == padID, rehearse.padState != .off {
+            stopRehearsePad()
+        } else {
+            playPadInRehearse(padID)
+        }
+    }
+
     func stopRehearsePad() {
         rehearsePadPreparationGeneration &+= 1
         padStateTask?.cancel()
@@ -805,6 +828,8 @@ final class AppStore {
         let preparedSubdivision = rehearse.clickSubdivision
         let preparedClickSettings = clickSettings
         rehearse.clickState = .preparing
+        rehearse.countoffBeat = nil
+        rehearse.countoffTotal = nil
 
         audioEngine.prepareClick(
             bpm: preparedBPM,
@@ -831,11 +856,15 @@ final class AppStore {
                     self.rehearse.lastMessage = "Countoff started at \(self.rehearse.bpm) BPM"
                 } else {
                     self.rehearse.clickState = .playing
+                    self.rehearse.countoffBeat = nil
+                    self.rehearse.countoffTotal = nil
                     self.rehearse.lastMessage = "Click playing at \(self.rehearse.bpm) BPM"
                 }
                 self.refreshAudioStatus()
             } catch {
                 self.rehearse.clickState = .off
+                self.rehearse.countoffBeat = nil
+                self.rehearse.countoffTotal = nil
                 self.rehearse.lastMessage = error.localizedDescription
                 self.refreshAudioStatus()
             }
@@ -849,6 +878,8 @@ final class AppStore {
         audioEngine.stopClick()
         audibleClickSubdivision = nil
         rehearse.clickState = .off
+        rehearse.countoffBeat = nil
+        rehearse.countoffTotal = nil
         rehearse.lastMessage = "Click stopped"
         refreshAudioStatus()
     }
@@ -1189,6 +1220,8 @@ final class AppStore {
                 try self.audioEngine.activateClick(result.get())
                 self.audibleClickSubdivision = self.rehearse.clickSubdivision
                 self.rehearse.clickState = .playing
+                self.rehearse.countoffBeat = nil
+                self.rehearse.countoffTotal = nil
                 self.rehearse.lastMessage = message
                 self.refreshAudioStatus()
             } catch {
@@ -1249,6 +1282,112 @@ final class AppStore {
         return song.id
     }
 
+    /// Validates and commits a song editor draft as one library change. A draft without an ID
+    /// never appears in the library until this succeeds.
+    @discardableResult
+    func saveSongDraft(_ draft: SongDraft) -> Song.ID? {
+        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            persistenceStatus = "Enter a song title"
+            return nil
+        }
+        guard (40...220).contains(draft.defaultBPM) else {
+            persistenceStatus = "BPM must be between 40 and 220"
+            return nil
+        }
+        let assignedPad = draft.padTrackID.flatMap { id in padTracks.first { $0.id == id } }
+        guard draft.padTrackID == nil || assignedPad != nil else {
+            persistenceStatus = "The selected pad is unavailable"
+            return nil
+        }
+
+        let current: Song?
+        if let id = draft.id {
+            guard let existing = songs.first(where: { $0.id == id }) else {
+                persistenceStatus = "Could not find song to update"
+                return nil
+            }
+            current = existing
+        } else {
+            current = nil
+        }
+
+        let id = current?.id ?? UUID()
+        let updated = Song(
+            id: id,
+            title: title,
+            defaultKey: assignedPad?.source.bundledKey ?? current?.defaultKey ?? .c,
+            defaultBPM: draft.defaultBPM,
+            timeSignature: draft.timeSignature,
+            clickSubdivision: draft.clickSubdivision,
+            padPack: current?.padPack ?? .bundled,
+            padTrackID: draft.padTrackID
+        )
+        if updated == current { return id }
+
+        let playingThisSong = playingEntry?.songID == id
+        let activeClick = playingThisSong && runtime.clickState != .off
+        let retimeClick = activeClick && current.map {
+            $0.defaultBPM != updated.defaultBPM || $0.timeSignature != updated.timeSignature
+        } == true
+        let subdivisionChanged = current?.clickSubdivision != updated.clickSubdivision
+        if activeClick && runtime.clickState == .countoff && subdivisionChanged && !retimeClick {
+            persistenceStatus = "Wait for the countoff to finish before changing subdivision"
+            return nil
+        }
+
+        if retimeClick {
+            do {
+                // A playing click takes the new tempo and meter immediately, without another countoff.
+                // Starting it before mutating the library leaves the draft uncommitted on failure.
+                try audioEngine.startClick(
+                    bpm: updated.defaultBPM,
+                    timeSignature: updated.timeSignature,
+                    subdivision: updated.clickSubdivision,
+                    includesCountoff: false,
+                    settings: clickSettings
+                )
+                cancelPendingClickChange()
+                audibleClickSubdivision = updated.clickSubdivision
+            } catch {
+                persistenceStatus = "Could not update click: \(error.localizedDescription)"
+                runtime.lastMessage = persistenceStatus
+                refreshAudioStatus()
+                return nil
+            }
+        }
+
+        if let index = songs.firstIndex(where: { $0.id == id }) {
+            songs[index] = updated
+        } else {
+            songs.append(updated)
+        }
+
+        if retimeClick {
+            clickStateTask?.cancel()
+            clearCountoff()
+            runtime.clickState = .playing
+        } else if activeClick && subdivisionChanged && runtime.clickState == .playing {
+            // Follow the existing live subdivision path: switch at the next measure.
+            pendingLiveClickSongID = id
+            pendingLiveClickSubdivision = updated.clickSubdivision
+            preparePendingLiveSubdivision()
+        } else if activeClick && subdivisionChanged && runtime.clickState == .preparing {
+            liveStartGeneration &+= 1
+            runtime.clickState = .off
+            startClick()
+        }
+
+        saveLibrary()
+        preloadCuedPad()
+        refreshReadiness()
+        runtime.lastMessage = activeClick && subdivisionChanged && !retimeClick && runtime.clickState == .playing
+            ? "Saved \(title); switching click subdivision at next measure"
+            : playingThisSong ? "Updated \(title) live" : "Saved \(title)"
+        refreshAudioStatus()
+        return id
+    }
+
     @discardableResult
     func updateSong(
         _ songID: Song.ID,
@@ -1273,9 +1412,7 @@ final class AppStore {
             timeSignature: timeSignature,
             clickSubdivision: current.clickSubdivision,
             padPack: .bundled,
-            padTrackID: current.padTrackID == PadTrack.includedID(for: current.defaultKey)
-                ? PadTrack.includedID(for: defaultKey)
-                : current.padTrackID
+            padTrackID: current.padTrackID
         )
 
         guard updated != current else { return true }
@@ -1331,8 +1468,13 @@ final class AppStore {
             persistenceStatus = "The selected pad is unavailable"
             return false
         }
-        guard songs[index].padTrackID != padTrackID else { return true }
+        let includedKey = padTrackID.flatMap { id in padTracks.first { $0.id == id }?.source.bundledKey }
+        guard songs[index].padTrackID != padTrackID ||
+            (includedKey != nil && songs[index].defaultKey != includedKey) else { return true }
         songs[index].padTrackID = padTrackID
+        if let key = includedKey {
+            songs[index].defaultKey = key
+        }
         saveLibrary()
         refreshReadiness()
         runtime.lastMessage = runtime.audiblePadEntryID.flatMap({ entry(id: $0)?.songID }) == songID
@@ -1909,17 +2051,43 @@ final class AppStore {
     private func beginRehearseCountoff() {
         clickStateTask?.cancel()
         rehearse.clickState = .countoff
+        let beats = max(1, rehearse.timeSignature.beatsPerMeasure)
+        let secondsPerBeat = rehearse.bpm > 0
+            ? max(0, (60.0 / Double(rehearse.bpm)) * countoffDurationMultiplier)
+            : 0
+        let clock = ContinuousClock()
+        let startedAt = clock.now
+        rehearse.countoffBeat = 1
+        rehearse.countoffTotal = beats
 
-        let duration = countoffDuration(bpm: rehearse.bpm, timeSignature: rehearse.timeSignature)
         clickStateTask = Task { @MainActor in
-            let nanoseconds = UInt64(max(0, duration * countoffDurationMultiplier) * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanoseconds)
+            if beats > 1 {
+                for beat in 2...beats {
+                    let deadline = startedAt.advanced(by: .seconds(secondsPerBeat * Double(beat - 1)))
+                    do {
+                        try await clock.sleep(until: deadline)
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled, rehearse.clickState == .countoff else { return }
+                    rehearse.countoffBeat = beat
+                }
+            }
+
+            let countoffEnd = startedAt.advanced(by: .seconds(secondsPerBeat * Double(beats)))
+            do {
+                try await clock.sleep(until: countoffEnd)
+            } catch {
+                return
+            }
 
             guard !Task.isCancelled,
                   rehearse.clickState == .countoff else {
                 return
             }
 
+            rehearse.countoffBeat = nil
+            rehearse.countoffTotal = nil
             rehearse.clickState = .playing
             rehearse.lastMessage = "Click playing at \(rehearse.bpm) BPM"
         }
@@ -1966,6 +2134,8 @@ final class AppStore {
         }
 
         rehearse.clickState = .off
+        rehearse.countoffBeat = nil
+        rehearse.countoffTotal = nil
         audibleClickSubdivision = nil
         rehearse.padState = .off
         rehearse.lastMessage = "Rehearsal stopped"
@@ -2212,6 +2382,8 @@ final class AppStore {
         runtime.playingEntryID = nil
         runtime.playbackPhase = .noSongPlaying
         rehearse.clickState = .off
+        rehearse.countoffBeat = nil
+        rehearse.countoffTotal = nil
         rehearse.padState = .off
         rehearse.lastMessage = message
         runtime.lastMessage = message

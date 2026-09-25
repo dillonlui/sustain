@@ -7,6 +7,7 @@ private struct SetlistResizeHandle: View {
     @Binding var width: Double
     var range: ClosedRange<Double>
     @State private var startWidth: Double?
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         Divider()
@@ -27,6 +28,54 @@ private struct SetlistResizeHandle: View {
                             .onEnded { _ in startWidth = nil }
                     )
             )
+            .focusable()
+            .focused($isFocused)
+            .onMoveCommand { direction in
+                switch direction {
+                case .left: adjustWidth(by: -20)
+                case .right: adjustWidth(by: 20)
+                default: break
+                }
+            }
+            .accessibilityLabel("Setlist width")
+            .accessibilityValue("\(Int(width)) points")
+            .accessibilityHint("Use left and right arrows to resize the setlist")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: adjustWidth(by: 20)
+                case .decrement: adjustWidth(by: -20)
+                @unknown default: break
+                }
+            }
+    }
+
+    private func adjustWidth(by amount: Double) {
+        width = min(range.upperBound, max(range.lowerBound, width + amount))
+    }
+}
+
+/// Gives both channel cards the taller card's height without imposing a fixed height.
+private struct EqualHeightChannelCards: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let width = proposal.width ?? 460
+        let cardWidth = max(0, (width - spacing) / 2)
+        let cardProposal = ProposedViewSize(width: cardWidth, height: nil)
+        let height = subviews.map { $0.sizeThatFits(cardProposal).height }.max() ?? 0
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let cardWidth = max(0, (bounds.width - spacing) / 2)
+        let cardProposal = ProposedViewSize(width: cardWidth, height: bounds.height)
+        subviews[0].place(at: bounds.origin, proposal: cardProposal)
+        subviews[1].place(
+            at: CGPoint(x: bounds.minX + cardWidth + spacing, y: bounds.minY),
+            proposal: cardProposal
+        )
     }
 }
 
@@ -36,6 +85,12 @@ struct LiveServiceView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var editingEntryID: SetlistEntry.ID?
+    @State private var inspectorDirty = false
+    @State private var pendingEditingEntryID: SetlistEntry.ID?
+    @State private var pendingNewLiveSong = false
+    @State private var isConfirmingEditorSwitch = false
+    @State private var isCreatingLiveSong = false
+    @State private var isSetlistExpanded = false
     @State private var isConfirmingClearSetlist = false
     @FocusState private var addSongFocused: Bool
     @AppStorage("liveSetlistWidth") private var setlistWidth = 260.0
@@ -47,24 +102,39 @@ struct LiveServiceView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            setlistPane
-                .frame(width: setlistWidth)
+        GeometryReader { geometry in
+            if geometry.size.width < 680 {
+                compactLayout(height: geometry.size.height)
+                    .sheet(isPresented: Binding(
+                        get: { editingEntryID != nil },
+                        set: { if !$0 { editingEntryID = nil } }
+                    )) {
+                        SongInspectorPane(entryID: editingEntryID, compact: true, isDirty: $inspectorDirty) {
+                            editingEntryID = nil
+                            inspectorDirty = false
+                        }
+                            .frame(minWidth: 400, minHeight: 500)
+                    }
+            } else {
+                HStack(spacing: 0) {
+                    setlistPane(compact: false)
+                        .frame(width: setlistWidth)
 
-            SetlistResizeHandle(width: $setlistWidth, range: setlistWidthRange)
+                    SetlistResizeHandle(width: $setlistWidth, range: setlistWidthRange)
 
-            performanceSurface
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    performanceSurface(compactTop: false)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Custom trailing editor pane, replacing `.inspector`. `.inspector` is a
-            // NavigationSplitView-family feature and — like NavigationSplitView itself —
-            // flips the window's top safe-area inset when state changes mid-service (the
-            // ~90px "jump on play" bug; see docs/13). A plain conditional pane in this HStack
-            // has no such behavior and keeps the setlist visible while editing.
-            if editingEntryID != nil {
-                Divider()
-                SongInspectorPane(entryID: editingEntryID) { editingEntryID = nil }
-                    .frame(width: 320)
+                    // A plain conditional pane avoids the safe-area jump caused by `.inspector`.
+                    if editingEntryID != nil {
+                        Divider()
+                        SongInspectorPane(entryID: editingEntryID, isDirty: $inspectorDirty) {
+                            editingEntryID = nil
+                            inspectorDirty = false
+                        }
+                            .frame(width: 320)
+                    }
+                }
             }
         }
         .background(palette.canvas)
@@ -86,24 +156,89 @@ struct LiveServiceView: View {
         } message: {
             Text("Remove all \(store.activeSetlist.entries.count) songs from \(store.activeSetlist.title)? Songs and pads remain in their libraries.")
         }
+        .confirmationDialog(
+            "Discard unsaved song changes?",
+            isPresented: $isConfirmingEditorSwitch,
+            titleVisibility: .visible
+        ) {
+            Button("Discard Changes", role: .destructive) {
+                if pendingNewLiveSong {
+                    editingEntryID = nil
+                    isCreatingLiveSong = true
+                } else {
+                    editingEntryID = pendingEditingEntryID
+                }
+                pendingEditingEntryID = nil
+                pendingNewLiveSong = false
+                inspectorDirty = false
+            }
+            Button("Keep Editing", role: .cancel) {
+                pendingEditingEntryID = nil
+                pendingNewLiveSong = false
+            }
+        }
+        .sheet(isPresented: $isCreatingLiveSong) {
+            NewLiveSongSheet { entryID in
+                isCreatingLiveSong = false
+                editingEntryID = entryID
+                inspectorDirty = false
+            } onCancel: {
+                isCreatingLiveSong = false
+            }
+        }
     }
 
     // MARK: Setlist pane
 
-    private var setlistPane: some View {
-        List(selection: cuedSelection) {
+    private func compactLayout(height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: SustainSpace.md) {
+                Button {
+                    isSetlistExpanded.toggle()
+                } label: {
+                    Label("Setlist", systemImage: "list.bullet")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(isSetlistExpanded ? "Hide setlist" : "Show setlist")
+
+                Spacer(minLength: 0)
+
+                Text(store.song(for: store.cuedEntry)?.title ?? "Nothing cued")
+                    .font(.caption)
+                    .foregroundStyle(palette.textSecondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, SustainSpace.md)
+            .padding(.top, SustainLayout.topChrome + SustainSpace.sm)
+            .padding(.bottom, SustainSpace.sm)
+            .background(palette.performanceSurface)
+
+            if isSetlistExpanded {
+                setlistPane(compact: true)
+                    .frame(height: min(300, height * 0.42))
+            }
+
+            Rectangle().fill(palette.divider).frame(height: 1)
+            performanceSurface(compactTop: true)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func setlistPane(compact: Bool) -> some View {
+        List {
             ForEach(Array(store.activeSetlist.entries.enumerated()), id: \.element.id) { index, entry in
                 SetlistRowView(
                     index: index + 1,
                     song: store.song(for: entry),
+                    padDescription: store.song(for: entry).map(padDescription) ?? "Missing Pad",
                     entry: entry,
                     isPlaying: store.runtime.playingEntryID == entry.id,
                     isCued: store.runtime.cuedEntryID == entry.id,
-                    onEdit: { editingEntryID = entry.id }
+                    onCue: { store.cue(entryID: entry.id) },
+                    onEdit: { openEditor(for: entry.id) }
                 )
-                .tag(entry.id)
                 .contextMenu {
-                    Button("Edit\u{2026}") { editingEntryID = entry.id }
+                    Button("Edit\u{2026}") { openEditor(for: entry.id) }
                     Button("Remove", role: .destructive) { store.removeSetlistEntry(entry.id) }
                         .disabled(store.runtime.playingEntryID == entry.id)
                 }
@@ -111,10 +246,9 @@ struct LiveServiceView: View {
             .onMove { store.moveSetlistEntry(from: $0, to: $1) }
         }
         .listStyle(.inset)
-        .tint(palette.activeSignal)
         .scrollContentBackground(.hidden)
         .background(palette.performanceSurface.opacity(0.3))
-        .safeAreaInset(edge: .top, spacing: 0) { setlistHeader }
+        .safeAreaInset(edge: .top, spacing: 0) { setlistHeader(compact: compact) }
         .safeAreaInset(edge: .bottom, spacing: 0) { setlistFooter }
         .overlay {
             if store.activeSetlist.entries.isEmpty {
@@ -127,7 +261,7 @@ struct LiveServiceView: View {
         }
     }
 
-    private var setlistHeader: some View {
+    private func setlistHeader(compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: SustainSpace.xs) {
             Text(store.activeSetlist.title)
                 .font(.headline)
@@ -141,7 +275,7 @@ struct LiveServiceView: View {
         .padding(.horizontal, SustainSpace.md)
         // Header material fills to the window top; the title insets by topChrome so it aligns
         // with the sidebar brand and the NOW/NEXT cards.
-        .padding(.top, SustainLayout.topChrome)
+        .padding(.top, compact ? SustainSpace.sm : SustainLayout.topChrome)
         .padding(.bottom, SustainSpace.sm)
         .background(palette.performanceSurface)
     }
@@ -158,9 +292,11 @@ struct LiveServiceView: View {
                     Divider()
                 }
                 Button("New Song\u{2026}", systemImage: "plus") {
-                    let songID = store.addSong()
-                    if let entryID = store.addSongToSetlist(songID) {
-                        editingEntryID = entryID
+                    if inspectorDirty {
+                        pendingNewLiveSong = true
+                        isConfirmingEditorSwitch = true
+                    } else {
+                        isCreatingLiveSong = true
                     }
                 }
             } label: {
@@ -190,75 +326,73 @@ struct LiveServiceView: View {
         .background(palette.performanceSurface)
     }
 
-    private var cuedSelection: Binding<SetlistEntry.ID?> {
-        Binding {
-            store.runtime.cuedEntryID
-        } set: { newValue in
-            if let newValue { store.cue(entryID: newValue) }
+    // MARK: Performance surface
+
+    private func openEditor(for entryID: SetlistEntry.ID) {
+        guard editingEntryID != entryID else { return }
+        if inspectorDirty {
+            pendingEditingEntryID = entryID
+            isConfirmingEditorSwitch = true
+        } else {
+            editingEntryID = entryID
         }
     }
 
-    // MARK: Performance surface
-
-    private var performanceSurface: some View {
+    private func performanceSurface(compactTop: Bool) -> some View {
         GeometryReader { geometry in
+            let isNarrow = geometry.size.width < 520
             ScrollView(.vertical) {
-                performanceContents(availableHeight: geometry.size.height)
+                performanceContents(availableWidth: geometry.size.width, isNarrow: isNarrow, compactTop: compactTop)
                     .frame(minHeight: geometry.size.height, alignment: .top)
             }
             .scrollIndicators(.automatic)
-            .overlay(alignment: .bottom) {
-                if let beat = store.runtime.countoffBeat {
-                    LiveCountoffBadge(beat: beat, total: store.runtime.countoffTotal)
-                        .padding(.bottom, SustainSpace.sm)
-                        .frame(maxWidth: .infinity)
-                }
-            }
         }
     }
 
-    private func performanceContents(availableHeight: CGFloat) -> some View {
+    private func performanceContents(availableWidth: CGFloat, isNarrow: Bool, compactTop: Bool) -> some View {
         VStack(spacing: 12) {
+            if isNarrow { messageStrip }
+
             FutureSignalPerformanceSurface(state: performanceSurfaceState) {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 20) {
                     nowNextReadouts
 
-                    Spacer(minLength: 14)
-
-                    channelStatusRow
+                    if let beat = store.runtime.countoffBeat {
+                        FutureSignalCountoffBadge(beat: beat, total: store.runtime.countoffTotal)
+                            .frame(maxWidth: .infinity)
+                    }
 
                     transportCluster
-                        .padding(.top, 22)
                 }
             }
-            .frame(minHeight: max(360, availableHeight - 250))
+            .fixedSize(horizontal: false, vertical: true)
 
-            levelsRow
-                .padding(16)
-                .background(palette.performanceSurface, in: RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(palette.surfaceEdge.opacity(0.45), lineWidth: 1)
-                }
+            channelCardsRow(availableWidth: availableWidth)
 
-            messageStrip
+            if !isNarrow { messageStrip }
 
         }
         .padding(.horizontal, 18)
-        // The pinned countoff overlay needs scroll extent so notices stay reachable beneath it.
-        .padding(.bottom, store.runtime.countoffBeat == nil ? 15 : 90)
-        .padding(.top, SustainLayout.topChrome + 10)
+        .padding(.bottom, 15)
+        .padding(.top, compactTop ? 12 : SustainLayout.topChrome + 10)
         .frame(maxWidth: .infinity, alignment: .top)
     }
 
     private var nowNextReadouts: some View {
         VStack(alignment: .leading, spacing: 0) {
-            nowReadout
-            Rectangle()
-                .fill(palette.surfaceEdge.opacity(0.5))
-                .frame(height: 1)
-                .padding(.vertical, 20)
-            nextReadout
+            if store.playingEntry != nil || store.cuedEntry == nil {
+                nowReadout
+            }
+            if store.playingEntry != nil && store.cuedEntry != nil ||
+                store.playingEntry == nil && store.cuedEntry == nil {
+                Rectangle()
+                    .fill(palette.surfaceEdge.opacity(0.5))
+                    .frame(height: 1)
+                    .padding(.vertical, 20)
+            }
+            if store.cuedEntry != nil || store.playingEntry == nil {
+                nextReadout
+            }
         }
     }
 
@@ -267,7 +401,7 @@ struct LiveServiceView: View {
         return FutureSignalSongReadout(
             role: .now,
             title: song?.title,
-            key: song?.defaultKey.rawValue,
+            padDescription: song.map(padDescription),
             bpm: song?.defaultBPM,
             timeSignature: song?.timeSignature.description,
             clickDescription: liveClickDescription,
@@ -281,7 +415,7 @@ struct LiveServiceView: View {
         return FutureSignalSongReadout(
             role: .next,
             title: song?.title,
-            key: song?.defaultKey.rawValue,
+            padDescription: song.map(padDescription),
             bpm: song?.defaultBPM,
             timeSignature: song?.timeSignature.description,
             clickDescription: store.song(for: store.cuedEntry).map { "Click: \($0.clickSubdivision.label)" },
@@ -289,20 +423,50 @@ struct LiveServiceView: View {
         )
     }
 
-    private var channelStatusRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 18) {
-                padChannelStatus.frame(minWidth: 200, maxWidth: .infinity)
-                Rectangle()
-                    .fill(palette.surfaceEdge.opacity(0.4))
-                    .frame(width: 1, height: 42)
-                clickChannelStatus.frame(minWidth: 200, maxWidth: .infinity)
+    private func padDescription(_ song: Song) -> String {
+        guard let padID = song.padTrackID else { return "No Pad" }
+        guard let pad = store.padTracks.first(where: { $0.id == padID }) else { return "Missing Pad" }
+        return "Pad: \(pad.label)"
+    }
+
+    @ViewBuilder
+    private func channelCardsRow(availableWidth: CGFloat) -> some View {
+        if availableWidth >= 460 {
+            EqualHeightChannelCards(spacing: 12) {
+                padCard
+                clickCard
             }
-            VStack(alignment: .leading, spacing: 12) {
-                padChannelStatus
-                clickChannelStatus
+        } else {
+            VStack(spacing: 12) {
+                padCard
+                clickCard
             }
         }
+    }
+
+    private var padCard: some View {
+        channelCard {
+            padChannelStatus
+            padFader
+        }
+    }
+
+    private var clickCard: some View {
+        channelCard {
+            clickChannelStatus
+            clickFader
+        }
+    }
+
+    private func channelCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 18, content: content)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(16)
+            .background(palette.performanceSurface, in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(palette.surfaceEdge.opacity(0.55), lineWidth: 1)
+            }
     }
 
     private var padChannelStatus: some View {
@@ -313,22 +477,6 @@ struct LiveServiceView: View {
     private var clickChannelStatus: some View {
         FutureSignalOpenChannelStatus(kind: .click, state: clickChannelState, detail: clickStatusDetail)
             .accessibilityValue("Click \(clickChannelState.label). \(clickStatusDetail)")
-    }
-
-    private var levelsRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 18) {
-                padFader.frame(minWidth: 180, maxWidth: .infinity)
-                Rectangle()
-                    .fill(palette.surfaceEdge.opacity(0.45))
-                    .frame(width: 1, height: 55)
-                clickFader.frame(minWidth: 180, maxWidth: .infinity)
-            }
-            VStack(spacing: 12) {
-                padFader
-                clickFader
-            }
-        }
     }
 
     private var padFader: some View {
@@ -384,6 +532,7 @@ struct LiveServiceView: View {
             .disabled(store.activeSetlist.entries.isEmpty)
             .keyboardShortcut(.leftArrow, modifiers: [])
             .help("Previous")
+            .accessibilityLabel("Previous song")
 
             Button { store.startCuedSong() } label: {
                 transportLabel(startTitle, systemImage: isTransition ? "arrow.triangle.2.circlepath" : "play.fill", compact: compact, minWidth: 120)
@@ -393,6 +542,7 @@ struct LiveServiceView: View {
             .disabled(store.cuedEntry == nil || store.isCuedSongPlaying || store.runtime.playbackPhase == .songStarting)
             .keyboardShortcut(.return, modifiers: [])
             .help(startTitle)
+            .accessibilityLabel(startTitle)
 
             Button { store.cueNextSong() } label: {
                 Image(systemName: "forward.fill").frame(minWidth: 32)
@@ -402,6 +552,7 @@ struct LiveServiceView: View {
             .disabled(store.activeSetlist.entries.isEmpty)
             .keyboardShortcut(.rightArrow, modifiers: [])
             .help("Next")
+            .accessibilityLabel("Next song")
 
             Button(role: .destructive) { store.stop() } label: {
                 transportLabel("Stop", systemImage: "stop.fill", compact: compact, minWidth: 72)
@@ -411,6 +562,7 @@ struct LiveServiceView: View {
             .disabled(!store.isAnyAudioActivityActive)
             .keyboardShortcut(".", modifiers: .command)
             .help("Stop")
+            .accessibilityLabel("Stop playback")
         }
     }
 
@@ -615,10 +767,8 @@ struct LiveServiceView: View {
 
 // MARK: - Routing badge
 
-/// Compact, pinned count-in for the scrolling performance pane. The full channel
-/// status still carries the same beat text; this keeps the numeral in view without
-/// covering warnings or the transport at minimum window size.
-private struct LiveCountoffBadge: View {
+/// Count-in centered in a reserved area between the song and channel readouts.
+struct FutureSignalCountoffBadge: View {
     var beat: Int
     var total: Int?
 
@@ -635,7 +785,7 @@ private struct LiveCountoffBadge: View {
                 .font(.system(size: 11, weight: .semibold))
                 .tracking(2)
             Text("\(beat)")
-                .font(.system(size: 32, weight: .semibold, design: .rounded).monospacedDigit())
+                .font(.system(size: 42, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(palette.activeSignal)
             Text("of \(total ?? 0)")
                 .font(.system(size: 13, weight: .medium).monospacedDigit())
@@ -687,24 +837,38 @@ private struct LiveRoutingBadge: View {
 // MARK: - Setlist row
 
 private struct SetlistRowView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     var index: Int
     var song: Song?
+    var padDescription: String
     var entry: SetlistEntry
     var isPlaying: Bool
     var isCued: Bool
+    var onCue: () -> Void
     var onEdit: () -> Void
+
+    private var palette: FutureSignalColor {
+        FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
-            FutureSignalSetlistRowContent(
-                index: index,
-                title: song?.title ?? "Missing song",
-                detail: song.map { "\($0.defaultKey.rawValue) · \($0.defaultBPM) BPM · \($0.timeSignature.description)" },
-                isPlaying: isPlaying,
-                isCued: isCued,
-                isSelected: isCued,
-                isMissing: song == nil
-            )
+            Button(action: onCue) {
+                FutureSignalSetlistRowContent(
+                    index: index,
+                    title: song?.title ?? "Missing song",
+                    detail: song.map { "\(padDescription) · \($0.defaultBPM) BPM · \($0.timeSignature.description)" },
+                    isPlaying: isPlaying,
+                    isCued: isCued,
+                    isSelected: isCued,
+                    isMissing: song == nil,
+                    showsContainer: false
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Cue this song")
 
             Button(action: onEdit) {
                 Image(systemName: "slider.horizontal.3")
@@ -712,7 +876,20 @@ private struct SetlistRowView: View {
             .buttonStyle(.borderless)
             .help("Adjust \(song?.title ?? "song")")
             .accessibilityLabel("Adjust \(song?.title ?? "song")")
-            .padding(.trailing, 4)
+            .frame(width: 30, height: 30)
+            .padding(.trailing, 10)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .background {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isPlaying ? palette.activeSignal.opacity(0.08) :
+                        isCued ? palette.surfaceEdge.opacity(0.16) : .clear)
+        }
+        .overlay {
+            if isCued {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(palette.cuedEdge.opacity(contrast == .increased ? 1 : 0.72), lineWidth: 1)
+            }
         }
         .listRowInsets(EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4))
         .listRowBackground(Color.clear)
@@ -724,175 +901,111 @@ private struct SetlistRowView: View {
 private struct SongInspectorPane: View {
     @Environment(AppStore.self) private var store
     var entryID: SetlistEntry.ID?
+    var compact = false
+    @Binding var isDirty: Bool
     var onClose: () -> Void
 
-    @State private var titleDraft = ""
-    @FocusState private var titleFocused: Bool
+    @State private var draft = SongDraft.newSong()
+    @State private var baseline: SongDraft?
+    @State private var isConfirmingDiscard = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Edit Song")
-                    .font(.headline)
-                Spacer()
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.body.weight(.medium))
-                }
-                .buttonStyle(.borderless)
-                .help("Close editor")
-            }
-            .padding(.horizontal, SustainSpace.md)
-            .padding(.top, SustainSpace.md)
-            .padding(.bottom, SustainSpace.sm)
-
-            Divider()
-
-            editorBody
-        }
-        .background(.bar)
-    }
-
-    @ViewBuilder
-    private var editorBody: some View {
         Group {
-            if let entryID, let entry = store.entry(id: entryID), let song = store.song(for: entry) {
-                Form {
-                    Section("Song Library") {
-                        TextField("Title", text: $titleDraft)
-                            .focused($titleFocused)
-                            .onSubmit { commitTitle(song) }
-                            .onChange(of: titleFocused) { _, isFocused in
-                                if !isFocused { commitTitle(song) }
-                            }
-                        Picker("Key", selection: keyBinding(song)) {
-                            ForEach(MusicalKey.allCases) { key in
-                                Text(key.rawValue).tag(key)
-                            }
-                        }
-                        TempoControl(value: bpmBinding(song))
-                        Picker("Time", selection: timeSignatureBinding(song)) {
-                            ForEach(TimeSignature.common, id: \.self) { signature in
-                                Text(signature.description).tag(signature)
-                            }
-                        }
-                        Picker("Subdivision", selection: subdivisionBinding(song)) {
-                            ForEach(ClickSubdivision.allCases) { subdivision in
-                                Text(subdivision.label)
-                                    .accessibilityLabel(subdivision.accessibilityLabel)
-                                    .tag(subdivision)
-                            }
-                        }
-                        .disabled(store.runtime.playingEntryID == entryID && store.runtime.clickState == .countoff)
-                        .help(store.runtime.playingEntryID == entryID && store.runtime.clickState == .countoff
-                            ? "Subdivision can change after countoff"
-                            : "Choose clicks per BPM beat")
-                        Text("Adds evenly spaced clicks inside each BPM beat.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        LabeledContent("Pads", value: "Included")
-                        Text("Changes update this song everywhere it appears.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Section {
-                        Button("Remove from setlist", role: .destructive) {
-                            store.removeSetlistEntry(entryID)
-                            onClose()
-                        }
-                        .disabled(store.runtime.playingEntryID == entryID)
-                    }
-                }
-                .formStyle(.grouped)
-                .onAppear { titleDraft = song.title }
-                .onChange(of: entryID) { _, _ in titleDraft = song.title }
-                .onChange(of: song.title) { _, newTitle in
-                    if !titleFocused { titleDraft = newTitle }
-                }
+            if let entryID, baseline != nil {
+                SongEditorView(
+                    draft: $draft,
+                    context: .live(entryID),
+                    onSaved: { _ in
+                        baseline = draft
+                        isDirty = false
+                    },
+                    onClose: requestClose,
+                    onDeleted: onClose
+                )
+                .id(entryID)
             } else {
                 ContentUnavailableView(
                     "No song selected",
                     systemImage: "slider.horizontal.3",
-                    description: Text("Choose a song to edit its key and tempo.")
+                    description: Text("Choose a song to edit its pad and click settings.")
                 )
             }
         }
+        .padding(.top, compact ? 0 : SustainLayout.topChrome)
+        .onAppear { loadEntry() }
+        .onChange(of: entryID) { _, _ in loadEntry() }
+        .onChange(of: draft) { _, _ in
+            isDirty = baseline.map { draft != $0 } ?? false
+        }
+        .confirmationDialog(
+            "Discard unsaved changes?",
+            isPresented: $isConfirmingDiscard,
+            titleVisibility: .visible
+        ) {
+            Button("Discard Changes", role: .destructive, action: onClose)
+            Button("Keep Editing", role: .cancel) {}
+        } message: {
+            Text("Changes to this song have not been saved.")
+        }
     }
 
-    private func commitTitle(_ song: Song) {
-        guard let current = currentSong(song.id) else { return }
-        store.updateSong(
-            song.id,
-            title: titleDraft,
-            defaultKey: current.defaultKey,
-            defaultBPM: current.defaultBPM,
-            timeSignature: current.timeSignature,
-            padPackID: PadPack.bundled.id
+    private func loadEntry() {
+        guard let entryID, let entry = store.entry(id: entryID),
+              let song = store.song(for: entry) else {
+            baseline = nil
+            return
+        }
+        draft = SongDraft(song: song)
+        baseline = draft
+        isDirty = false
+    }
+
+    private func requestClose() {
+        if let baseline, draft != baseline {
+            isConfirmingDiscard = true
+        } else {
+            onClose()
+        }
+    }
+}
+
+private struct NewLiveSongSheet: View {
+    @Environment(AppStore.self) private var store
+    var onCreated: (SetlistEntry.ID) -> Void
+    var onCancel: () -> Void
+
+    @State private var draft = SongDraft.newSong()
+    @State private var isConfirmingDiscard = false
+
+    var body: some View {
+        SongEditorView(
+            draft: $draft,
+            context: .library,
+            onSaved: { songID in
+                if let entryID = store.addSongToSetlist(songID) {
+                    onCreated(entryID)
+                }
+            },
+            onClose: {
+                if draft != .newSong() {
+                    isConfirmingDiscard = true
+                } else {
+                    onCancel()
+                }
+            }
         )
-        titleDraft = currentSong(song.id)?.title ?? current.title
-    }
-
-    private func timeSignatureBinding(_ song: Song) -> Binding<TimeSignature> {
-        Binding {
-            currentSong(song.id)?.timeSignature ?? song.timeSignature
-        } set: { signature in
-            guard let current = currentSong(song.id) else { return }
-            store.updateSong(
-                song.id,
-                title: current.title,
-                defaultKey: current.defaultKey,
-                defaultBPM: current.defaultBPM,
-                timeSignature: signature,
-                padPackID: PadPack.bundled.id
-            )
+        .frame(minWidth: 440, minHeight: 520)
+        .interactiveDismissDisabled(draft != .newSong())
+        .confirmationDialog(
+            "Discard new song?",
+            isPresented: $isConfirmingDiscard,
+            titleVisibility: .visible
+        ) {
+            Button("Discard Song", role: .destructive, action: onCancel)
+            Button("Keep Editing", role: .cancel) {}
+        } message: {
+            Text("This song has not been saved.")
         }
-    }
-
-    private func subdivisionBinding(_ song: Song) -> Binding<ClickSubdivision> {
-        Binding {
-            store.pendingClickSubdivision(for: song.id) ?? currentSong(song.id)?.clickSubdivision ?? song.clickSubdivision
-        } set: { subdivision in
-            store.setSongClickSubdivision(song.id, subdivision: subdivision)
-        }
-    }
-
-    private func keyBinding(_ song: Song) -> Binding<MusicalKey> {
-        Binding {
-            currentSong(song.id)?.defaultKey ?? song.defaultKey
-        } set: { key in
-            guard let current = currentSong(song.id) else { return }
-            store.updateSong(
-                song.id,
-                title: current.title,
-                defaultKey: key,
-                defaultBPM: current.defaultBPM,
-                timeSignature: current.timeSignature,
-                padPackID: PadPack.bundled.id
-            )
-        }
-    }
-
-    private func bpmBinding(_ song: Song) -> Binding<Int> {
-        Binding {
-            currentSong(song.id)?.defaultBPM ?? song.defaultBPM
-        } set: { bpm in
-            guard let current = currentSong(song.id) else { return }
-            store.updateSong(
-                song.id,
-                title: current.title,
-                defaultKey: current.defaultKey,
-                defaultBPM: bpm,
-                timeSignature: current.timeSignature,
-                padPackID: PadPack.bundled.id
-            )
-        }
-    }
-
-    private func currentSong(_ songID: Song.ID) -> Song? {
-        store.songs.first { $0.id == songID }
     }
 }
 
@@ -909,7 +1022,7 @@ private struct SongInspectorPane: View {
 #Preview("Song editor pane") {
     let store = AppStore.preview()
     let entryID = store.activeSetlist.entries.first?.id
-    return SongInspectorPane(entryID: entryID) {}
+    return SongInspectorPane(entryID: entryID, isDirty: .constant(false)) {}
         .environment(store)
         .frame(width: 320, height: 660)
 }

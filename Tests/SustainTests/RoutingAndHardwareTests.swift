@@ -549,7 +549,7 @@ extension RuntimeSessionTests {
         monitor.simulateChange()
 
         #expect(store.systemCheck.canStartPlayback)
-        #expect(store.systemCheck.messages.contains("Ready for Goodness of God in G at 72 BPM."))
+        #expect(store.systemCheck.messages.contains("Ready for Goodness of God at 72 BPM."))
         #expect(store.runtime.lastMessage == "Audio devices updated")
     }
 

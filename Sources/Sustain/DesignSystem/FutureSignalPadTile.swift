@@ -19,8 +19,8 @@ struct FutureSignalPadTile: View {
 
     private var stateText: String {
         if !isAvailable { return detail }
-        if isPlaying { return "Playing · \(detail)" }
-        if isSelected { return "Selected · \(detail)" }
+        if isPlaying { return detail.isEmpty ? "Playing" : "Playing · \(detail)" }
+        if isSelected { return detail.isEmpty ? "Selected" : "Selected · \(detail)" }
         return detail
     }
 
@@ -31,10 +31,12 @@ struct FutureSignalPadTile: View {
                     .font(.body.weight(.semibold))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
-                Text(stateText)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .foregroundStyle(isPlaying ? palette.activeSignal : palette.textSecondary)
+                if !stateText.isEmpty {
+                    Text(stateText)
+                        .font(.system(size: 12))
+                        .lineLimit(1)
+                        .foregroundStyle(isPlaying ? palette.activeSignal : palette.textSecondary)
+                }
             }
             .foregroundStyle(isAvailable ? palette.textPrimary : palette.textSecondary)
             .frame(maxWidth: .infinity, minHeight: 60)

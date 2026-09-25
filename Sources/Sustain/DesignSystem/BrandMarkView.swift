@@ -19,11 +19,13 @@ struct BrandMarkView: View {
 
 struct SustainWaveShape: Shape {
     func path(in rect: CGRect) -> Path {
-        let scaleX = rect.width / 1024
-        let scaleY = rect.height / 1024
+        // The source shape sits inside a larger square icon canvas. Fit its actual
+        // bounds here so the curve stays centered and legible in the narrow rail.
+        let scaleX = rect.width / 639
+        let scaleY = rect.height / 205
 
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: rect.minX + x * scaleX, y: rect.minY + y * scaleY)
+            CGPoint(x: rect.minX + (x - 196) * scaleX, y: rect.minY + (y - 422) * scaleY)
         }
 
         var path = Path()

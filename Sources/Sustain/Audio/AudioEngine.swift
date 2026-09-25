@@ -171,9 +171,7 @@ final class SustainAudioEngine: AudioControlling {
 
         let renderer = ClickLoopRenderer(format: clickFormat)
         clickRenderer = renderer
-        clickSourceNode = AVAudioSourceNode(format: clickFormat) { _, _, frameCount, audioBufferList in
-            renderer.render(frameCount: frameCount, audioBufferList: audioBufferList)
-        }
+        clickSourceNode = Self.makeClickSourceNode(format: clickFormat, renderer: renderer)
         clickEngine.attach(clickSourceNode)
         clickEngine.attach(clickMixer)
         clickMixer.outputVolume = clickVolume
@@ -181,6 +179,18 @@ final class SustainAudioEngine: AudioControlling {
         clickEngine.connect(clickMixer, to: clickEngine.mainMixerNode, format: clickFormat)
 
         voiceRenderer?.prewarm(numbers: Array(1...12), format: clickFormat)
+    }
+
+    /// The render block runs on Core Audio's real-time thread. Create it in a
+    /// nonisolated context so Swift does not inherit this engine's main-actor
+    /// isolation and trap when the first audio buffer is requested.
+    nonisolated static func makeClickSourceNode(
+        format: AVAudioFormat,
+        renderer: ClickLoopRenderer
+    ) -> AVAudioSourceNode {
+        AVAudioSourceNode(format: format) { _, _, frameCount, audioBufferList in
+            renderer.render(frameCount: frameCount, audioBufferList: audioBufferList)
+        }
     }
 
     func prepare() {

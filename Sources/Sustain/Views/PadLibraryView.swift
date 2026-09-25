@@ -11,10 +11,8 @@ struct PadLibraryView: View {
     @AppStorage("showIncludedPads") private var showIncludedPads = true
 
     @State private var selection = Set<PadTrack.ID>()
-    @State private var searchText = ""
+    @State private var selectionAnchor: PadTrack.ID?
     @State private var isImporting = false
-    @State private var isChoosingAudio = false
-    @State private var locatePadID: PadTrack.ID?
     @State private var removal: PadRemovalRequest?
     @State private var notice: String?
 
@@ -23,35 +21,34 @@ struct PadLibraryView: View {
     }
 
     private var visiblePads: [PadTrack] {
-        store.padTracks.filter { pad in
-            let includedVisible = showIncludedPads || !pad.isIncluded || store.padAssignmentCount(pad.id) > 0
-            guard includedVisible else { return false }
-            guard !searchText.isEmpty else { return true }
-            return pad.label.localizedStandardContains(searchText) ||
-                (pad.source.originalFilename?.localizedStandardContains(searchText) ?? false)
-        }
+        store.padTracks.filter { showIncludedPads || !$0.isIncluded }
     }
 
-    private var canReorder: Bool { searchText.isEmpty && showIncludedPads }
+    private var canReorder: Bool { showIncludedPads }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            List(selection: $selection) {
+            List {
                 ForEach(visiblePads) { pad in
                     PadLibraryRow(
                         pad: pad,
                         state: state(for: pad),
+                        isSelected: selection.contains(pad.id),
                         assignmentCount: store.padAssignmentCount(pad.id),
-                        isAudible: isPadAudible(pad.id),
-                        onPlay: { store.playPadInRehearse(pad.id) },
+                        playbackState: store.padPlaybackState(for: pad.id),
+                        canMoveUp: canReorder && store.padTracks.first?.id != pad.id,
+                        canMoveDown: canReorder && store.padTracks.last?.id != pad.id,
+                        onPlaybackAction: { store.togglePadPlayback(for: pad.id) },
                         onRename: { _ = store.renamePad(pad.id, label: $0, undoManager: undoManager) },
                         onReveal: { reveal(pad) },
-                        onLocate: { locatePadID = pad.id },
+                        onLocate: { chooseAudio(replacing: pad.id) },
                         onRemove: { requestRemoval(ids: [pad.id]) },
                         onMove: { _ = store.movePad(pad.id, by: $0, undoManager: undoManager) }
                     )
-                    .tag(pad.id)
+                    .contentShape(Rectangle())
+                    .onTapGesture { select(pad.id) }
+                    .accessibilityAction(named: "Select \(pad.label)") { select(pad.id) }
                     .contextMenu { rowMenu(for: pad) }
                     .dropDestination(for: URL.self) { urls, _ in
                         importURLs(urls, at: store.padTracks.firstIndex(where: { $0.id == pad.id }))
@@ -68,9 +65,9 @@ struct PadLibraryView: View {
             .overlay {
                 if visiblePads.isEmpty {
                     ContentUnavailableView(
-                        searchText.isEmpty ? "No custom pads" : "No matching pads",
+                        "No custom pads",
                         systemImage: "waveform",
-                        description: Text(searchText.isEmpty ? "Add audio files or drop them here." : "Try another label or filename.")
+                        description: Text("Add audio files or drop them here.")
                     )
                     .dropDestination(for: URL.self) { urls, _ in
                         importURLs(urls, at: nil)
@@ -78,32 +75,14 @@ struct PadLibraryView: View {
                     }
                 }
             }
-            .searchable(text: $searchText, prompt: "Search labels and filenames")
             .onDeleteCommand { requestRemoval(ids: selection) }
 
             footer
         }
         .padding(.top, SustainLayout.topChrome)
         .background(palette.canvas)
-        .fileImporter(
-            isPresented: $isChoosingAudio,
-            allowedContentTypes: [.audio],
-            allowsMultipleSelection: true
-        ) { result in
-            if case let .success(urls) = result { importURLs(urls, at: nil) }
-        }
-        .fileImporter(
-            isPresented: Binding(
-                get: { locatePadID != nil },
-                set: { if !$0 { locatePadID = nil } }
-            ),
-            allowedContentTypes: [.audio],
-            allowsMultipleSelection: false
-        ) { result in
-            guard let padID = locatePadID else { return }
-            locatePadID = nil
-            guard case let .success(urls) = result, let url = urls.first else { return }
-            Task { await locate(padID, at: url) }
+        .onChange(of: showIncludedPads) { _, show in
+            if !show { selection = selection.filter { !isIncludedPad($0) } }
         }
         .sheet(item: $removal) { request in
             PadRemovalSheet(request: request, availablePads: store.padTracks) { replacement in
@@ -123,7 +102,7 @@ struct PadLibraryView: View {
 
     private var header: some View {
         SustainScreenHeader(title: "Pad Library", subtitle: "Included and custom audio referenced in place") {
-            Button("Add Audio\u{2026}", systemImage: "plus") { isChoosingAudio = true }
+            Button("Add Audio\u{2026}", systemImage: "plus") { chooseAudio() }
                 .buttonStyle(.borderedProminent)
                 .tint(palette.activeSignal)
                 .disabled(isImporting)
@@ -158,12 +137,15 @@ struct PadLibraryView: View {
 
     @ViewBuilder
     private func rowMenu(for pad: PadTrack) -> some View {
-        Button("Play in Rehearse", systemImage: "play.fill") { store.playPadInRehearse(pad.id) }
-            .disabled(!state(for: pad).isAvailable)
+        let isActive = store.padPlaybackState(for: pad.id) != .off
+        Button(isActive ? "Stop Pad" : "Play in Rehearse", systemImage: isActive ? "stop.fill" : "play.fill") {
+            store.togglePadPlayback(for: pad.id)
+        }
+        .disabled(!isActive && !state(for: pad).isAvailable)
         Divider()
         if !pad.isIncluded {
             Button("Reveal in Finder", systemImage: "folder") { reveal(pad) }
-            Button("Locate or Replace\u{2026}", systemImage: "arrow.triangle.2.circlepath") { locatePadID = pad.id }
+            Button("Locate or Replace\u{2026}", systemImage: "arrow.triangle.2.circlepath") { chooseAudio(replacing: pad.id) }
             Divider()
             Button("Move Up", systemImage: "arrow.up") { _ = store.movePad(pad.id, by: -1, undoManager: undoManager) }
                 .disabled(!canReorder || store.padTracks.first?.id == pad.id)
@@ -189,6 +171,22 @@ struct PadLibraryView: View {
 
     private func isIncludedPad(_ id: PadTrack.ID) -> Bool {
         store.padTracks.first(where: { $0.id == id })?.isIncluded == true
+    }
+
+    private func select(_ id: PadTrack.ID) {
+        let modifiers = NSEvent.modifierFlags
+        if modifiers.contains(.shift),
+           let anchor = selectionAnchor,
+           let start = visiblePads.firstIndex(where: { $0.id == anchor }),
+           let end = visiblePads.firstIndex(where: { $0.id == id }) {
+            selection.formUnion(visiblePads[min(start, end)...max(start, end)].map(\.id))
+        } else if modifiers.contains(.command) {
+            if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+            selectionAnchor = id
+        } else {
+            selection = [id]
+            selectionAnchor = id
+        }
     }
 
     private func requestRemoval(ids: Set<PadTrack.ID>) {
@@ -223,6 +221,31 @@ struct PadLibraryView: View {
         }
     }
 
+    private func chooseAudio(replacing padID: PadTrack.ID? = nil) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = padID == nil
+        panel.prompt = padID == nil ? "Add Audio" : "Use Audio"
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK else { return }
+            let urls = panel.urls
+            Task { @MainActor in
+                if let padID, let url = urls.first {
+                    await locate(padID, at: url)
+                } else if padID == nil {
+                    importURLs(urls, at: nil)
+                }
+            }
+        }
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
     private func importSummary(_ result: ExternalAudioImportResult) -> String {
         if let persistenceError = result.persistenceError { return persistenceError }
         var parts = ["Added \(result.imported.count)"]
@@ -233,8 +256,7 @@ struct PadLibraryView: View {
     }
 
     private func isPadAudible(_ padID: PadTrack.ID) -> Bool {
-        store.runtime.audiblePadTrackID == padID ||
-            (store.rehearse.padState != .off && store.rehearse.selectedPadTrackID == padID)
+        store.padPlaybackState(for: padID) != .off
     }
 
     private func locate(_ padID: PadTrack.ID, at url: URL) async {
@@ -264,9 +286,12 @@ private struct PadLibraryRow: View {
     @Environment(\.colorSchemeContrast) private var contrast
     var pad: PadTrack
     var state: PadAssetState
+    var isSelected: Bool
     var assignmentCount: Int
-    var isAudible: Bool
-    var onPlay: () -> Void
+    var playbackState: PadPlaybackState
+    var canMoveUp: Bool
+    var canMoveDown: Bool
+    var onPlaybackAction: () -> Void
     var onRename: (String) -> Void
     var onReveal: () -> Void
     var onLocate: () -> Void
@@ -280,10 +305,12 @@ private struct PadLibraryRow: View {
         FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
     }
 
+    private var isActive: Bool { playbackState != .off }
+
     var body: some View {
         HStack(spacing: SustainSpace.lg) {
-            Image(systemName: isAudible ? "speaker.wave.2.fill" : (pad.isIncluded ? "shippingbox.fill" : "waveform"))
-                .foregroundStyle(isAudible ? palette.activeSignal : palette.textSecondary)
+            Image(systemName: isActive ? "speaker.wave.2.fill" : (pad.isIncluded ? "shippingbox.fill" : "waveform"))
+                .foregroundStyle(isActive ? palette.activeSignal : palette.textSecondary)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: SustainSpace.xs) {
                 if pad.isIncluded {
@@ -302,30 +329,34 @@ private struct PadLibraryRow: View {
                     .lineLimit(1)
             }
             Spacer()
-            Text(stateLabel)
+            Text(isActive ? playbackState.rawValue : stateLabel)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(state.isAvailable ? palette.activeSignal : palette.warning)
+                .foregroundStyle(isActive || state.isAvailable ? palette.activeSignal : palette.warning)
             Text("\(assignmentCount) assigned")
                 .font(.caption)
                 .foregroundStyle(palette.textSecondary)
                 .frame(width: 76, alignment: .trailing)
-            Button(action: onPlay) {
-                Image(systemName: "play.fill")
+            Button(action: onPlaybackAction) {
+                Image(systemName: isActive ? "stop.fill" : "play.fill")
             }
             .buttonStyle(.borderless)
-            .disabled(!state.isAvailable)
-            .help("Play \(pad.label) in Rehearse")
-            .accessibilityLabel("Play \(pad.label) in Rehearse")
+            .disabled(!isActive && !state.isAvailable)
+            .help(isActive ? "Stop \(pad.label)" : "Play \(pad.label) in Rehearse")
+            .accessibilityLabel(isActive ? "Stop \(pad.label)" : "Play \(pad.label) in Rehearse")
             if !pad.isIncluded {
                 Menu {
-                    Button("Play in Rehearse", action: onPlay)
+                    Button(isActive ? "Stop Pad" : "Play in Rehearse", action: onPlaybackAction)
+                        .disabled(!isActive && !state.isAvailable)
                     Divider()
                     Button("Reveal in Finder", action: onReveal)
                     Button("Locate or Replace\u{2026}", action: onLocate)
                     Button("Move Up") { onMove(-1) }
+                        .disabled(!canMoveUp)
                     Button("Move Down") { onMove(1) }
+                        .disabled(!canMoveDown)
                     Divider()
                     Button("Remove\u{2026}", role: .destructive, action: onRemove)
+                        .disabled(isActive)
                 } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -334,9 +365,24 @@ private struct PadLibraryRow: View {
             }
         }
         .padding(.vertical, SustainSpace.sm)
+        .padding(.horizontal, SustainSpace.sm)
+        .frame(maxWidth: .infinity)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(palette.activeSignal.opacity(0.12))
+            }
+        }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(palette.activeSignal.opacity(0.7), lineWidth: 1)
+            }
+        }
         .onAppear { draft = pad.label }
         .onChange(of: pad.label) { _, value in if !editing { draft = value } }
         .accessibilityElement(children: .contain)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
     }
 
     private func commitRename() {

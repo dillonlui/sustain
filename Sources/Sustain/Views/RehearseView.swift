@@ -4,8 +4,6 @@ struct RehearseView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
-    @AppStorage("showIncludedPads") private var showIncludedPads = true
-    @State private var padSearchText = ""
 
     private let tempoRange = 40...220
 
@@ -38,7 +36,6 @@ struct RehearseView: View {
             .padding(.top, SustainLayout.topChrome)
         }
         .background(palette.canvas)
-        .searchable(text: $padSearchText, prompt: "Search pads")
     }
 
     @ViewBuilder
@@ -117,16 +114,25 @@ struct RehearseView: View {
                         clickStatus
                     }
                 }
+                Group {
+                    if let beat = store.rehearse.countoffBeat {
+                        FutureSignalCountoffBadge(beat: beat, total: store.rehearse.countoffTotal)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 64)
                 if store.pendingRehearseClickSubdivision != nil {
                     Text(clickStatusDetail)
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(palette.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Text(store.rehearse.lastMessage)
-                    .font(.system(size: 12))
-                    .foregroundStyle(palette.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let statusNotice {
+                    Text(statusNotice)
+                        .font(.system(size: 12))
+                        .foregroundStyle(palette.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
@@ -141,13 +147,13 @@ struct RehearseView: View {
 
     private var padPanel: some View {
         VStack(alignment: .leading, spacing: SustainSpace.lg) {
-                sectionHeading("Pads", state: padChannelState.label)
+                sectionHeading("Pads")
 
                 if visiblePads.isEmpty {
                     ContentUnavailableView(
-                        padSearchText.isEmpty ? "No visible pads" : "No matching pads",
+                        "No pads available",
                         systemImage: "waveform",
-                        description: Text(padSearchText.isEmpty ? "Show included pads or add custom audio in Pad Library." : "Try another label or filename.")
+                        description: Text("Add custom audio in Pad Library.")
                     )
                     .frame(minHeight: 180)
                 } else {
@@ -167,9 +173,6 @@ struct RehearseView: View {
                         }
                     }
                 }
-
-                Toggle("Show Included Pads", isOn: $showIncludedPads)
-                    .toggleStyle(.checkbox)
 
                 Button(role: .destructive) {
                     store.stopRehearsePad()
@@ -226,6 +229,7 @@ struct RehearseView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
                     .disabled(store.rehearse.clickState == .countoff)
                     .help(store.rehearse.clickState == .countoff
                         ? "Subdivision can change after countoff"
@@ -254,6 +258,8 @@ struct RehearseView: View {
 
                     Slider(value: bpmSliderBinding, in: Double(tempoRange.lowerBound)...Double(tempoRange.upperBound), step: 1)
                         .tint(palette.activeSignal)
+                        .accessibilityLabel("Tempo")
+                        .accessibilityValue("\(store.rehearse.bpm) beats per minute")
 
                     HStack {
                         Text("\(tempoRange.lowerBound)")
@@ -281,8 +287,8 @@ struct RehearseView: View {
             }
         } label: {
             Label(
-                store.rehearse.clickState == .off ? "Play Click" : "Pause Click",
-                systemImage: store.rehearse.clickState == .off ? "play.fill" : "pause.fill"
+                store.rehearse.clickState == .off ? "Play Click" : "Stop Click",
+                systemImage: store.rehearse.clickState == .off ? "play.fill" : "stop.fill"
             )
             .frame(minWidth: 148)
         }
@@ -320,6 +326,7 @@ struct RehearseView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
         }
     }
 
@@ -334,6 +341,7 @@ struct RehearseView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
         }
     }
 
@@ -376,15 +384,17 @@ struct RehearseView: View {
         .frame(minWidth: 160)
     }
 
-    private func sectionHeading(_ title: String, state: String) -> some View {
+    private func sectionHeading(_ title: String, state: String? = nil) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
                 .font(.headline)
                 .foregroundStyle(palette.textPrimary)
             Spacer()
-            Text(state)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(palette.textSecondary)
+            if let state {
+                Text(state)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(palette.textSecondary)
+            }
         }
     }
 
@@ -458,16 +468,7 @@ struct RehearseView: View {
     }
 
     private var visiblePads: [PadTrack] {
-        store.padTracks.filter { pad in
-            guard showIncludedPads || !pad.isIncluded else { return false }
-            guard !padSearchText.isEmpty else { return true }
-            return pad.label.localizedStandardContains(padSearchText) ||
-                (pad.source.originalFilename?.localizedStandardContains(padSearchText) ?? false)
-        }
-    }
-
-    private func isActive(_ pad: PadTrack) -> Bool {
-        store.rehearse.selectedPadTrackID == pad.id && store.rehearse.padState != .off
+        store.padTracks
     }
 
     private func padState(_ pad: PadTrack) -> PadAssetState {
@@ -481,11 +482,18 @@ struct RehearseView: View {
     }
 
     private func padButtonDetail(_ pad: PadTrack) -> String {
-        if isActive(pad) && store.rehearse.padState != .playing {
-            return store.rehearse.padState.rawValue
-        }
         if !padState(pad).isAvailable { return padStateLabel(padState(pad)) }
-        return pad.isIncluded ? "Included" : (pad.source.originalFilename ?? "Custom")
+        return ""
+    }
+
+    private var statusNotice: String? {
+        let message = store.rehearse.lastMessage
+        if message == "Ready to rehearse" || message == "Pad stopped" ||
+            message.hasSuffix(" playing in Rehearse") ||
+            message.hasSuffix(" is already playing") {
+            return nil
+        }
+        return message
     }
 
     private func padVoiceDisambiguator(_ pad: PadTrack) -> String {

@@ -13,7 +13,7 @@ struct RuntimeSessionTests {
         store.refreshReadiness()
 
         #expect(store.systemCheck.canStartPlayback)
-        #expect(store.systemCheck.messages.contains("Ready for Goodness of God in G at 72 BPM."))
+        #expect(store.systemCheck.messages.contains("Ready for Goodness of God at 72 BPM."))
         // The safety-net must NOT reconfigure audio (that is runSystemCheck's job).
         #expect(audio.configureRoutingCount == routingCallsBefore)
     }
@@ -73,6 +73,26 @@ struct RuntimeSessionTests {
 
         #expect(store.runtime.clickState == .playing)
         #expect(store.runtime.lastMessage == "Click playing for Goodness of God")
+    }
+
+    @Test func rehearseCountoffExposesAndClearsBeatProgress() async {
+        let store = AppStore.preview(countoffDurationMultiplier: 0)
+        store.startRehearseClick()
+
+        #expect(store.rehearse.clickState == .countoff)
+        #expect(store.rehearse.countoffBeat == 1)
+        #expect(store.rehearse.countoffTotal == store.rehearse.timeSignature.beatsPerMeasure)
+
+        for _ in 0..<20 where store.rehearse.clickState != .playing {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        #expect(store.rehearse.clickState == .playing)
+        #expect(store.rehearse.countoffBeat == nil)
+        #expect(store.rehearse.countoffTotal == nil)
+
+        store.stopRehearseClick()
+        #expect(store.rehearse.countoffBeat == nil)
+        #expect(store.rehearse.countoffTotal == nil)
     }
 
     @Test func clickSettingsDefaultToCountedUnaccentedClick() {
@@ -459,6 +479,20 @@ struct RuntimeSessionTests {
         #expect(audio.padStartCount == 1)
     }
 
+    @Test func padPlaybackStateStaysConsistentAcrossScreens() {
+        let store = AppStore.preview(audioEngine: RecordingAudioEngine())
+        let padID = PadTrack.includedID(for: .e)
+
+        store.startRehearsePad(padID: padID)
+        #expect(store.padPlaybackState(for: padID) == .fadingIn)
+
+        store.selectedScreen = .pads
+        #expect(store.padPlaybackState(for: padID) == .fadingIn)
+        store.togglePadPlayback(for: padID)
+        #expect(store.padPlaybackState(for: padID) == .off)
+        #expect(store.selectedScreen == .pads)
+    }
+
     @Test func countoffWordsCoverEverySupportedBeat() {
         #expect(SpeechCountoffVoiceRenderer.word(for: 1) == "one")
         #expect(SpeechCountoffVoiceRenderer.word(for: 4) == "four")
@@ -544,6 +578,174 @@ struct RuntimeSessionTests {
         #expect(audio.clickIncludesCountoffHistory.last == false)
         #expect(store.runtime.clickState == .playing)
         #expect(store.runtime.padState != .off)
+    }
+
+    @Test func songDraftCancelAndValidationLeaveLibraryUntouched() {
+        let store = AppStore.preview()
+        let original = store.songs
+
+        _ = SongDraft.newSong() // Closing a new draft does not create a placeholder.
+        #expect(store.songs == original)
+
+        var draft = SongDraft.newSong()
+        #expect(store.saveSongDraft(draft) == nil)
+        #expect(store.persistenceStatus == "Enter a song title")
+        draft.title = "  New Song  "
+        draft.defaultBPM = 221
+        #expect(store.saveSongDraft(draft) == nil)
+        #expect(store.persistenceStatus == "BPM must be between 40 and 220")
+        draft.defaultBPM = 72
+        draft.padTrackID = UUID()
+        #expect(store.saveSongDraft(draft) == nil)
+        #expect(store.persistenceStatus == "The selected pad is unavailable")
+        #expect(store.songs == original)
+    }
+
+    @Test func songDraftCreatesOnceAndUpdatesExistingSetlistReferences() throws {
+        let store = AppStore.preview()
+        var draft = SongDraft.newSong()
+        draft.title = "  Gratitude  "
+        draft.padTrackID = PadTrack.includedID(for: .bb)
+        draft.defaultBPM = 82
+        draft.timeSignature = .sixEight
+        draft.clickSubdivision = .three
+
+        let id = try #require(store.saveSongDraft(draft))
+        let created = try #require(store.songs.first { $0.id == id })
+        #expect(created.title == "Gratitude")
+        #expect(created.defaultKey == .bb)
+        #expect(created.padTrackID == PadTrack.includedID(for: .bb))
+        #expect(created.defaultBPM == 82)
+        #expect(created.timeSignature == .sixEight)
+        #expect(created.clickSubdivision == .three)
+
+        let entryID = try #require(store.addSongToSetlist(id))
+        var edit = SongDraft(song: created)
+        edit.title = "Gratitude (Live)"
+        edit.padTrackID = nil
+        #expect(store.saveSongDraft(edit) == id)
+        #expect(store.songs.filter { $0.id == id }.count == 1)
+        #expect(store.activeSetlist.entries.contains { $0.id == entryID && $0.songID == id })
+        let edited = try #require(store.songs.first { $0.id == id })
+        #expect(edited.padTrackID == nil)
+        #expect(edited.defaultKey == .bb)
+    }
+
+    @Test func songDraftCustomPadPreservesStoredKey() throws {
+        let store = AppStore.preview()
+        let original = try #require(store.songs.first)
+        let custom = PadTrack(
+            id: UUID(),
+            label: "Ambient",
+            source: .external(ExternalAudioReference(
+                bookmarkData: Data([9]),
+                lastKnownPath: "/tmp/Ambient.wav",
+                originalFilename: "Ambient.wav",
+                fingerprint: ExternalFileFingerprint(resourceIdentifierData: nil, fileSize: 64, modificationDate: nil),
+                audioMetadata: PadAudioMetadata(duration: 2, channelCount: 2, sampleRate: 48_000, decodedByteCount: 64)
+            ))
+        )
+        store.padTracks.append(custom)
+        var draft = SongDraft(song: original)
+        draft.padTrackID = custom.id
+
+        #expect(store.saveSongDraft(draft) == original.id)
+        let updated = try #require(store.songs.first { $0.id == original.id })
+        #expect(updated.padTrackID == custom.id)
+        #expect(updated.defaultKey == original.defaultKey)
+    }
+
+    @Test func songDraftPersistsAssignmentAndClickFields() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainDraftTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let store = AppStore.preview(libraryStore: libraryStore)
+        var draft = SongDraft.newSong()
+        draft.title = "No Pad Song"
+        draft.padTrackID = nil
+        draft.defaultBPM = 104
+        draft.timeSignature = .fiveFour
+        draft.clickSubdivision = .three
+
+        let id = try #require(store.saveSongDraft(draft))
+        let snapshot = try #require(try libraryStore.loadLibrary())
+        let saved = try #require(snapshot.songs.first { $0.id == id })
+        #expect(saved.title == "No Pad Song")
+        #expect(saved.padTrackID == nil)
+        #expect(saved.defaultBPM == 104)
+        #expect(saved.timeSignature == .fiveFour)
+        #expect(saved.clickSubdivision == .three)
+    }
+
+    @Test func genericSongUpdateDoesNotReassignPadWhenKeyChanges() throws {
+        let store = AppStore.preview()
+        let song = try #require(store.songs.first)
+        let originalPadID = song.padTrackID
+
+        #expect(store.updateSong(
+            song.id,
+            title: "Retitled",
+            defaultKey: .bb,
+            defaultBPM: 88,
+            timeSignature: .fourFour,
+            padPackID: PadPack.bundled.id
+        ))
+
+        let updated = try #require(store.songs.first { $0.id == song.id })
+        #expect(updated.defaultKey == .bb)
+        #expect(updated.padTrackID == originalPadID)
+    }
+
+    @Test func directIncludedPadAssignmentSynchronizesStoredKey() throws {
+        let store = AppStore.preview()
+        let song = try #require(store.songs.first)
+
+        #expect(store.setSongPadTrackID(song.id, padTrackID: PadTrack.includedID(for: .bb)))
+        let updated = try #require(store.songs.first { $0.id == song.id })
+        #expect(updated.padTrackID == PadTrack.includedID(for: .bb))
+        #expect(updated.defaultKey == .bb)
+    }
+
+    @Test func songDraftLiveEditRetimesClickAndDefersPadUntilNextStart() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedSong()
+        let entry = try #require(store.playingEntry)
+        let song = try #require(store.song(for: entry))
+        let audiblePadID = store.runtime.audiblePadTrackID
+        let padStarts = audio.padStartCount
+        var draft = SongDraft(song: song)
+        draft.defaultBPM = 96
+        draft.timeSignature = .sixEight
+        draft.clickSubdivision = .two
+        draft.padTrackID = PadTrack.includedID(for: .bb)
+
+        #expect(store.saveSongDraft(draft) == song.id)
+        #expect(audio.clickBPMHistory.last == 96)
+        #expect(audio.clickTimeSignatureHistory.last == .sixEight)
+        #expect(audio.clickSubdivisionHistory.last == .two)
+        #expect(audio.clickIncludesCountoffHistory.last == false)
+        #expect(audio.padStartCount == padStarts)
+        #expect(store.runtime.audiblePadTrackID == audiblePadID)
+        #expect(store.songs.first { $0.id == song.id }?.padTrackID == PadTrack.includedID(for: .bb))
+    }
+
+    @Test func failedLiveClickUpdateDoesNotCommitSongDraft() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startCuedSong()
+        let entry = try #require(store.playingEntry)
+        let song = try #require(store.song(for: entry))
+        var draft = SongDraft(song: song)
+        draft.title = "Unsaved live edit"
+        draft.defaultBPM = 96
+        draft.padTrackID = nil
+        audio.shouldFailClickStart = true
+
+        #expect(store.saveSongDraft(draft) == nil)
+        #expect(store.songs.first { $0.id == song.id } == song)
+        #expect(store.runtime.audiblePadTrackID == song.padTrackID)
     }
 
     @Test func canonicalSongEditUpdatesEveryDuplicateSetlistOccurrence() throws {

@@ -25,6 +25,7 @@ struct FutureSignalSongReadout: View {
     var role: FutureSignalSongRole
     var title: String?
     var key: String? = nil
+    var padDescription: String? = nil
     var bpm: Int? = nil
     var timeSignature: String? = nil
     var clickDescription: String? = nil
@@ -69,6 +70,9 @@ struct FutureSignalSongReadout: View {
                 HStack(spacing: 10) {
                     if let key {
                         Text(key)
+                    }
+                    if let padDescription {
+                        Text(padDescription).lineLimit(1)
                     }
                     if let bpm {
                         Text("\(bpm) BPM")

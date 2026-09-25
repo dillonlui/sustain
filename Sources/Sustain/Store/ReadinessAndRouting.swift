@@ -59,7 +59,6 @@ struct SetlistReadinessEvaluator {
     func validate(entry: SetlistEntry, song: Song) -> SystemCheckResult {
         var blockingMessages: [String] = []
         var warnings: [String] = []
-        let key = song.defaultKey
         let bpm = song.defaultBPM
 
         if bpm <= 0 {
@@ -84,7 +83,7 @@ struct SetlistReadinessEvaluator {
 
         var messages = blockingMessages
         if messages.isEmpty {
-            messages.append("Ready for \(song.title) in \(key.rawValue) at \(bpm) BPM.")
+            messages.append("Ready for \(song.title) at \(bpm) BPM.")
         }
         messages.append(contentsOf: warnings.map { "Warning: \($0)" })
 

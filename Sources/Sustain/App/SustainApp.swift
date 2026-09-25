@@ -59,7 +59,7 @@ struct SustainApp: App {
             RootView()
                 .environment(store)
                 .environment(updateCoordinator)
-                .frame(minWidth: 1200, minHeight: 700)
+                .frame(minWidth: 640, minHeight: 600)
                 .onAppear { updateCoordinator.startIfEligible() }
                 .onChange(of: store.isAnyAudioActivityActive) {
                     updateCoordinator.audioActivityDidChange()

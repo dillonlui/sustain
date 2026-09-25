@@ -86,7 +86,7 @@ struct FutureSignalOpenChannelStatus: View {
                     Text(detail)
                         .font(.system(size: 12))
                         .foregroundStyle(palette.textSecondary)
-                        .lineLimit(1)
+                        .lineLimit(2)
                         .truncationMode(.tail)
                         .help(detail)
                 }
