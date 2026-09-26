@@ -1,0 +1,49 @@
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Sustain</title>
+        <item>
+            <title>2.0.0</title>
+            <pubDate>Sat, 26 Sep 2026 15:45:52 +0000</pubDate>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[# Sustain 2.0.0
+
+Sustain 2.0 refreshes the Live and Rehearse screens with a consistent visual
+system while keeping the performance controls and keyboard shortcuts familiar.
+
+Advanced click settings now support per-song subdivisions, beat accents and
+mutes, grouped pulses for compound meters, and zero-, one-, or two-bar count-ins.
+Rehearse has independent click settings. A count-in-only option stops the click
+after the count-in while pads continue. Tap tempo is available in Rehearse and
+for a cued Live song; a Live tempo stays in the current session until saved as
+the song default.
+
+Live and Rehearse include clearer route information, pending click changes,
+and explicit warnings when required outputs are unavailable. Custom pads and
+optional MIDI controller mappings remain available.
+
+## Before a service
+
+Check pad and click routing in Settings, run System Check, and rehearse the
+setlist with the audio devices and MIDI controller you will use live.
+
+This release requires macOS 14 or newer. Official downloads are signed and
+notarized Universal 2 apps for Apple silicon and Intel Macs.
+
+## Updating to 2.0
+
+If you have 1.1.1 installed, use **Sustain → Check for Updates…** to update to
+2.0. Automatic checks are optional, and installing always requires your choice.
+If you have 1.0.2 or an older release, install the 2.0 disk image manually;
+those versions do not include the updater.
+]]></description>
+            <enclosure url="https://github.com/dillonlui/sustain/releases/download/v2.0.0-rc2/Sustain-2.0.0-5.zip" length="158803006" type="application/octet-stream" sparkle:edSignature="3gyV4vvN9G0Ef6gj+oEXTANMuilIW1v5w3WpsprsgDhVrxcwkF7y0Juw3VDIg7pg274Fa/woYYXSuXSr7HDaBw=="></enclosure>
+        </item>
+    </channel>
+</rss><!-- sparkle-signatures:
+edSignature: XGTiEgZvq60DxnVb/HZ2yrhNYEVOkXz5mOvuaShj9YBQEhjZXI4DXBTYQk9gnW3Wwzd87B/CaJbK9LMpfKQ9Bw==
+length: 2529
+-->
