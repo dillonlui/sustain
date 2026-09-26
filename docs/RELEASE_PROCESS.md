@@ -59,9 +59,10 @@ the execution tracker.
 
 For 2.0.0, record the evidence and final publication state in
 [`releases/2.0.0-execution.md`](releases/2.0.0-execution.md).
-Run `Protected Sparkle rehearsal` from `main` with a unique prerelease tag
-such as `v2.0.0-rc1` before the production tag. It uses the protected signing
-environment, publishes a notarized candidate as a GitHub prerelease, checks
+Create a unique prerelease tag such as `v2.0.0-rc1` at the reviewed candidate
+commit, then run `Protected Sparkle rehearsal` from that tag before the
+production tag. The protected environment accepts version tags only. The
+workflow uses protected signing, publishes a notarized GitHub prerelease, checks
 its public hashes, then writes the signed rehearsal feed to the separate
 `staging-updates` branch. Its feed URL is
 `https://raw.githubusercontent.com/dillonlui/sustain/staging-updates/appcast.xml`.
