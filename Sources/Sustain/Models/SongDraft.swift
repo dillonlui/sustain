@@ -8,6 +8,9 @@ struct SongDraft: Equatable {
     var defaultBPM: Int
     var timeSignature: TimeSignature
     var clickSubdivision: ClickSubdivision
+    var pulseInterpretation: PulseInterpretation
+    var clickAccentPattern: [ClickAccentLevel]?
+    var countoffPolicy: CountoffPolicy
 
     init(song: Song) {
         id = song.id
@@ -16,6 +19,9 @@ struct SongDraft: Equatable {
         defaultBPM = song.defaultBPM
         timeSignature = song.timeSignature
         clickSubdivision = song.clickSubdivision
+        pulseInterpretation = song.pulseInterpretation
+        clickAccentPattern = song.clickAccentPattern
+        countoffPolicy = song.countoffPolicy
     }
 
     static func newSong() -> SongDraft {
@@ -25,7 +31,10 @@ struct SongDraft: Equatable {
             padTrackID: PadTrack.includedID(for: .c),
             defaultBPM: 72,
             timeSignature: .fourFour,
-            clickSubdivision: .beat
+            clickSubdivision: .beat,
+            pulseInterpretation: .legacy,
+            clickAccentPattern: nil,
+            countoffPolicy: .liveDefault
         )
     }
 
@@ -35,7 +44,10 @@ struct SongDraft: Equatable {
         padTrackID: PadTrack.ID?,
         defaultBPM: Int,
         timeSignature: TimeSignature,
-        clickSubdivision: ClickSubdivision
+        clickSubdivision: ClickSubdivision,
+        pulseInterpretation: PulseInterpretation,
+        clickAccentPattern: [ClickAccentLevel]?,
+        countoffPolicy: CountoffPolicy
     ) {
         self.id = id
         self.title = title
@@ -43,5 +55,8 @@ struct SongDraft: Equatable {
         self.defaultBPM = defaultBPM
         self.timeSignature = timeSignature
         self.clickSubdivision = clickSubdivision
+        self.pulseInterpretation = pulseInterpretation
+        self.clickAccentPattern = clickAccentPattern
+        self.countoffPolicy = countoffPolicy
     }
 }

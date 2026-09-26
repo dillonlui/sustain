@@ -63,6 +63,7 @@ enum MIDIAction: String, Codable, CaseIterable, Identifiable, Equatable, Hashabl
     case stopAll
     case toggleClick
     case togglePad
+    case tapTempo
 
     var id: String { rawValue }
 
@@ -74,6 +75,7 @@ enum MIDIAction: String, Codable, CaseIterable, Identifiable, Equatable, Hashabl
         case .stopAll: "Stop all"
         case .toggleClick: "Toggle click"
         case .togglePad: "Toggle pad"
+        case .tapTempo: "Tap tempo"
         }
     }
 }
@@ -112,6 +114,7 @@ struct MIDIControllerMappingResolver {
     }
 
     private var activeCCEdges: Set<CCEdgeKey> = []
+    private var activeNoteEdges: Set<CCEdgeKey> = []
 
     static func duplicateIdentity(in mappings: [MIDIMapping], candidate: MIDIMapping) -> MIDIMapping? {
         mappings.first {
@@ -130,7 +133,23 @@ struct MIDIControllerMappingResolver {
         let shouldFire: Bool
         switch event.identity.kind {
         case .noteOn:
-            shouldFire = event.value > 0
+            let tapMapping = settings.mappings.contains {
+                $0.action == .tapTempo && $0.source.matches(sourceUniqueID: event.sourceUniqueID) &&
+                    $0.message == event.identity
+            }
+            if tapMapping {
+                let key = CCEdgeKey(sourceUniqueID: event.sourceUniqueID,
+                                    channel: event.identity.channel,
+                                    number: event.identity.number)
+                if event.value == 0 {
+                    activeNoteEdges.remove(key)
+                    shouldFire = false
+                } else {
+                    shouldFire = activeNoteEdges.insert(key).inserted
+                }
+            } else {
+                shouldFire = event.value > 0
+            }
         case .controlChange:
             let key = CCEdgeKey(
                 sourceUniqueID: event.sourceUniqueID,
@@ -154,10 +173,12 @@ struct MIDIControllerMappingResolver {
 
     mutating func reset(sourceUniqueID: Int32) {
         activeCCEdges = activeCCEdges.filter { $0.sourceUniqueID != sourceUniqueID }
+        activeNoteEdges = activeNoteEdges.filter { $0.sourceUniqueID != sourceUniqueID }
     }
 
     mutating func resetAllSources() {
         activeCCEdges.removeAll()
+        activeNoteEdges.removeAll()
     }
 }
 

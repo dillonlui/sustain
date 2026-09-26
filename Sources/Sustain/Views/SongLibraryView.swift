@@ -94,6 +94,10 @@ struct SongLibraryView: View {
                 if baseline == nil, let first = store.songs.first {
                     load(first.id, compact: false)
                 }
+                store.dirtySongEditorScreen = hasUnsavedChanges ? .songs : nil
+            }
+            .onChange(of: hasUnsavedChanges) { _, dirty in
+                store.dirtySongEditorScreen = dirty ? .songs : nil
             }
         }
     }

@@ -77,6 +77,26 @@ struct PreparedAudioTests {
         #expect(!results.snapshot.contains("obsolete"))
     }
 
+    @Test func sameKeySubmittedFromCompletionStartsFreshDecode() async {
+        let decoder = LatestWinsPadDecoder()
+        let results = LockedDecodeResults()
+        let key = testBufferKey(9)
+
+        decoder.submit(key: key, operation: { testPCM(byteCount: 1) }) { _ in
+            results.append("first")
+            decoder.submit(key: key, operation: { testPCM(byteCount: 2) }) { result in
+                if case let .success(buffer) = result, buffer.byteCount == 2 {
+                    results.append("second")
+                }
+            }
+        }
+
+        for _ in 0..<100 where !results.snapshot.contains("second") {
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(results.snapshot == ["first", "second"])
+    }
+
     @Test @MainActor func appStoreUsesPrepareThenActivateAndNoPadSkipsPad() throws {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)

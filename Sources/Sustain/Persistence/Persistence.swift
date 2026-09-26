@@ -5,7 +5,7 @@ struct LibrarySnapshot: Codable, Equatable {
     /// changes in a breaking way, and add a migration branch in `LocalLibraryStore` keyed on the
     /// decoded `schemaVersion`. Establishing the field now (while it's trivial) is what lets a
     /// future versions migrate old files instead of throwing and wiping the user's library.
-    static let currentSchemaVersion = 4
+    static let currentSchemaVersion = 7
 
     var schemaVersion: Int
     var songs: [Song]
@@ -86,6 +86,48 @@ struct LibrarySnapshot: Codable, Equatable {
                 )
             )
         }
+        if decodedSchemaVersion >= 5,
+           let invalidSongIndex = canonical.songs.firstIndex(where: \.clickAccentPatternWasMissing) {
+            throw DecodingError.keyNotFound(
+                Song.CodingKeys.clickAccentPattern,
+                DecodingError.Context(codingPath: decoder.codingPath,
+                                      debugDescription: "Current-schema song at index \(invalidSongIndex) is missing clickAccentPattern; use null for the global fallback.")
+            )
+        }
+        if decodedSchemaVersion >= 6,
+           let invalidSongIndex = canonical.songs.firstIndex(where: \.pulseInterpretationWasMissing) {
+            throw DecodingError.keyNotFound(
+                Song.CodingKeys.pulseInterpretation,
+                DecodingError.Context(codingPath: decoder.codingPath,
+                                      debugDescription: "Current-schema song at index \(invalidSongIndex) is missing pulseInterpretation.")
+            )
+        }
+        if decodedSchemaVersion >= 7,
+           let invalidSongIndex = canonical.songs.firstIndex(where: \.countoffPolicyWasMissing) {
+            throw DecodingError.keyNotFound(
+                Song.CodingKeys.countoffPolicy,
+                DecodingError.Context(codingPath: decoder.codingPath,
+                                      debugDescription: "Current-schema song at index \(invalidSongIndex) is missing countoffPolicy.")
+            )
+        }
+        if let invalidSongIndex = canonical.songs.firstIndex(where: { !$0.countoffPolicy.isValid }) {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: decoder.codingPath,
+                                      debugDescription: "Song at index \(invalidSongIndex) has an invalid countoff policy.")
+            )
+        }
+        if let invalidSongIndex = canonical.songs.firstIndex(where: { song in
+            guard let pattern = song.clickAccentPattern else { return false }
+            let grid = ClickPulseGrid(timeSignature: song.timeSignature,
+                                      pulseInterpretation: song.pulseInterpretation,
+                                      bpm: song.defaultBPM, sampleRate: 44_100)
+            return pattern.count != grid.pulseCount
+        }) {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: decoder.codingPath,
+                                      debugDescription: "Song at index \(invalidSongIndex) has an accent pattern with the wrong pulse count.")
+            )
+        }
         songs = Self.normalizedSongs(
             canonical.songs,
             migratingLegacySchema: decodedSchemaVersion < 3
@@ -124,6 +166,9 @@ struct LibrarySnapshot: Codable, Equatable {
                 defaultBPM: song.defaultBPM,
                 timeSignature: song.timeSignature,
                 clickSubdivision: song.clickSubdivision,
+                pulseInterpretation: song.pulseInterpretation,
+                clickAccentPattern: song.clickAccentPattern,
+                countoffPolicy: song.countoffPolicy,
                 padPack: .bundled,
                 padTrackID: migratingLegacySchema ? PadTrack.includedID(for: song.defaultKey) : song.padTrackID
             )

@@ -313,6 +313,39 @@ extension RuntimeSessionTests {
         #expect(try Data(contentsOf: backupURL) == originalBackupData)
     }
 
+    @Test func unrecoverableLibraryOpensReadOnlyWithoutReplacingFiles() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
+        let libraryStore = LocalLibraryStore(directoryOverride: directory)
+        let libraryURL = try libraryStore.applicationSupportDirectory()
+            .appendingPathComponent("Library.json", isDirectory: false)
+        let backupURL = directory.appendingPathComponent("Library.bak", isDirectory: false)
+        let primaryData = Data("invalid primary".utf8)
+        let backupData = Data("invalid backup".utf8)
+        try primaryData.write(to: libraryURL)
+        try backupData.write(to: backupURL)
+
+        let store = AppStore.live(
+            libraryStore: libraryStore,
+            audioEngineOverride: RecordingAudioEngine(),
+            audioHardwareMonitorOverride: NoopAudioHardwareMonitor(),
+            powerStateMonitorOverride: NoopPowerStateMonitor(),
+            midiControllerOverride: NoopMIDIController()
+        )
+        #expect(store.persistenceStatus.contains("read-only"))
+        _ = store.addSong()
+        _ = store.addSong()
+
+        #expect(!FileManager.default.fileExists(atPath: libraryURL.path))
+        #expect(try Data(contentsOf: backupURL) == backupData)
+        let quarantined = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .filter { $0.hasPrefix("Library.invalid-") }
+        #expect(quarantined.count == 1)
+        if let path = quarantined.first {
+            #expect(try Data(contentsOf: directory.appendingPathComponent(path)) == primaryData)
+        }
+    }
+
     @Test func songAssignmentWorkflowPersistsSongAndSetlistEntry() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)

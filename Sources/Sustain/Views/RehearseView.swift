@@ -104,23 +104,24 @@ struct RehearseView: View {
                         .foregroundStyle(palette.textSecondary)
                         .lineLimit(2)
                 }
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: SustainSpace.section) {
-                        padStatus
-                        clickStatus
-                    }
-                    VStack(alignment: .leading, spacing: SustainSpace.lg) {
-                        padStatus
-                        clickStatus
-                    }
+                HStack(spacing: SustainSpace.section) {
+                    padStatus
+                        .frame(maxWidth: .infinity)
+                    clickStatus
+                        .frame(maxWidth: .infinity)
                 }
-                Group {
+                .frame(height: 72)
+                .overlay {
                     if let beat = store.rehearse.countoffBeat {
-                        FutureSignalCountoffBadge(beat: beat, total: store.rehearse.countoffTotal)
+                        FutureSignalCountoffBadge(
+                            beat: beat,
+                            total: store.rehearse.countoffTotal,
+                            bars: store.rehearse.activeCountoffPolicy?.bars
+                                ?? store.rehearse.countoffPolicy.bars
+                        )
+                        .allowsHitTesting(false)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: 64)
                 Text(store.rehearse.lastMessage)
                     .font(.system(size: 12))
                     .foregroundStyle(palette.textSecondary)
@@ -189,15 +190,11 @@ struct RehearseView: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .center, spacing: 18) {
                         playClickButton
-                        countoffToggle
                         timeSignaturePicker
                     }
                     VStack(alignment: .leading, spacing: SustainSpace.sm) {
                         playClickButton
-                        HStack(spacing: 18) {
-                            countoffToggle
-                            timeSignaturePicker
-                        }
+                        timeSignaturePicker
                     }
                 }
 
@@ -234,21 +231,39 @@ struct RehearseView: View {
                         .foregroundStyle(palette.textSecondary)
                 }
 
+                PulseInterpretationEditor(timeSignature: store.rehearse.timeSignature,
+                                          bpm: bpmBinding,
+                                          interpretation: pulseInterpretationBinding,
+                                          accentPattern: accentPatternBinding)
+                    .disabled(store.rehearse.clickState != .off)
+                ClickAccentPatternEditor(pulseCount: rehearsePulseCount,
+                                         fallback: store.clickSettings.accentMode,
+                                         pattern: accentPatternBinding)
+                    .disabled(store.rehearse.clickState == .countoff)
+                CountoffPolicyEditor(policy: countoffPolicyBinding)
+                    .disabled(store.rehearse.clickState == .countoff)
+
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack(alignment: .firstTextBaseline, spacing: 16) {
-                        Text("\(store.rehearse.bpm)")
-                            .font(.system(size: 84, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .frame(minWidth: 150, alignment: .leading)
+                    HStack(alignment: .center, spacing: 12) {
+                        HStack(alignment: .center, spacing: 4) {
+                            Text("\(store.rehearse.bpm)")
+                                .font(.system(size: 84, weight: .semibold, design: .rounded))
+                                .monospacedDigit()
+                                .frame(minWidth: 112, alignment: .leading)
 
-                        Text("BPM")
-                            .font(.title2.weight(.medium))
+                            Stepper("Tempo", value: bpmBinding, in: tempoRange, step: 1)
+                                .labelsHidden()
+                                .accessibilityLabel("Adjust tempo")
+                        }
+
+                        Text(rehearsePulseGrid.pulseUnitLabel)
+                            .font(.callout.weight(.medium))
                             .foregroundStyle(palette.textSecondary)
+                            .lineLimit(2)
 
-                        Spacer()
+                        Spacer(minLength: 0)
 
-                        Stepper("Tempo", value: bpmBinding, in: tempoRange, step: 1)
-                            .labelsHidden()
+                        TapTempoControl(context: .rehearse, presentation: .tile)
                     }
 
                     Slider(value: bpmSliderBinding, in: Double(tempoRange.lowerBound)...Double(tempoRange.upperBound), step: 1)
@@ -290,15 +305,6 @@ struct RehearseView: View {
         .buttonStyle(.borderedProminent)
         .tint(palette.activeSignal)
         .controlSize(.large)
-    }
-
-    private var countoffToggle: some View {
-        LitToggleButton(
-            title: "Countoff",
-            systemImage: "timer",
-            tint: palette.activeSignal,
-            isOn: countoffBinding
-        )
     }
 
     private var timeSignaturePicker: some View {
@@ -498,7 +504,42 @@ struct RehearseView: View {
         let subdivision = store.rehearse.clickState == .off
             ? store.rehearse.clickSubdivision
             : (store.audibleClickSubdivision ?? store.rehearse.clickSubdivision)
-        return "\(store.rehearse.bpm) BPM · \(store.rehearse.timeSignature.description) · \(subdivision.label)"
+        let policy = store.rehearse.clickState == .off
+            ? store.rehearse.countoffPolicy
+            : (store.rehearse.activeCountoffPolicy ?? store.rehearse.countoffPolicy)
+        let ending = policy.after == .countoffOnly ? " · Click stops after countoff" : ""
+        let nextStart = store.rehearse.clickState != .off && policy != store.rehearse.countoffPolicy
+            ? " · new countoff setting at next start" : ""
+        let pendingAccents = store.pendingRehearseClickSubdivision != nil &&
+            store.rehearse.clickAccentPattern != store.audibleClickAccentPattern
+            ? " · beat accents at next measure" : ""
+        let pendingSubdivision = store.pendingRehearseClickSubdivision.flatMap { requested in
+            requested == subdivision ? nil : " · switching to \(requested.label) at next measure"
+        } ?? ""
+        return "\(store.rehearse.bpm) \(rehearsePulseGrid.pulseUnitLabel) · \(store.rehearse.timeSignature.description) · \(subdivision.label)\(ending)\(nextStart)\(pendingSubdivision)\(pendingAccents)"
+    }
+
+    private var rehearsePulseGrid: ClickPulseGrid {
+        ClickPulseGrid(timeSignature: store.rehearse.timeSignature,
+                       pulseInterpretation: store.rehearse.pulseInterpretation,
+                       bpm: store.rehearse.bpm, sampleRate: 44_100)
+    }
+
+    private var rehearsePulseCount: Int { rehearsePulseGrid.pulseCount }
+
+    private var pulseInterpretationBinding: Binding<PulseInterpretation> {
+        Binding(get: { store.rehearse.pulseInterpretation },
+                set: { store.setRehearsePulseInterpretation($0) })
+    }
+
+    private var accentPatternBinding: Binding<[ClickAccentLevel]?> {
+        Binding(get: { store.rehearse.clickAccentPattern },
+                set: { store.setRehearseAccentPattern($0) })
+    }
+
+    private var countoffPolicyBinding: Binding<CountoffPolicy> {
+        Binding(get: { store.rehearse.countoffPolicy },
+                set: { store.setRehearseCountoffPolicy($0) })
     }
 
     private var bpmBinding: Binding<Int> {
@@ -514,14 +555,6 @@ struct RehearseView: View {
             Double(store.rehearse.bpm)
         } set: { bpm in
             store.setRehearseBPM(Int(bpm.rounded()))
-        }
-    }
-
-    private var countoffBinding: Binding<Bool> {
-        Binding {
-            store.rehearse.countoffEnabled
-        } set: { isEnabled in
-            store.setRehearseCountoffEnabled(isEnabled)
         }
     }
 

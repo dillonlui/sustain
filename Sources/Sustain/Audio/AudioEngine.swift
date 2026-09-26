@@ -29,6 +29,9 @@ enum AudioEngineError: LocalizedError {
 protocol AudioControlling: AnyObject {
     var isEngineRunning: Bool { get }
     var statusSummary: String { get }
+    var supportsAudioCountoffCompletion: Bool { get }
+    var countoffHasCompleted: Bool { get }
+    var clickStoppedAfterCountoff: Bool { get }
 
     func prepare()
     func configureRouting(_ snapshot: AudioRoutingSnapshot) throws
@@ -48,6 +51,12 @@ protocol AudioControlling: AnyObject {
         settings: ClickSettings,
         completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
     )
+    func prepareClick(
+        bpm: Int, timeSignature: TimeSignature, subdivision: ClickSubdivision,
+        pulseInterpretation: PulseInterpretation, accentPattern: [ClickAccentLevel]?,
+        countoffPolicy: CountoffPolicy, settings: ClickSettings,
+        completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
+    )
     func activateClick(_ prepared: PreparedClick) throws
     func scheduleClickChange(
         _ prepared: PreparedClick,
@@ -61,6 +70,9 @@ protocol AudioControlling: AnyObject {
     func startPad(for key: MusicalKey, padPack: PadPack) throws
     func stopPad()
     func startClick(bpm: Int, timeSignature: TimeSignature, subdivision: ClickSubdivision, includesCountoff: Bool, settings: ClickSettings) throws
+    func startClick(bpm: Int, timeSignature: TimeSignature, subdivision: ClickSubdivision,
+                    pulseInterpretation: PulseInterpretation, accentPattern: [ClickAccentLevel]?,
+                    countoffPolicy: CountoffPolicy, settings: ClickSettings) throws
     func stopClick()
     func setPadVolume(_ volume: Double)
     func setClickVolume(_ volume: Double)
@@ -71,6 +83,24 @@ extension AudioControlling {
     /// Optional: engines that decode real files override this to warm a cache off the
     /// main thread. No-op by default.
     func preloadPad(for key: MusicalKey, padPack: PadPack) {}
+    var supportsAudioCountoffCompletion: Bool { false }
+    var countoffHasCompleted: Bool { false }
+    var clickStoppedAfterCountoff: Bool { false }
+    func prepareClick(
+        bpm: Int, timeSignature: TimeSignature, subdivision: ClickSubdivision,
+        pulseInterpretation: PulseInterpretation, accentPattern: [ClickAccentLevel]?,
+        countoffPolicy: CountoffPolicy, settings: ClickSettings,
+        completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
+    ) {
+        prepareClick(bpm: bpm, timeSignature: timeSignature, subdivision: subdivision,
+                     includesCountoff: countoffPolicy.hasCountoff, settings: settings, completion: completion)
+    }
+    func startClick(bpm: Int, timeSignature: TimeSignature, subdivision: ClickSubdivision,
+                    pulseInterpretation: PulseInterpretation, accentPattern: [ClickAccentLevel]?,
+                    countoffPolicy: CountoffPolicy, settings: ClickSettings) throws {
+        try startClick(bpm: bpm, timeSignature: timeSignature, subdivision: subdivision,
+                       includesCountoff: countoffPolicy.hasCountoff, settings: settings)
+    }
 }
 
 @MainActor
@@ -97,6 +127,8 @@ final class SustainAudioEngine: AudioControlling {
     private var activePadMemoryKey: PadBufferKey?
     private var activePadAssetName: String?
     private var clickIsActive = false
+    private var activeCountoffGeneration = 0
+    private var activeClickStopsAfterCountoff = false
     private var clickSwitchSerial = 0
     private var clickSwitchTask: Task<Void, Never>?
     private var padVolume: Float = 0.42
@@ -120,6 +152,14 @@ final class SustainAudioEngine: AudioControlling {
     var isEngineRunning: Bool {
         padEngine.isRunning || clickEngine.isRunning
     }
+    var countoffHasCompleted: Bool {
+        activeCountoffGeneration > 0 &&
+            clickRenderer.lastCompletedCountoffGeneration >= activeCountoffGeneration
+    }
+    var supportsAudioCountoffCompletion: Bool { true }
+    var clickStoppedAfterCountoff: Bool {
+        clickIsActive && activeClickStopsAfterCountoff && countoffHasCompleted
+    }
 
     var statusSummary: String {
         var active: [String] = []
@@ -130,7 +170,7 @@ final class SustainAudioEngine: AudioControlling {
                 active.append("Pad \(activePadKey.rawValue)")
             }
         }
-        if clickIsActive {
+        if clickIsActive && !clickStoppedAfterCountoff {
             active.append("Click")
         }
 
@@ -424,6 +464,18 @@ final class SustainAudioEngine: AudioControlling {
         settings: ClickSettings,
         completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
     ) {
+        prepareClick(bpm: bpm, timeSignature: timeSignature, subdivision: subdivision,
+                     pulseInterpretation: .legacy, accentPattern: nil,
+                     countoffPolicy: CountoffPolicy(bars: includesCountoff ? 1 : 0, after: .continueClick),
+                     settings: settings, completion: completion)
+    }
+
+    func prepareClick(
+        bpm: Int, timeSignature: TimeSignature, subdivision: ClickSubdivision,
+        pulseInterpretation: PulseInterpretation, accentPattern: [ClickAccentLevel]?,
+        countoffPolicy: CountoffPolicy, settings: ClickSettings,
+        completion: @escaping @MainActor @Sendable (Result<PreparedClick, Error>) -> Void
+    ) {
         guard bpm > 0 else {
             completion(.failure(AudioEngineError.invalidBPM(bpm)))
             return
@@ -442,23 +494,29 @@ final class SustainAudioEngine: AudioControlling {
                     timeSignature: timeSignature,
                     subdivision: subdivision,
                     measures: 1,
-                    settings: settings
+                    settings: settings,
+                    pulseInterpretation: pulseInterpretation,
+                    accentPattern: accentPattern
                 )
-                let countoff = includesCountoff
+                let countoff = countoffPolicy.hasCountoff
                     ? try Self.makeCountoffBuffer(
                         format: format,
                         voiceRenderer: renderer,
                         bpm: bpm,
                         timeSignature: timeSignature,
                         subdivision: subdivision,
-                        settings: settings
+                        settings: settings,
+                        pulseInterpretation: pulseInterpretation,
+                        accentPattern: accentPattern,
+                        measures: countoffPolicy.bars
                     )
                     : nil
                 let prepared = PreparedClick(
                     loop: ImmutablePCMBuffer(buffer: loop, byteCount: try Self.byteCount(of: loop)),
                     countoff: try countoff.map {
                         ImmutablePCMBuffer(buffer: $0, byteCount: try Self.byteCount(of: $0))
-                    }
+                    },
+                    stopsAfterCountoff: countoffPolicy.after == .countoffOnly
                 )
                 await completion(.success(prepared))
             } catch {
@@ -476,7 +534,8 @@ final class SustainAudioEngine: AudioControlling {
             clickIsActive = false
         }
         clickMixer.pan = clickOutputChannel.pan
-        try clickRenderer.start(prepared)
+        activeCountoffGeneration = try clickRenderer.start(prepared, stopsAfterCountoff: prepared.stopsAfterCountoff)
+        activeClickStopsAfterCountoff = prepared.stopsAfterCountoff
         try startClickEngineIfNeeded()
         clickIsActive = true
     }
@@ -635,20 +694,36 @@ final class SustainAudioEngine: AudioControlling {
         includesCountoff: Bool = true,
         settings: ClickSettings = .default
     ) throws {
+        try startClick(bpm: bpm, timeSignature: timeSignature, subdivision: subdivision,
+                       pulseInterpretation: .legacy, accentPattern: nil,
+                       countoffPolicy: CountoffPolicy(bars: includesCountoff ? 1 : 0, after: .continueClick),
+                       settings: settings)
+    }
+
+    func startClick(
+        bpm: Int, timeSignature: TimeSignature, subdivision: ClickSubdivision,
+        pulseInterpretation: PulseInterpretation, accentPattern: [ClickAccentLevel]?,
+        countoffPolicy: CountoffPolicy, settings: ClickSettings
+    ) throws {
         guard bpm > 0 else {
             throw AudioEngineError.invalidBPM(bpm)
         }
 
         // Build every replacement buffer before touching a currently running click. A live
         // BPM/time-signature edit can then fail safely without silencing the old loop.
-        let loop = try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, subdivision: subdivision, measures: 1, settings: settings)
-        let countoff = includesCountoff
-            ? try makeCountoffBuffer(bpm: bpm, timeSignature: timeSignature, subdivision: subdivision, settings: settings)
+        let loop = try makeClickBuffer(bpm: bpm, timeSignature: timeSignature, subdivision: subdivision,
+                                       measures: 1, settings: settings,
+                                       pulseInterpretation: pulseInterpretation, accentPattern: accentPattern)
+        let countoff = countoffPolicy.hasCountoff
+            ? try makeCountoffBuffer(bpm: bpm, timeSignature: timeSignature, subdivision: subdivision,
+                                     settings: settings, pulseInterpretation: pulseInterpretation,
+                                     accentPattern: accentPattern, measures: countoffPolicy.bars)
             : nil
 
         let prepared = PreparedClick(
             loop: ImmutablePCMBuffer(buffer: loop, byteCount: try Self.byteCount(of: loop)),
-            countoff: try countoff.map { ImmutablePCMBuffer(buffer: $0, byteCount: try Self.byteCount(of: $0)) }
+            countoff: try countoff.map { ImmutablePCMBuffer(buffer: $0, byteCount: try Self.byteCount(of: $0)) },
+            stopsAfterCountoff: countoffPolicy.after == .countoffOnly
         )
         clickSwitchTask?.cancel()
         if clickIsActive {
@@ -656,7 +731,8 @@ final class SustainAudioEngine: AudioControlling {
             clickRenderer.stop()
             clickIsActive = false
         }
-        try clickRenderer.start(prepared)
+        activeCountoffGeneration = try clickRenderer.start(prepared, stopsAfterCountoff: prepared.stopsAfterCountoff)
+        activeClickStopsAfterCountoff = prepared.stopsAfterCountoff
         try startClickEngineIfNeeded()
         clickMixer.pan = clickOutputChannel.pan
         clickIsActive = true
@@ -667,6 +743,8 @@ final class SustainAudioEngine: AudioControlling {
         clickRenderer.stop()
         clickEngine.stop()
         clickIsActive = false
+        activeCountoffGeneration = 0
+        activeClickStopsAfterCountoff = false
     }
 
     func setPadVolume(_ volume: Double) {
@@ -803,7 +881,9 @@ final class SustainAudioEngine: AudioControlling {
         timeSignature: TimeSignature,
         subdivision: ClickSubdivision,
         measures: Int,
-        settings: ClickSettings
+        settings: ClickSettings,
+        pulseInterpretation: PulseInterpretation = .legacy,
+        accentPattern: [ClickAccentLevel]? = nil
     ) throws -> AVAudioPCMBuffer {
         try Self.makeClickBuffer(
             format: clickFormat,
@@ -811,7 +891,9 @@ final class SustainAudioEngine: AudioControlling {
             timeSignature: timeSignature,
             subdivision: subdivision,
             measures: measures,
-            settings: settings
+            settings: settings,
+            pulseInterpretation: pulseInterpretation,
+            accentPattern: accentPattern
         )
     }
 
@@ -821,13 +903,18 @@ final class SustainAudioEngine: AudioControlling {
         timeSignature: TimeSignature,
         subdivision: ClickSubdivision,
         measures: Int,
-        settings: ClickSettings
+        settings: ClickSettings,
+        pulseInterpretation: PulseInterpretation = .legacy,
+        accentPattern: [ClickAccentLevel]? = nil
     ) throws -> AVAudioPCMBuffer {
-        let sampleRate = format.sampleRate
-        let beats = max(1, timeSignature.beatsPerMeasure * measures)
-        let secondsPerBeat = 60.0 / Double(bpm)
-        let duration = secondsPerBeat * Double(beats)
-        let frameCount = max(1, AVAudioFrameCount(sampleRate * duration))
+        guard bpm > 0 else { throw AudioEngineError.invalidBPM(bpm) }
+        let grid = ClickPulseGrid(timeSignature: timeSignature, pulseInterpretation: pulseInterpretation,
+                                  bpm: bpm, sampleRate: format.sampleRate)
+        guard accentPattern == nil || accentPattern?.count == grid.pulseCount else {
+            throw AudioEngineError.invalidOutputFormat
+        }
+        let beats = grid.pulseCount * max(1, measures)
+        let frameCount = AVAudioFrameCount(grid.frameCount(measures: measures))
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
             throw AudioEngineError.invalidOutputFormat
         }
@@ -835,18 +922,21 @@ final class SustainAudioEngine: AudioControlling {
         zeroBuffer(buffer, format: format)
 
         for beat in 0..<beats {
-            let startFrame = Int(Double(beat) * secondsPerBeat * sampleRate)
-            let accented = settings.accentMode == .downbeat && beat % timeSignature.beatsPerMeasure == 0
-            writeClickTone(into: buffer, format: format, startFrame: startFrame, accented: accented)
+            let level = accentPattern?[beat % grid.pulseCount]
+            if level == .mute { continue }
+            let startFrame = grid.frame(forPulse: beat)
+            let accented = level == .strong || (level == nil && settings.accentMode == .downbeat && beat % grid.pulseCount == 0)
+            let gain: Float = level == .soft ? 0.45 : 1
+            writeClickTone(into: buffer, format: format, startFrame: startFrame, accented: accented, gain: gain)
             if subdivision != .beat {
                 for slot in 1..<subdivision.rawValue {
-                    let position = (Double(beat) + Double(slot) / Double(subdivision.rawValue)) * secondsPerBeat * sampleRate
                     writeClickTone(
                         into: buffer,
                         format: format,
-                        startFrame: Int(position),
+                        startFrame: grid.frame(forPulse: beat, subdivision: slot,
+                                               subdivisionsPerPulse: subdivision.rawValue),
                         accented: false,
-                        gain: 0.48
+                        gain: 0.48 * gain
                     )
                 }
             }
@@ -887,7 +977,10 @@ final class SustainAudioEngine: AudioControlling {
         bpm: Int,
         timeSignature: TimeSignature,
         subdivision: ClickSubdivision,
-        settings: ClickSettings
+        settings: ClickSettings,
+        pulseInterpretation: PulseInterpretation = .legacy,
+        accentPattern: [ClickAccentLevel]? = nil,
+        measures: Int = 1
     ) throws -> AVAudioPCMBuffer {
         try Self.makeCountoffBuffer(
             format: clickFormat,
@@ -895,7 +988,10 @@ final class SustainAudioEngine: AudioControlling {
             bpm: bpm,
             timeSignature: timeSignature,
             subdivision: subdivision,
-            settings: settings
+            settings: settings,
+            pulseInterpretation: pulseInterpretation,
+            accentPattern: accentPattern,
+            measures: measures
         )
     }
 
@@ -907,22 +1003,33 @@ final class SustainAudioEngine: AudioControlling {
         bpm: Int,
         timeSignature: TimeSignature,
         subdivision: ClickSubdivision = .beat,
-        settings: ClickSettings
+        settings: ClickSettings,
+        pulseInterpretation: PulseInterpretation = .legacy,
+        accentPattern: [ClickAccentLevel]? = nil,
+        measures: Int = 1
     ) throws -> AVAudioPCMBuffer {
+        guard bpm > 0 else { throw AudioEngineError.invalidBPM(bpm) }
+        let grid = ClickPulseGrid(timeSignature: timeSignature, pulseInterpretation: pulseInterpretation,
+                                  bpm: bpm, sampleRate: format.sampleRate)
+        guard accentPattern == nil || accentPattern?.count == grid.pulseCount else {
+            throw AudioEngineError.invalidOutputFormat
+        }
         if settings.countoffSound == .click {
             return try makeClickBuffer(
                 format: format,
                 bpm: bpm,
                 timeSignature: timeSignature,
                 subdivision: subdivision,
-                measures: 1,
-                settings: settings
+                measures: measures,
+                settings: settings,
+                pulseInterpretation: pulseInterpretation,
+                accentPattern: accentPattern
             )
         }
 
         let sampleRate = format.sampleRate
-        let beats = max(1, timeSignature.beatsPerMeasure)
-        let secondsPerBeat = 60.0 / Double(bpm)
+        let beats = grid.pulseCount * max(1, measures)
+        let secondsPerBeat = grid.secondsPerPulse
 
         // At fast tempos a spoken word cannot stay intelligible within a beat, so fall
         // back to the click count-off rather than a garbled voice.
@@ -932,13 +1039,14 @@ final class SustainAudioEngine: AudioControlling {
                 bpm: bpm,
                 timeSignature: timeSignature,
                 subdivision: subdivision,
-                measures: 1,
-                settings: settings
+                measures: measures,
+                settings: settings,
+                pulseInterpretation: pulseInterpretation,
+                accentPattern: accentPattern
             )
         }
 
-        let duration = secondsPerBeat * Double(beats)
-        let frameCount = max(1, AVAudioFrameCount(sampleRate * duration))
+        let frameCount = AVAudioFrameCount(grid.frameCount(measures: measures))
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
             throw AudioEngineError.invalidOutputFormat
         }
@@ -947,23 +1055,26 @@ final class SustainAudioEngine: AudioControlling {
 
         let slotFrames = Int(secondsPerBeat * sampleRate)
         for beat in 0..<beats {
-            let startFrame = Int(Double(beat) * secondsPerBeat * sampleRate)
-            let accented = settings.accentMode == .downbeat && beat == 0
+            let startFrame = grid.frame(forPulse: beat)
+            let level = accentPattern?[beat % grid.pulseCount]
+            let accented = level == .strong || (level == nil && settings.accentMode == .downbeat && beat % grid.pulseCount == 0)
 
             // The counted mode is deliberately click + voice. Put a quieter transient exactly
             // on the beat, then mix the already-rendered word into the same slot. This leaves
             // voice choice, prewarming, routing, scheduling, and fallback behavior untouched.
             // Speech is rendered at 0.8 gain; a 0.2 click gain keeps even the accented
             // transient below full-scale when the two overlap, without changing voice level.
-            writeClickTone(
-                into: buffer,
-                format: format,
-                startFrame: startFrame,
-                accented: accented,
-                gain: 0.2
-            )
+            if level != .mute {
+                writeClickTone(
+                    into: buffer,
+                    format: format,
+                    startFrame: startFrame,
+                    accented: accented,
+                    gain: level == .soft ? 0.09 : 0.2
+                )
+            }
 
-            if let word = voiceRenderer?.renderedWord(for: beat + 1, format: format) {
+            if let word = voiceRenderer?.renderedWord(for: beat % grid.pulseCount + 1, format: format) {
                 copyWord(word, into: buffer, format: format, at: startFrame, maxFrames: slotFrames)
             }
         }

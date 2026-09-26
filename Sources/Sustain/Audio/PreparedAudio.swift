@@ -47,10 +47,12 @@ final class PreparedPad: @unchecked Sendable {
 final class PreparedClick: @unchecked Sendable {
     let loop: ImmutablePCMBuffer
     let countoff: ImmutablePCMBuffer?
+    let stopsAfterCountoff: Bool
 
-    init(loop: ImmutablePCMBuffer, countoff: ImmutablePCMBuffer?) {
+    init(loop: ImmutablePCMBuffer, countoff: ImmutablePCMBuffer?, stopsAfterCountoff: Bool = false) {
         self.loop = loop
         self.countoff = countoff
+        self.stopsAfterCountoff = stopsAfterCountoff
     }
 }
 
@@ -228,20 +230,20 @@ final class LatestWinsPadDecoder: @unchecked Sendable {
     }
 
     private func run(_ request: Request) {
-        Task.detached(priority: .userInitiated) { [weak self] in
+        Task.detached(priority: .userInitiated) { [self] in
             let result: Result<ImmutablePCMBuffer, Error>
             do { result = .success(try await request.operation()) }
             catch { result = .failure(error) }
-            request.completions.forEach { $0(result) }
-
-            guard let self else { return }
-            let next: Request? = self.lock.withLock {
+            // Detach callbacks while locked. A completion may itself submit another
+            // request; it must not mutate the array being delivered or join a finished job.
+            let (completions, next): ([Completion], Request?) = lock.withLock {
                 if self.active === request { self.active = nil }
                 let next = self.pending
                 self.pending = nil
                 self.active = next
-                return next
+                return (request.completions, next)
             }
+            completions.forEach { $0(result) }
             if let next { self.run(next) }
         }
     }

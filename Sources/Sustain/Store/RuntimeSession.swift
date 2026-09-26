@@ -56,6 +56,10 @@ struct RehearseSession: Equatable {
     var bpm: Int = 72
     var timeSignature: TimeSignature = .fourFour
     var clickSubdivision: ClickSubdivision = .beat
+    var pulseInterpretation: PulseInterpretation = .legacy
+    var clickAccentPattern: [ClickAccentLevel]? = nil
+    var countoffPolicy: CountoffPolicy = .rehearseDefault
+    var activeCountoffPolicy: CountoffPolicy? = nil
     var countoffEnabled = true
     var lastMessage = "Ready to rehearse"
 }
@@ -102,6 +106,8 @@ final class AppStore {
     // invalidation re-rendered every view on any change — the root of the Live layout flip and
     // a latent re-render storm; see docs/13, docs/14.)
     var selectedScreen: AppScreen = .live
+    var dirtySongEditorScreen: AppScreen?
+    var pendingScreenNavigation: AppScreen?
     var songs: [Song]
     var padPacks: [PadPack]
     var padTracks: [PadTrack]
@@ -117,6 +123,8 @@ final class AppStore {
     var clickVolume: Double
     var clickSettings: ClickSettings
     var audibleClickSubdivision: ClickSubdivision?
+    var audibleClickAccentPattern: [ClickAccentLevel]?
+    var activeLiveCountoffPolicy: CountoffPolicy?
     var pendingRehearseClickSubdivision: ClickSubdivision?
     var pendingLiveClickSubdivision: ClickSubdivision?
     var pendingLiveClickSongID: Song.ID?
@@ -124,6 +132,10 @@ final class AppStore {
     var midiAvailableSources: [MIDIControllerSource] = []
     var midiServiceState: MIDIControllerServiceState = .stopped
     var midiLearnState: MIDILearnState = .idle
+    var liveTapTempo = TapTempoEstimator()
+    var rehearseTapTempo = TapTempoEstimator()
+    var liveTempoOverrides: [SetlistEntry.ID: Int] = [:]
+    var tapTempoMessage: String?
     var padAssetStates: [PadTrack.ID: PadAssetState] = [:]
     var audioRouteChangePrompt: AudioRouteChangePrompt?
     /// Set when a library save fails after a retry — drives a blocking alert so the operator
@@ -145,6 +157,8 @@ final class AppStore {
     @ObservationIgnored private let persistenceWriteBlockReason: String?
     @ObservationIgnored private var midiLearnCoordinator = MIDILearnCoordinator()
     @ObservationIgnored private var midiMappingResolver = MIDIControllerMappingResolver()
+    @ObservationIgnored private var liveTapEntryID: SetlistEntry.ID?
+    @ObservationIgnored private var lastRehearseCountoffPolicy: CountoffPolicy = .rehearseDefault
     @ObservationIgnored private var midiLearnTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var clickStateTask: Task<Void, Never>?
     @ObservationIgnored private var padStateTask: Task<Void, Never>?
@@ -333,6 +347,7 @@ final class AppStore {
         }
 
         runtime.cuedEntryID = activeSetlist.entries[nextIndex].id
+        resetLiveTapSequence()
         runtime.lastMessage = "Cued next song"
         preloadCuedPad()
     }
@@ -346,6 +361,7 @@ final class AppStore {
         }
 
         runtime.cuedEntryID = activeSetlist.entries[activeSetlist.entries.index(before: index)].id
+        resetLiveTapSequence()
         runtime.lastMessage = "Cued previous song"
         preloadCuedPad()
     }
@@ -357,6 +373,7 @@ final class AppStore {
         }
 
         runtime.cuedEntryID = entryID
+        resetLiveTapSequence()
         runtime.lastMessage = "Cued \(song.title)"
         preloadCuedPad()
         refreshReadiness()
@@ -390,6 +407,7 @@ final class AppStore {
         let startGeneration = liveStartGeneration
         let previousRuntime = runtime
         let preparedClickSettings = clickSettings
+        let preparedBPM = effectiveBPM(for: cuedEntry, song: cuedSong) ?? cuedSong.defaultBPM
         stopRehearsalForLiveSession()
         runtime.playbackPhase = .songStarting
         let assignedPad = padTrack(for: cuedSong)
@@ -400,10 +418,12 @@ final class AppStore {
         let prepareClick: @MainActor @Sendable (PreparedPad?) -> Void = { [weak self] preparedPad in
             guard let self else { return }
             self.audioEngine.prepareClick(
-                bpm: cuedSong.defaultBPM,
+                bpm: preparedBPM,
                 timeSignature: cuedSong.timeSignature,
                 subdivision: cuedSong.clickSubdivision,
-                includesCountoff: true,
+                pulseInterpretation: cuedSong.pulseInterpretation,
+                accentPattern: cuedSong.clickAccentPattern,
+                countoffPolicy: cuedSong.countoffPolicy,
                 settings: preparedClickSettings
             ) { [weak self] clickResult in
                 guard let self else { return }
@@ -421,9 +441,12 @@ final class AppStore {
                     return
                 }
                 guard let latestSong = self.song(for: cuedEntry),
-                      latestSong.defaultBPM == cuedSong.defaultBPM,
+                      self.effectiveBPM(for: cuedEntry, song: latestSong) == preparedBPM,
                       latestSong.timeSignature == cuedSong.timeSignature,
                       latestSong.clickSubdivision == cuedSong.clickSubdivision,
+                      latestSong.pulseInterpretation == cuedSong.pulseInterpretation,
+                      latestSong.clickAccentPattern == cuedSong.clickAccentPattern,
+                      latestSong.countoffPolicy == cuedSong.countoffPolicy,
                       self.clickSettings == preparedClickSettings else {
                     if let preparedPad { self.audioEngine.discardPreparedPad(preparedPad) }
                     self.restoreRuntimeAfterFailedPreparation(previousRuntime, message: "Click settings changed; preparing again")
@@ -456,16 +479,25 @@ final class AppStore {
                     self.clickStateTask?.cancel()
                     try self.audioEngine.activateClick(preparedClick)
                     self.audibleClickSubdivision = cuedSong.clickSubdivision
+                    self.audibleClickAccentPattern = cuedSong.clickAccentPattern
+                    self.activeLiveCountoffPolicy = cuedSong.countoffPolicy
                     self.runtime.playingEntryID = cuedEntry.id
                     self.runtime.playbackPhase = .songPlaying
-                    self.beginCountoff(
-                        for: cuedEntry.id,
-                        songTitle: cuedSong.title,
-                        bpm: cuedSong.defaultBPM,
-                        timeSignature: cuedSong.timeSignature,
-                        startedAt: countoffStartedAt
-                    )
-                    self.runtime.lastMessage = "Countoff started for \(cuedSong.title)"
+                    if cuedSong.countoffPolicy.hasCountoff {
+                        self.beginCountoff(
+                            for: cuedEntry.id,
+                            songTitle: cuedSong.title,
+                            bpm: preparedBPM,
+                            timeSignature: cuedSong.timeSignature,
+                            pulseInterpretation: cuedSong.pulseInterpretation,
+                            policy: cuedSong.countoffPolicy,
+                            startedAt: countoffStartedAt
+                        )
+                        self.runtime.lastMessage = "Countoff started for \(cuedSong.title)"
+                    } else {
+                        self.runtime.clickState = .playing
+                        self.runtime.lastMessage = "Click playing for \(cuedSong.title)"
+                    }
                     self.refreshAudioStatus()
                 } catch {
                     if let preparedPad { self.audioEngine.discardPreparedPad(preparedPad) }
@@ -503,6 +535,9 @@ final class AppStore {
     }
 
     func stop() {
+        // The menu and MIDI action both promise to stop all audio, including Rehearse.
+        if rehearse.padState != .off { stopRehearsePad() }
+        if rehearse.clickState != .off { stopRehearseClick() }
         liveStartGeneration &+= 1
         cancelPendingClickChange()
         audioEngine.cancelPendingPadPreparation()
@@ -510,6 +545,8 @@ final class AppStore {
         clearCountoff()
         audioEngine.stopClick()
         audibleClickSubdivision = nil
+        audibleClickAccentPattern = nil
+        activeLiveCountoffPolicy = nil
         runtime.clickState = .off
         runtime.playingEntryID = nil
         runtime.playbackPhase = .noSongPlaying
@@ -519,6 +556,22 @@ final class AppStore {
             runtime.lastMessage = "Stopped"
         }
         refreshAudioStatus()
+    }
+
+    func navigate(to screen: AppScreen) {
+        guard screen != selectedScreen else { return }
+        if dirtySongEditorScreen == selectedScreen {
+            pendingScreenNavigation = screen
+        } else {
+            selectedScreen = screen
+        }
+    }
+
+    func resolvePendingNavigation(discardChanges: Bool) {
+        defer { pendingScreenNavigation = nil }
+        guard discardChanges, let pendingScreenNavigation else { return }
+        dirtySongEditorScreen = nil
+        selectedScreen = pendingScreenNavigation
     }
 
     func startClick() {
@@ -532,7 +585,7 @@ final class AppStore {
             return
         }
 
-        let bpm = song.defaultBPM
+        let bpm = effectiveBPM(for: playingEntry, song: song) ?? song.defaultBPM
         let preparedClickSettings = clickSettings
         liveStartGeneration &+= 1
         let generation = liveStartGeneration
@@ -542,7 +595,9 @@ final class AppStore {
             bpm: bpm,
             timeSignature: song.timeSignature,
             subdivision: song.clickSubdivision,
-            includesCountoff: true,
+            pulseInterpretation: song.pulseInterpretation,
+            accentPattern: song.clickAccentPattern,
+            countoffPolicy: song.countoffPolicy,
             settings: preparedClickSettings
         ) { [weak self] result in
             guard let self else { return }
@@ -550,9 +605,12 @@ final class AppStore {
                   self.runtime.playingEntryID == playingEntry.id,
                   self.runtime.clickState == .preparing else { return }
             guard let latestSong = self.song(for: playingEntry),
-                  latestSong.defaultBPM == song.defaultBPM,
+                  self.effectiveBPM(for: playingEntry, song: latestSong) == bpm,
                   latestSong.timeSignature == song.timeSignature,
                   latestSong.clickSubdivision == song.clickSubdivision,
+                  latestSong.pulseInterpretation == song.pulseInterpretation,
+                  latestSong.clickAccentPattern == song.clickAccentPattern,
+                  latestSong.countoffPolicy == song.countoffPolicy,
                   self.clickSettings == preparedClickSettings else {
                 self.runtime.clickState = .off
                 self.startClick()
@@ -561,15 +619,24 @@ final class AppStore {
             do {
                 try self.audioEngine.activateClick(result.get())
                 self.audibleClickSubdivision = song.clickSubdivision
-            beginCountoff(
-                for: playingEntry.id,
-                songTitle: song.title,
-                bpm: bpm,
-                timeSignature: song.timeSignature,
-                startedAt: ContinuousClock.now
-            )
-            runtime.lastMessage = "Countoff started for \(song.title)"
-            refreshAudioStatus()
+                self.audibleClickAccentPattern = song.clickAccentPattern
+                self.activeLiveCountoffPolicy = song.countoffPolicy
+                if song.countoffPolicy.hasCountoff {
+                    self.beginCountoff(
+                        for: playingEntry.id,
+                        songTitle: song.title,
+                        bpm: bpm,
+                        timeSignature: song.timeSignature,
+                        pulseInterpretation: song.pulseInterpretation,
+                        policy: song.countoffPolicy,
+                        startedAt: ContinuousClock.now
+                    )
+                    self.runtime.lastMessage = "Countoff started for \(song.title)"
+                } else {
+                    self.runtime.clickState = .playing
+                    self.runtime.lastMessage = "Click playing for \(song.title)"
+                }
+                self.refreshAudioStatus()
             } catch {
                 self.runtime.clickState = .off
                 self.runtime.lastMessage = error.localizedDescription
@@ -585,6 +652,8 @@ final class AppStore {
         clearCountoff()
         audioEngine.stopClick()
         audibleClickSubdivision = nil
+        audibleClickAccentPattern = nil
+        activeLiveCountoffPolicy = nil
         runtime.clickState = .off
         runtime.lastMessage = "Click stopped"
         refreshAudioStatus()
@@ -826,6 +895,11 @@ final class AppStore {
         let preparedBPM = rehearse.bpm
         let preparedSignature = rehearse.timeSignature
         let preparedSubdivision = rehearse.clickSubdivision
+        let preparedPulse = rehearse.pulseInterpretation
+        let preparedAccents = rehearse.clickAccentPattern
+        let preparedPolicy = rehearse.countoffEnabled
+            ? rehearse.countoffPolicy
+            : CountoffPolicy(bars: 0, after: .continueClick)
         let preparedClickSettings = clickSettings
         rehearse.clickState = .preparing
         rehearse.countoffBeat = nil
@@ -835,7 +909,9 @@ final class AppStore {
             bpm: preparedBPM,
             timeSignature: preparedSignature,
             subdivision: preparedSubdivision,
-            includesCountoff: rehearse.countoffEnabled,
+            pulseInterpretation: preparedPulse,
+            accentPattern: preparedAccents,
+            countoffPolicy: preparedPolicy,
             settings: preparedClickSettings
         ) { [weak self] result in
             guard let self else { return }
@@ -844,6 +920,9 @@ final class AppStore {
             guard self.rehearse.bpm == preparedBPM,
                   self.rehearse.timeSignature == preparedSignature,
                   self.rehearse.clickSubdivision == preparedSubdivision,
+                  self.rehearse.pulseInterpretation == preparedPulse,
+                  self.rehearse.clickAccentPattern == preparedAccents,
+                  (self.rehearse.countoffEnabled ? self.rehearse.countoffPolicy : CountoffPolicy(bars: 0, after: .continueClick)) == preparedPolicy,
                   self.clickSettings == preparedClickSettings else {
                 self.startRehearseClick()
                 return
@@ -851,7 +930,9 @@ final class AppStore {
             do {
                 try self.audioEngine.activateClick(result.get())
                 self.audibleClickSubdivision = self.rehearse.clickSubdivision
-                if self.rehearse.countoffEnabled {
+                self.audibleClickAccentPattern = self.rehearse.clickAccentPattern
+                self.rehearse.activeCountoffPolicy = preparedPolicy
+                if preparedPolicy.hasCountoff {
                     self.beginRehearseCountoff()
                     self.rehearse.lastMessage = "Countoff started at \(self.rehearse.bpm) BPM"
                 } else {
@@ -877,6 +958,8 @@ final class AppStore {
         clickStateTask?.cancel()
         audioEngine.stopClick()
         audibleClickSubdivision = nil
+        audibleClickAccentPattern = nil
+        rehearse.activeCountoffPolicy = nil
         rehearse.clickState = .off
         rehearse.countoffBeat = nil
         rehearse.countoffTotal = nil
@@ -895,15 +978,130 @@ final class AppStore {
         restartActiveRehearseClickIfNeeded(message: "Click updated to \(rehearse.bpm) BPM")
     }
 
+    func effectiveBPM(for entry: SetlistEntry?, song: Song? = nil) -> Int? {
+        guard let entry, let song = song ?? self.song(for: entry) else { return nil }
+        return liveTempoOverrides[entry.id] ?? song.defaultBPM
+    }
+
+    private func resetLiveTapSequence() {
+        liveTapTempo.reset()
+        liveTapEntryID = runtime.cuedEntryID
+        tapTempoMessage = nil
+    }
+
+    func tapTempo(at time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        if selectedScreen == .rehearse {
+            guard rehearse.clickState == .off else { return }
+            rehearseTapTempo.tap(at: time)
+            tapTempoMessage = rehearseTapTempo.didResetOnLastTap ? "Tap sequence reset" : nil
+            return
+        }
+        guard selectedScreen == .live, let cuedEntry,
+              cuedEntry.id != runtime.playingEntryID,
+              runtime.clickState == .off, runtime.playbackPhase != .songStarting else { return }
+        if liveTapEntryID != cuedEntry.id { resetLiveTapSequence() }
+        liveTapTempo.tap(at: time)
+        tapTempoMessage = liveTapTempo.didResetOnLastTap ? "Tap sequence reset" : nil
+    }
+
+    @discardableResult
+    func useTappedTempo(at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        if selectedScreen == .rehearse {
+            guard rehearse.clickState == .off, let bpm = rehearseTapTempo.bpm(at: time) else { return false }
+            setRehearseBPM(bpm)
+            rehearseTapTempo.reset()
+            return true
+        }
+        guard selectedScreen == .live, let cuedEntry,
+              cuedEntry.id != runtime.playingEntryID,
+              runtime.clickState == .off, runtime.playbackPhase != .songStarting,
+              let bpm = liveTapTempo.bpm(at: time) else { return false }
+        liveTempoOverrides[cuedEntry.id] = bpm
+        liveTapTempo.reset()
+        liveStartGeneration &+= 1
+        audioEngine.cancelPendingPadPreparation()
+        runtime.lastMessage = "Session tempo set to \(bpm) BPM"
+        refreshReadiness()
+        return true
+    }
+
+    @discardableResult
+    func saveCuedTempoAsSongDefault() -> Bool {
+        guard let cuedEntry, cuedEntry.id != runtime.playingEntryID,
+              let bpm = liveTempoOverrides[cuedEntry.id],
+              runtime.clickState == .off, runtime.playbackPhase != .songStarting,
+              let index = songs.firstIndex(where: { $0.id == cuedEntry.songID }) else { return false }
+        let previousBPM = songs[index].defaultBPM
+        songs[index].defaultBPM = bpm
+        let saved = saveLibrary()
+        if saved { liveTempoOverrides[cuedEntry.id] = nil }
+        else { songs[index].defaultBPM = previousBPM }
+        refreshReadiness()
+        runtime.lastMessage = saved ? "Saved \(bpm) BPM as song default" : "Could not save tempo"
+        return saved
+    }
+
     func setRehearseTimeSignature(_ timeSignature: TimeSignature) {
         rehearse.timeSignature = timeSignature
+        let pulseCount = ClickPulseGrid(timeSignature: timeSignature,
+                                        pulseInterpretation: rehearse.pulseInterpretation,
+                                        bpm: rehearse.bpm, sampleRate: 44_100).pulseCount
+        if rehearse.clickAccentPattern?.count != pulseCount { rehearse.clickAccentPattern = nil }
 
         guard rehearse.clickState != .off else { return }
         restartActiveRehearseClickIfNeeded(message: "Click updated to \(timeSignature.description)")
     }
 
+    func setRehearsePulseInterpretation(_ interpretation: PulseInterpretation) {
+        guard rehearse.clickState == .off else { return }
+        rehearse.pulseInterpretation = interpretation
+        let pulseCount = ClickPulseGrid(timeSignature: rehearse.timeSignature,
+                                        pulseInterpretation: interpretation,
+                                        bpm: rehearse.bpm, sampleRate: 44_100).pulseCount
+        if rehearse.clickAccentPattern?.count != pulseCount { rehearse.clickAccentPattern = nil }
+        rehearse.lastMessage = "BPM pulse set to \(interpretation.label)"
+    }
+
+    func setRehearseAccentPattern(_ pattern: [ClickAccentLevel]?) {
+        guard rehearse.clickState != .countoff else { return }
+        let pulseCount = ClickPulseGrid(timeSignature: rehearse.timeSignature,
+                                        pulseInterpretation: rehearse.pulseInterpretation,
+                                        bpm: rehearse.bpm, sampleRate: 44_100).pulseCount
+        guard pattern == nil || pattern?.count == pulseCount else { return }
+        rehearse.clickAccentPattern = pattern
+        if rehearse.clickState == .playing {
+            pendingRehearseClickSubdivision = rehearse.clickSubdivision
+            preparePendingRehearseSubdivision()
+            rehearse.lastMessage = "Switching beat accents at next measure"
+        } else if rehearse.clickState == .preparing {
+            startRehearseClick()
+        } else {
+            rehearse.lastMessage = pattern == nil ? "Beat accents reset" : "Beat accents set"
+        }
+    }
+
+    func setRehearseCountoffPolicy(_ policy: CountoffPolicy) {
+        guard rehearse.clickState != .countoff else { return }
+        var normalized = policy
+        if normalized.bars == 0 { normalized.after = .continueClick }
+        guard normalized.isValid else { return }
+        rehearse.countoffPolicy = normalized
+        rehearse.countoffEnabled = normalized.hasCountoff
+        if normalized.hasCountoff { lastRehearseCountoffPolicy = normalized }
+        rehearse.lastMessage = normalized.after == .countoffOnly
+            ? "Click will stop after countoff"
+            : "Countoff set to \(normalized.bars) bar\(normalized.bars == 1 ? "" : "s")"
+    }
+
     func setRehearseCountoffEnabled(_ isEnabled: Bool) {
+        guard rehearse.clickState != .countoff else { return }
+        if !isEnabled && rehearse.countoffPolicy.hasCountoff {
+            lastRehearseCountoffPolicy = rehearse.countoffPolicy
+        }
         rehearse.countoffEnabled = isEnabled
+        rehearse.countoffPolicy = isEnabled
+            ? lastRehearseCountoffPolicy
+            : CountoffPolicy(bars: 0, after: .continueClick)
         rehearse.lastMessage = isEnabled ? "Countoff enabled" : "Countoff disabled"
     }
 
@@ -959,20 +1157,26 @@ final class AppStore {
               runtime.clickState == .playing else { return }
         clickChangeInFlight = true
         let generation = clickChangeGeneration
-        let bpm = song.defaultBPM
+        let bpm = effectiveBPM(for: playingEntry, song: song) ?? song.defaultBPM
         let signature = song.timeSignature
+        let pulse = song.pulseInterpretation
+        let accents = song.clickAccentPattern
         let settings = clickSettings
         audioEngine.prepareClick(
             bpm: bpm,
             timeSignature: signature,
             subdivision: subdivision,
-            includesCountoff: false,
+            pulseInterpretation: pulse,
+            accentPattern: accents,
+            countoffPolicy: CountoffPolicy(bars: 0, after: .continueClick),
             settings: settings
         ) { [weak self] result in
             guard let self, self.clickChangeGeneration == generation else { return }
             guard self.pendingLiveClickSubdivision == subdivision,
-                  self.song(for: self.playingEntry)?.defaultBPM == bpm,
-                  self.song(for: self.playingEntry)?.timeSignature == signature else {
+                  self.effectiveBPM(for: self.playingEntry) == bpm,
+                  self.song(for: self.playingEntry)?.timeSignature == signature,
+                  self.song(for: self.playingEntry)?.pulseInterpretation == pulse,
+                  self.song(for: self.playingEntry)?.clickAccentPattern == accents else {
                 self.clickChangeInFlight = false
                 self.preparePendingLiveSubdivision()
                 return
@@ -985,8 +1189,11 @@ final class AppStore {
                     switch outcome {
                     case .success:
                         self.audibleClickSubdivision = subdivision
+                        self.audibleClickAccentPattern = accents
                         if self.pendingLiveClickSubdivision == subdivision,
-                           let index = self.songs.firstIndex(where: { $0.id == songID }) {
+                           let index = self.songs.firstIndex(where: { $0.id == songID }),
+                           self.songs[index].clickAccentPattern == accents,
+                           self.songs[index].pulseInterpretation == pulse {
                             self.songs[index].clickSubdivision = subdivision
                             self.pendingLiveClickSubdivision = nil
                             self.pendingLiveClickSongID = nil
@@ -996,10 +1203,15 @@ final class AppStore {
                             self.preparePendingLiveSubdivision()
                         }
                     case .failure(let error):
-                        if self.pendingLiveClickSubdivision == subdivision {
+                        if self.pendingLiveClickSubdivision == subdivision,
+                           let index = self.songs.firstIndex(where: { $0.id == songID }),
+                           self.songs[index].clickAccentPattern == accents {
+                            self.songs[index].clickSubdivision = self.audibleClickSubdivision ?? .beat
+                            self.songs[index].clickAccentPattern = self.audibleClickAccentPattern
                             self.pendingLiveClickSubdivision = nil
                             self.pendingLiveClickSongID = nil
-                            self.runtime.lastMessage = "Could not change click subdivision: \(error.localizedDescription)"
+                            self.saveLibrary()
+                            self.runtime.lastMessage = "Could not change click rhythm: \(error.localizedDescription)"
                         } else {
                             self.preparePendingLiveSubdivision()
                         }
@@ -1007,10 +1219,15 @@ final class AppStore {
                 }
             } catch {
                 self.clickChangeInFlight = false
-                if self.pendingLiveClickSubdivision == subdivision {
+                if self.pendingLiveClickSubdivision == subdivision,
+                   let index = self.songs.firstIndex(where: { $0.id == songID }),
+                   self.songs[index].clickAccentPattern == accents {
+                    self.songs[index].clickSubdivision = self.audibleClickSubdivision ?? .beat
+                    self.songs[index].clickAccentPattern = self.audibleClickAccentPattern
                     self.pendingLiveClickSubdivision = nil
                     self.pendingLiveClickSongID = nil
-                    self.runtime.lastMessage = "Could not change click subdivision: \(error.localizedDescription)"
+                    self.saveLibrary()
+                    self.runtime.lastMessage = "Could not change click rhythm: \(error.localizedDescription)"
                 } else {
                     self.preparePendingLiveSubdivision()
                 }
@@ -1026,18 +1243,24 @@ final class AppStore {
         let generation = clickChangeGeneration
         let bpm = rehearse.bpm
         let signature = rehearse.timeSignature
+        let pulse = rehearse.pulseInterpretation
+        let accents = rehearse.clickAccentPattern
         let settings = clickSettings
         audioEngine.prepareClick(
             bpm: bpm,
             timeSignature: signature,
             subdivision: subdivision,
-            includesCountoff: false,
+            pulseInterpretation: pulse,
+            accentPattern: accents,
+            countoffPolicy: CountoffPolicy(bars: 0, after: .continueClick),
             settings: settings
         ) { [weak self] result in
             guard let self, self.clickChangeGeneration == generation else { return }
             guard self.pendingRehearseClickSubdivision == subdivision,
                   self.rehearse.bpm == bpm,
-                  self.rehearse.timeSignature == signature else {
+                  self.rehearse.timeSignature == signature,
+                  self.rehearse.pulseInterpretation == pulse,
+                  self.rehearse.clickAccentPattern == accents else {
                 self.clickChangeInFlight = false
                 self.preparePendingRehearseSubdivision()
                 return
@@ -1049,7 +1272,9 @@ final class AppStore {
                     switch outcome {
                     case .success:
                         self.audibleClickSubdivision = subdivision
-                        if self.pendingRehearseClickSubdivision == subdivision {
+                        self.audibleClickAccentPattern = accents
+                        if self.pendingRehearseClickSubdivision == subdivision,
+                           self.rehearse.clickAccentPattern == accents {
                             self.rehearse.clickSubdivision = subdivision
                             self.pendingRehearseClickSubdivision = nil
                             self.rehearse.lastMessage = "Click switched to \(subdivision.label)"
@@ -1057,9 +1282,11 @@ final class AppStore {
                             self.preparePendingRehearseSubdivision()
                         }
                     case .failure(let error):
-                        if self.pendingRehearseClickSubdivision == subdivision {
+                        if self.pendingRehearseClickSubdivision == subdivision,
+                           self.rehearse.clickAccentPattern == accents {
+                            self.rehearse.clickAccentPattern = self.audibleClickAccentPattern
                             self.pendingRehearseClickSubdivision = nil
-                            self.rehearse.lastMessage = "Could not change subdivision: \(error.localizedDescription)"
+                            self.rehearse.lastMessage = "Could not change click rhythm: \(error.localizedDescription)"
                         } else {
                             self.preparePendingRehearseSubdivision()
                         }
@@ -1067,8 +1294,14 @@ final class AppStore {
                 }
             } catch {
                 self.clickChangeInFlight = false
-                self.pendingRehearseClickSubdivision = nil
-                self.rehearse.lastMessage = "Could not change subdivision: \(error.localizedDescription)"
+                if self.pendingRehearseClickSubdivision == subdivision,
+                   self.rehearse.clickAccentPattern == accents {
+                    self.rehearse.clickAccentPattern = self.audibleClickAccentPattern
+                    self.pendingRehearseClickSubdivision = nil
+                    self.rehearse.lastMessage = "Could not change click rhythm: \(error.localizedDescription)"
+                } else {
+                    self.preparePendingRehearseSubdivision()
+                }
             }
         }
     }
@@ -1191,6 +1424,7 @@ final class AppStore {
             }
             runtime.clickState == .off ? startClick() : stopClick()
         case .togglePad: toggleLivePad()
+        case .tapTempo: tapTempo()
         }
     }
 
@@ -1209,7 +1443,9 @@ final class AppStore {
             bpm: rehearse.bpm,
             timeSignature: rehearse.timeSignature,
             subdivision: rehearse.clickSubdivision,
-            includesCountoff: false,
+            pulseInterpretation: rehearse.pulseInterpretation,
+            accentPattern: rehearse.clickAccentPattern,
+            countoffPolicy: CountoffPolicy(bars: 0, after: .continueClick),
             settings: clickSettings
         ) { [weak self] result in
             guard let self else { return }
@@ -1219,6 +1455,7 @@ final class AppStore {
                 self.clickStateTask?.cancel()
                 try self.audioEngine.activateClick(result.get())
                 self.audibleClickSubdivision = self.rehearse.clickSubdivision
+                self.audibleClickAccentPattern = self.rehearse.clickAccentPattern
                 self.rehearse.clickState = .playing
                 self.rehearse.countoffBeat = nil
                 self.rehearse.countoffTotal = nil
@@ -1295,6 +1532,20 @@ final class AppStore {
             persistenceStatus = "BPM must be between 40 and 220"
             return nil
         }
+        guard draft.countoffPolicy.isValid else {
+            persistenceStatus = "Choose a valid countoff setting"
+            return nil
+        }
+        let draftPulseCount = ClickPulseGrid(
+            timeSignature: draft.timeSignature,
+            pulseInterpretation: draft.pulseInterpretation,
+            bpm: draft.defaultBPM,
+            sampleRate: 44_100
+        ).pulseCount
+        guard draft.clickAccentPattern == nil || draft.clickAccentPattern?.count == draftPulseCount else {
+            persistenceStatus = "Reset beat accents after changing the pulse or meter"
+            return nil
+        }
         let assignedPad = draft.padTrackID.flatMap { id in padTracks.first { $0.id == id } }
         guard draft.padTrackID == nil || assignedPad != nil else {
             persistenceStatus = "The selected pad is unavailable"
@@ -1320,6 +1571,9 @@ final class AppStore {
             defaultBPM: draft.defaultBPM,
             timeSignature: draft.timeSignature,
             clickSubdivision: draft.clickSubdivision,
+            pulseInterpretation: draft.pulseInterpretation,
+            clickAccentPattern: draft.clickAccentPattern,
+            countoffPolicy: draft.countoffPolicy,
             padPack: current?.padPack ?? .bundled,
             padTrackID: draft.padTrackID
         )
@@ -1327,12 +1581,18 @@ final class AppStore {
 
         let playingThisSong = playingEntry?.songID == id
         let activeClick = playingThisSong && runtime.clickState != .off
+        let activeEntry = playingEntry
+        let currentEffectiveBPM = effectiveBPM(for: activeEntry, song: current)
+        let updatedEffectiveBPM = effectiveBPM(for: activeEntry, song: updated)
         let retimeClick = activeClick && current.map {
-            $0.defaultBPM != updated.defaultBPM || $0.timeSignature != updated.timeSignature
+            currentEffectiveBPM != updatedEffectiveBPM || $0.timeSignature != updated.timeSignature ||
+            $0.pulseInterpretation != updated.pulseInterpretation
         } == true
         let subdivisionChanged = current?.clickSubdivision != updated.clickSubdivision
-        if activeClick && runtime.clickState == .countoff && subdivisionChanged && !retimeClick {
-            persistenceStatus = "Wait for the countoff to finish before changing subdivision"
+        let accentChanged = current?.clickAccentPattern != updated.clickAccentPattern
+        let rhythmChanged = subdivisionChanged || accentChanged
+        if activeClick && runtime.clickState == .countoff && rhythmChanged && !retimeClick {
+            persistenceStatus = "Wait for the countoff to finish before changing click rhythm"
             return nil
         }
 
@@ -1341,14 +1601,17 @@ final class AppStore {
                 // A playing click takes the new tempo and meter immediately, without another countoff.
                 // Starting it before mutating the library leaves the draft uncommitted on failure.
                 try audioEngine.startClick(
-                    bpm: updated.defaultBPM,
+                    bpm: updatedEffectiveBPM ?? updated.defaultBPM,
                     timeSignature: updated.timeSignature,
                     subdivision: updated.clickSubdivision,
-                    includesCountoff: false,
+                    pulseInterpretation: updated.pulseInterpretation,
+                    accentPattern: updated.clickAccentPattern,
+                    countoffPolicy: CountoffPolicy(bars: 0, after: .continueClick),
                     settings: clickSettings
                 )
                 cancelPendingClickChange()
                 audibleClickSubdivision = updated.clickSubdivision
+                audibleClickAccentPattern = updated.clickAccentPattern
             } catch {
                 persistenceStatus = "Could not update click: \(error.localizedDescription)"
                 runtime.lastMessage = persistenceStatus
@@ -1367,12 +1630,12 @@ final class AppStore {
             clickStateTask?.cancel()
             clearCountoff()
             runtime.clickState = .playing
-        } else if activeClick && subdivisionChanged && runtime.clickState == .playing {
+        } else if activeClick && rhythmChanged && runtime.clickState == .playing {
             // Follow the existing live subdivision path: switch at the next measure.
             pendingLiveClickSongID = id
             pendingLiveClickSubdivision = updated.clickSubdivision
             preparePendingLiveSubdivision()
-        } else if activeClick && subdivisionChanged && runtime.clickState == .preparing {
+        } else if activeClick && rhythmChanged && runtime.clickState == .preparing {
             liveStartGeneration &+= 1
             runtime.clickState = .off
             startClick()
@@ -1381,8 +1644,8 @@ final class AppStore {
         saveLibrary()
         preloadCuedPad()
         refreshReadiness()
-        runtime.lastMessage = activeClick && subdivisionChanged && !retimeClick && runtime.clickState == .playing
-            ? "Saved \(title); switching click subdivision at next measure"
+        runtime.lastMessage = activeClick && rhythmChanged && !retimeClick && runtime.clickState == .playing
+            ? "Saved \(title); switching click rhythm at next measure"
             : playingThisSong ? "Updated \(title) live" : "Saved \(title)"
         refreshAudioStatus()
         return id
@@ -1411,6 +1674,9 @@ final class AppStore {
             defaultBPM: min(220, max(40, defaultBPM)),
             timeSignature: timeSignature,
             clickSubdivision: current.clickSubdivision,
+            pulseInterpretation: current.pulseInterpretation,
+            clickAccentPattern: current.clickAccentPattern,
+            countoffPolicy: current.countoffPolicy,
             padPack: .bundled,
             padTrackID: current.padTrackID
         )
@@ -1418,8 +1684,11 @@ final class AppStore {
         guard updated != current else { return true }
 
         let playingThisSong = playingEntry?.songID == songID
+        let activeEntry = playingEntry
+        let currentEffectiveBPM = effectiveBPM(for: activeEntry, song: current)
+        let updatedEffectiveBPM = effectiveBPM(for: activeEntry, song: updated)
         let shouldUpdateClick = playingThisSong && runtime.clickState != .off &&
-            (updated.defaultBPM != current.defaultBPM || updated.timeSignature != current.timeSignature)
+            (updatedEffectiveBPM != currentEffectiveBPM || updated.timeSignature != current.timeSignature)
 
         if shouldUpdateClick {
             do {
@@ -1427,13 +1696,16 @@ final class AppStore {
                 // A live metadata correction should take effect immediately, but must not
                 // trigger another verbal count-in in the middle of a song.
                 try audioEngine.startClick(
-                    bpm: updated.defaultBPM,
+                    bpm: updatedEffectiveBPM ?? updated.defaultBPM,
                     timeSignature: updated.timeSignature,
                     subdivision: updated.clickSubdivision,
-                    includesCountoff: false,
+                    pulseInterpretation: updated.pulseInterpretation,
+                    accentPattern: updated.clickAccentPattern,
+                    countoffPolicy: CountoffPolicy(bars: 0, after: .continueClick),
                     settings: clickSettings
                 )
                 audibleClickSubdivision = updated.clickSubdivision
+                audibleClickAccentPattern = updated.clickAccentPattern
             } catch {
                 runtime.lastMessage = "Could not update click: \(error.localizedDescription)"
                 refreshAudioStatus()
@@ -1500,6 +1772,9 @@ final class AppStore {
         }
 
         let title = songs[songIndex].title
+        for entry in activeSetlist.entries where entry.songID == songID {
+            liveTempoOverrides[entry.id] = nil
+        }
         activeSetlist.entries.removeAll { $0.songID == songID }
 
         // Repair the cued selection if it pointed at an entry we just removed.
@@ -1546,8 +1821,10 @@ final class AppStore {
         }
 
         let removedEntry = activeSetlist.entries.remove(at: index)
+        liveTempoOverrides[entryID] = nil
         if runtime.cuedEntryID == removedEntry.id {
             runtime.cuedEntryID = activeSetlist.entries[safe: index]?.id ?? activeSetlist.entries.last?.id
+            resetLiveTapSequence()
         }
 
         runtime.lastMessage = "Removed song from setlist"
@@ -1851,6 +2128,8 @@ final class AppStore {
 
     private func applyActiveSetlistState(_ state: ActiveSetlistContentState, message: String) {
         activeSetlist = state.setlist
+        liveTempoOverrides.removeAll()
+        resetLiveTapSequence()
         runtime.cuedEntryID = state.cuedEntryID.flatMap { candidate in
             activeSetlist.entries.contains(where: { $0.id == candidate }) ? candidate : nil
         } ?? activeSetlist.entries.first?.id
@@ -1988,12 +2267,16 @@ final class AppStore {
         songTitle: String,
         bpm: Int,
         timeSignature: TimeSignature,
+        pulseInterpretation: PulseInterpretation,
+        policy: CountoffPolicy,
         startedAt: ContinuousClock.Instant
     ) {
         clickStateTask?.cancel()
         runtime.clickState = .countoff
 
-        let beats = max(1, timeSignature.beatsPerMeasure)
+        let beats = ClickPulseGrid(timeSignature: timeSignature,
+                                   pulseInterpretation: pulseInterpretation,
+                                   bpm: bpm, sampleRate: 44_100).pulseCount * policy.bars
         let secondsPerBeat = bpm > 0
             ? max(0, (60.0 / Double(bpm)) * countoffDurationMultiplier)
             : 0
@@ -2036,10 +2319,42 @@ final class AppStore {
                 return
             }
 
+            if audioEngine.supportsAudioCountoffCompletion {
+                let completionDeadline = clock.now.advanced(by: .seconds(2))
+                while !audioEngine.countoffHasCompleted {
+                    if !audioEngine.isEngineRunning || clock.now >= completionDeadline {
+                        audioEngine.stopClick()
+                        audibleClickSubdivision = nil
+                        audibleClickAccentPattern = nil
+                        activeLiveCountoffPolicy = nil
+                        runtime.countoffBeat = nil
+                        runtime.countoffTotal = nil
+                        runtime.clickState = .off
+                        runtime.lastMessage = "Click stopped: countoff audio did not complete"
+                        refreshAudioStatus()
+                        return
+                    }
+                    do { try await Task.sleep(for: .milliseconds(10)) } catch { return }
+                    guard !Task.isCancelled,
+                          runtime.playingEntryID == entryID,
+                          runtime.clickState == .countoff else { return }
+                }
+            }
+
             runtime.countoffBeat = nil
             runtime.countoffTotal = nil
-            runtime.clickState = .playing
-            runtime.lastMessage = "Click playing for \(songTitle)"
+            if policy.after == .countoffOnly {
+                audioEngine.stopClick()
+                audibleClickSubdivision = nil
+                audibleClickAccentPattern = nil
+                activeLiveCountoffPolicy = nil
+                runtime.clickState = .off
+                runtime.lastMessage = "Countoff finished for \(songTitle); click off"
+                refreshAudioStatus()
+            } else {
+                runtime.clickState = .playing
+                runtime.lastMessage = "Click playing for \(songTitle)"
+            }
         }
     }
 
@@ -2051,7 +2366,10 @@ final class AppStore {
     private func beginRehearseCountoff() {
         clickStateTask?.cancel()
         rehearse.clickState = .countoff
-        let beats = max(1, rehearse.timeSignature.beatsPerMeasure)
+        let policy = rehearse.countoffPolicy
+        let beats = ClickPulseGrid(timeSignature: rehearse.timeSignature,
+                                   pulseInterpretation: rehearse.pulseInterpretation,
+                                   bpm: rehearse.bpm, sampleRate: 44_100).pulseCount * policy.bars
         let secondsPerBeat = rehearse.bpm > 0
             ? max(0, (60.0 / Double(rehearse.bpm)) * countoffDurationMultiplier)
             : 0
@@ -2086,10 +2404,40 @@ final class AppStore {
                 return
             }
 
+            if audioEngine.supportsAudioCountoffCompletion {
+                let completionDeadline = clock.now.advanced(by: .seconds(2))
+                while !audioEngine.countoffHasCompleted {
+                    if !audioEngine.isEngineRunning || clock.now >= completionDeadline {
+                        audioEngine.stopClick()
+                        audibleClickSubdivision = nil
+                        audibleClickAccentPattern = nil
+                        rehearse.countoffBeat = nil
+                        rehearse.countoffTotal = nil
+                        rehearse.clickState = .off
+                        rehearse.activeCountoffPolicy = nil
+                        rehearse.lastMessage = "Click stopped: countoff audio did not complete"
+                        refreshAudioStatus()
+                        return
+                    }
+                    do { try await Task.sleep(for: .milliseconds(10)) } catch { return }
+                    guard !Task.isCancelled, rehearse.clickState == .countoff else { return }
+                }
+            }
+
             rehearse.countoffBeat = nil
             rehearse.countoffTotal = nil
-            rehearse.clickState = .playing
-            rehearse.lastMessage = "Click playing at \(rehearse.bpm) BPM"
+            if policy.after == .countoffOnly {
+                audioEngine.stopClick()
+                audibleClickSubdivision = nil
+                audibleClickAccentPattern = nil
+                rehearse.clickState = .off
+                rehearse.activeCountoffPolicy = nil
+                rehearse.lastMessage = "Countoff finished; click off"
+                refreshAudioStatus()
+            } else {
+                rehearse.clickState = .playing
+                rehearse.lastMessage = "Click playing at \(rehearse.bpm) BPM"
+            }
         }
     }
 
@@ -2111,6 +2459,8 @@ final class AppStore {
         }
         runtime.clickState = .off
         audibleClickSubdivision = nil
+        audibleClickAccentPattern = nil
+        activeLiveCountoffPolicy = nil
         runtime.padState = .off
         runtime.audiblePadTrackID = nil
         runtime.audiblePadEntryID = nil
@@ -2134,9 +2484,11 @@ final class AppStore {
         }
 
         rehearse.clickState = .off
+        rehearse.activeCountoffPolicy = nil
         rehearse.countoffBeat = nil
         rehearse.countoffTotal = nil
         audibleClickSubdivision = nil
+        audibleClickAccentPattern = nil
         rehearse.padState = .off
         rehearse.lastMessage = "Rehearsal stopped"
     }
@@ -2370,18 +2722,23 @@ final class AppStore {
 
     private func stopAudioAfterHardwareChange(message: String) {
         liveStartGeneration &+= 1
+        cancelPendingClickChange()
         clickStateTask?.cancel()
         padStateTask?.cancel()
         audioEngine.cancelPendingPadPreparation()
         clearCountoff()
         audioEngine.stopAll()
         runtime.clickState = .off
+        audibleClickSubdivision = nil
+        audibleClickAccentPattern = nil
+        activeLiveCountoffPolicy = nil
         runtime.padState = .off
         runtime.audiblePadTrackID = nil
         runtime.audiblePadEntryID = nil
         runtime.playingEntryID = nil
         runtime.playbackPhase = .noSongPlaying
         rehearse.clickState = .off
+        rehearse.activeCountoffPolicy = nil
         rehearse.countoffBeat = nil
         rehearse.countoffTotal = nil
         rehearse.padState = .off
@@ -2521,13 +2878,14 @@ extension AppStore {
             return store
         } catch {
             let snapshot = seedSnapshot()
-            return AppStore(
+            let message = "Saved library could not be recovered: \(error.localizedDescription) This session is read-only so the library files remain available for recovery."
+            let store = AppStore(
                 songs: snapshot.songs,
                 padPacks: snapshot.padPacks,
                 padTracks: snapshot.padTracks,
                 activeSetlist: snapshot.activeSetlist,
                 audioEngine: audioEngine,
-                libraryStore: libraryStore,
+                libraryStore: nil,
                 audioHardwareMonitor: audioHardwareMonitor,
                 powerStateMonitor: powerStateMonitor,
                 routingSettings: snapshot.routingSettings,
@@ -2536,8 +2894,11 @@ extension AppStore {
                 clickSettings: snapshot.clickSettings,
                 midiControllerSettings: snapshot.midiControllerSettings,
                 midiController: midiController,
-                persistenceStatus: "Using seed library: \(error.localizedDescription)"
+                persistenceStatus: message,
+                persistenceWriteBlockReason: message
             )
+            store.saveErrorPrompt = SaveErrorPrompt(message: message)
+            return store
         }
     }
 

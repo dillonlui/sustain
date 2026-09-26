@@ -17,7 +17,7 @@ enum MusicalKey: String, CaseIterable, Codable, Identifiable, Hashable, Sendable
     var id: String { rawValue }
 }
 
-struct TimeSignature: Codable, Equatable, Hashable, CustomStringConvertible {
+struct TimeSignature: Codable, Equatable, Hashable, CustomStringConvertible, Sendable {
     var beatsPerMeasure: Int
     var beatUnit: Int
 
@@ -188,10 +188,16 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
     var defaultBPM: Int
     var timeSignature: TimeSignature
     var clickSubdivision: ClickSubdivision
+    var pulseInterpretation: PulseInterpretation
+    var clickAccentPattern: [ClickAccentLevel]?
+    var countoffPolicy: CountoffPolicy
     var padPack: PadPack
     var padTrackID: PadTrack.ID?
     var padTrackIDDecodingState: PadTrackIDDecodingState = .value
     var clickSubdivisionWasMissing = false
+    var pulseInterpretationWasMissing = false
+    var clickAccentPatternWasMissing = false
+    var countoffPolicyWasMissing = false
 
     init(
         id: UUID = UUID(),
@@ -200,6 +206,9 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         defaultBPM: Int,
         timeSignature: TimeSignature,
         clickSubdivision: ClickSubdivision = .beat,
+        pulseInterpretation: PulseInterpretation = .legacy,
+        clickAccentPattern: [ClickAccentLevel]? = nil,
+        countoffPolicy: CountoffPolicy = .liveDefault,
         padPack: PadPack
     ) {
         self.id = id
@@ -208,6 +217,9 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         self.defaultBPM = defaultBPM
         self.timeSignature = timeSignature
         self.clickSubdivision = clickSubdivision
+        self.pulseInterpretation = pulseInterpretation
+        self.clickAccentPattern = clickAccentPattern
+        self.countoffPolicy = countoffPolicy
         self.padPack = padPack
         self.padTrackID = PadTrack.includedID(for: defaultKey)
     }
@@ -219,6 +231,9 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         defaultBPM: Int,
         timeSignature: TimeSignature,
         clickSubdivision: ClickSubdivision = .beat,
+        pulseInterpretation: PulseInterpretation = .legacy,
+        clickAccentPattern: [ClickAccentLevel]? = nil,
+        countoffPolicy: CountoffPolicy = .liveDefault,
         padPack: PadPack,
         padTrackID: PadTrack.ID?
     ) {
@@ -229,13 +244,16 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
             defaultBPM: defaultBPM,
             timeSignature: timeSignature,
             clickSubdivision: clickSubdivision,
+            pulseInterpretation: pulseInterpretation,
+            clickAccentPattern: clickAccentPattern,
+            countoffPolicy: countoffPolicy,
             padPack: padPack
         )
         self.padTrackID = padTrackID
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, defaultKey, defaultBPM, timeSignature, clickSubdivision, padPack, padTrackID
+        case id, title, defaultKey, defaultBPM, timeSignature, clickSubdivision, pulseInterpretation, clickAccentPattern, countoffPolicy, padPack, padTrackID
     }
 
     init(from decoder: Decoder) throws {
@@ -249,6 +267,16 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         clickSubdivision = clickSubdivisionWasMissing
             ? .beat
             : try container.decode(ClickSubdivision.self, forKey: .clickSubdivision)
+        pulseInterpretationWasMissing = !container.contains(.pulseInterpretation)
+        pulseInterpretation = pulseInterpretationWasMissing
+            ? .legacy
+            : try container.decode(PulseInterpretation.self, forKey: .pulseInterpretation)
+        clickAccentPatternWasMissing = !container.contains(.clickAccentPattern)
+        clickAccentPattern = try container.decodeIfPresent([ClickAccentLevel].self, forKey: .clickAccentPattern)
+        countoffPolicyWasMissing = !container.contains(.countoffPolicy)
+        countoffPolicy = countoffPolicyWasMissing
+            ? .liveDefault
+            : try container.decode(CountoffPolicy.self, forKey: .countoffPolicy)
         padPack = try container.decodeIfPresent(PadPack.self, forKey: .padPack) ?? .bundled
 
         if !container.contains(.padTrackID) {
@@ -271,6 +299,9 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         try container.encode(defaultBPM, forKey: .defaultBPM)
         try container.encode(timeSignature, forKey: .timeSignature)
         try container.encode(clickSubdivision, forKey: .clickSubdivision)
+        try container.encode(pulseInterpretation, forKey: .pulseInterpretation)
+        try container.encode(clickAccentPattern, forKey: .clickAccentPattern)
+        try container.encode(countoffPolicy, forKey: .countoffPolicy)
         try container.encode(padPack, forKey: .padPack)
         try container.encode(padTrackID, forKey: .padTrackID)
     }
@@ -279,6 +310,8 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         lhs.id == rhs.id && lhs.title == rhs.title && lhs.defaultKey == rhs.defaultKey &&
             lhs.defaultBPM == rhs.defaultBPM && lhs.timeSignature == rhs.timeSignature &&
             lhs.clickSubdivision == rhs.clickSubdivision &&
+            lhs.pulseInterpretation == rhs.pulseInterpretation && lhs.clickAccentPattern == rhs.clickAccentPattern &&
+            lhs.countoffPolicy == rhs.countoffPolicy &&
             lhs.padPack == rhs.padPack && lhs.padTrackID == rhs.padTrackID
     }
 
@@ -289,6 +322,9 @@ struct Song: Codable, Identifiable, Equatable, Hashable {
         hasher.combine(defaultBPM)
         hasher.combine(timeSignature)
         hasher.combine(clickSubdivision)
+        hasher.combine(pulseInterpretation)
+        hasher.combine(clickAccentPattern)
+        hasher.combine(countoffPolicy)
         hasher.combine(padPack)
         hasher.combine(padTrackID)
     }

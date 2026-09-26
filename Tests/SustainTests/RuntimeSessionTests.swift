@@ -5,6 +5,42 @@ import Testing
 
 @MainActor
 struct RuntimeSessionTests {
+    @Test func globalStopEndsRehearseAudioAndClearsDisplayedState() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startRehearsePad(key: .g)
+        store.startRehearseClick()
+        #expect(audio.isPadActive)
+        #expect(audio.isClickActive)
+
+        store.stop()
+
+        #expect(!audio.isPadActive)
+        #expect(!audio.isClickActive)
+        #expect(store.rehearse.padState == .off)
+        #expect(store.rehearse.clickState == .off)
+        #expect(!store.isAnyAudioActivityActive)
+    }
+
+    @Test func navigationWaitsForDirtySongEditorDecision() {
+        let store = AppStore.preview()
+        store.selectedScreen = .songs
+        store.dirtySongEditorScreen = .songs
+
+        store.navigate(to: .live)
+        #expect(store.selectedScreen == .songs)
+        #expect(store.pendingScreenNavigation == .live)
+
+        store.resolvePendingNavigation(discardChanges: false)
+        #expect(store.selectedScreen == .songs)
+        #expect(store.pendingScreenNavigation == nil)
+
+        store.navigate(to: .rehearse)
+        store.resolvePendingNavigation(discardChanges: true)
+        #expect(store.selectedScreen == .rehearse)
+        #expect(store.dirtySongEditorScreen == nil)
+    }
+
     @Test func refreshReadinessReportsReadyWithoutTouchingEngine() {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)

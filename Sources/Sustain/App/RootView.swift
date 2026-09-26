@@ -63,6 +63,23 @@ struct RootView: View {
                 secondaryButton: .cancel(Text("Dismiss"))
             )
         }
+        .confirmationDialog(
+            "Discard unsaved song changes?",
+            isPresented: Binding(
+                get: { store.pendingScreenNavigation != nil },
+                set: { if !$0 { store.resolvePendingNavigation(discardChanges: false) } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Discard Changes", role: .destructive) {
+                store.resolvePendingNavigation(discardChanges: true)
+            }
+            Button("Keep Editing", role: .cancel) {
+                store.resolvePendingNavigation(discardChanges: false)
+            }
+        } message: {
+            Text("Changes to this song have not been saved.")
+        }
     }
 
     /// Pin the whole app to the chosen appearance. `nil` (System) lets it follow the OS
@@ -119,7 +136,7 @@ private struct SidebarView: View {
 
             ForEach(AppScreen.allCases) { screen in
                 Button {
-                    store.selectedScreen = screen
+                    store.navigate(to: screen)
                 } label: {
                     HStack(spacing: SustainSpace.md) {
                         Image(systemName: icon(for: screen))

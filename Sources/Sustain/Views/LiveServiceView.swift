@@ -98,6 +98,7 @@ struct LiveServiceView: View {
     @State private var isCreatingLiveSong = false
     @State private var isSetlistExpanded = false
     @State private var isConfirmingClearSetlist = false
+    @State private var pendingRemovalEntryID: SetlistEntry.ID?
     @FocusState private var addSongFocused: Bool
     @AppStorage("liveSetlistWidth") private var savedSetlistWidth = 260.0
     @State private var setlistWidth = 260.0
@@ -110,17 +111,18 @@ struct LiveServiceView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            if geometry.size.width < 680 {
+            if geometry.size.width < (editingEntryID == nil ? 680 : setlistWidth + 700) {
                 compactLayout(height: geometry.size.height)
                     .sheet(isPresented: Binding(
                         get: { editingEntryID != nil },
-                        set: { if !$0 { editingEntryID = nil } }
+                        set: { if !$0 && !inspectorDirty { editingEntryID = nil } }
                     )) {
                         SongInspectorPane(entryID: editingEntryID, compact: true, isDirty: $inspectorDirty) {
                             editingEntryID = nil
                             inspectorDirty = false
                         }
                             .frame(minWidth: 400, minHeight: 500)
+                            .interactiveDismissDisabled(inspectorDirty)
                     }
             } else {
                 HStack(spacing: 0) {
@@ -149,11 +151,15 @@ struct LiveServiceView: View {
             setlistWidth = min(setlistWidthRange.upperBound, max(setlistWidthRange.lowerBound, savedSetlistWidth))
             store.refreshReadiness()
         }
+        .onChange(of: inspectorDirty) { _, dirty in
+            store.dirtySongEditorScreen = dirty ? .live : nil
+        }
         .alert("Clear Setlist?", isPresented: $isConfirmingClearSetlist) {
             Button("Cancel", role: .cancel) {}
                 .keyboardShortcut(".", modifiers: .command)
             Button("Clear Setlist", role: .destructive) {
                 editingEntryID = nil
+                inspectorDirty = false
                 if store.clearActiveSetlist(undoManager: undoManager) {
                     NSAccessibility.post(
                         element: NSApp as Any,
@@ -164,7 +170,23 @@ struct LiveServiceView: View {
                 }
             }
         } message: {
-            Text("Remove all \(store.activeSetlist.entries.count) songs from \(store.activeSetlist.title)? Songs and pads remain in their libraries.")
+            Text("Remove all \(store.activeSetlist.entries.count) songs from \(store.activeSetlist.title)? Songs and pads remain in their libraries.\(inspectorDirty ? " Unsaved changes in the open editor will be discarded." : "")")
+        }
+        .confirmationDialog(
+            "Remove song and discard unsaved changes?",
+            isPresented: Binding(
+                get: { pendingRemovalEntryID != nil },
+                set: { if !$0 { pendingRemovalEntryID = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Remove and Discard", role: .destructive) {
+                if let pendingRemovalEntryID { removeEntry(pendingRemovalEntryID) }
+                pendingRemovalEntryID = nil
+            }
+            Button("Keep Editing", role: .cancel) { pendingRemovalEntryID = nil }
+        } message: {
+            Text("The open song editor has unsaved changes.")
         }
         .confirmationDialog(
             "Discard unsaved song changes?",
@@ -249,7 +271,7 @@ struct LiveServiceView: View {
                 )
                 .contextMenu {
                     Button("Edit\u{2026}") { openEditor(for: entry.id) }
-                    Button("Remove", role: .destructive) { store.removeSetlistEntry(entry.id) }
+                    Button("Remove", role: .destructive) { requestRemoveEntry(entry.id) }
                         .disabled(store.runtime.playingEntryID == entry.id)
                 }
             }
@@ -348,6 +370,22 @@ struct LiveServiceView: View {
         }
     }
 
+    private func requestRemoveEntry(_ entryID: SetlistEntry.ID) {
+        if editingEntryID == entryID && inspectorDirty {
+            pendingRemovalEntryID = entryID
+        } else {
+            removeEntry(entryID)
+        }
+    }
+
+    private func removeEntry(_ entryID: SetlistEntry.ID) {
+        if editingEntryID == entryID {
+            editingEntryID = nil
+            inspectorDirty = false
+        }
+        store.removeSetlistEntry(entryID)
+    }
+
     private func performanceSurface(compactTop: Bool) -> some View {
         GeometryReader { geometry in
             let isNarrow = geometry.size.width < 520
@@ -369,7 +407,13 @@ struct LiveServiceView: View {
                     transportCluster
                         .overlay {
                             if let beat = store.runtime.countoffBeat {
-                                FutureSignalCountoffBadge(beat: beat, total: store.runtime.countoffTotal)
+                                FutureSignalCountoffBadge(
+                                    beat: beat,
+                                    total: store.runtime.countoffTotal,
+                                    bars: store.activeLiveCountoffPolicy?.bars
+                                        ?? store.song(for: store.playingEntry)?.countoffPolicy.bars
+                                        ?? 1
+                                )
                                     .allowsHitTesting(false)
                             }
                         }
@@ -412,7 +456,7 @@ struct LiveServiceView: View {
             role: .now,
             title: song?.title,
             padDescription: song.map(padDescription),
-            bpm: song?.defaultBPM,
+            bpm: store.effectiveBPM(for: store.playingEntry, song: song),
             timeSignature: song?.timeSignature.description,
             clickDescription: liveClickDescription,
             stateLabel: store.runtime.clickState == .countoff ? "Count in" :
@@ -426,9 +470,9 @@ struct LiveServiceView: View {
             role: .next,
             title: song?.title,
             padDescription: song.map(padDescription),
-            bpm: song?.defaultBPM,
+            bpm: store.effectiveBPM(for: store.cuedEntry, song: song),
             timeSignature: song?.timeSignature.description,
-            clickDescription: store.song(for: store.cuedEntry).map { "Click: \($0.clickSubdivision.label)" },
+            clickDescription: song.map { "Click: \($0.clickSubdivision.label) · \(pulseLabel(for: $0))\($0.countoffPolicy.after == .countoffOnly ? " · stops after countoff" : "")" },
             stateLabel: store.cuedEntry == nil ? nil : "Cued"
         )
     }
@@ -437,6 +481,12 @@ struct LiveServiceView: View {
         guard let padID = song.padTrackID else { return "No Pad" }
         guard let pad = store.padTracks.first(where: { $0.id == padID }) else { return "Missing Pad" }
         return "Pad: \(pad.label)"
+    }
+
+    private func pulseLabel(for song: Song) -> String {
+        ClickPulseGrid(timeSignature: song.timeSignature,
+                       pulseInterpretation: song.pulseInterpretation,
+                       bpm: max(40, song.defaultBPM), sampleRate: 44_100).pulseUnitLabel
     }
 
     @ViewBuilder
@@ -472,6 +522,7 @@ struct LiveServiceView: View {
 
     private func channelCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 18, content: content)
+            .accessibilityElement(children: .contain)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(16)
             .background(palette.performanceSurface, in: RoundedRectangle(cornerRadius: 8))
@@ -483,11 +534,13 @@ struct LiveServiceView: View {
 
     private var padChannelStatus: some View {
         FutureSignalOpenChannelStatus(kind: .pad, state: padChannelState, detail: padOutputDetail, showsStateLabel: false, detailLineLimit: 1)
+            .accessibilityLabel("Pad \(padChannelState.label)")
             .accessibilityValue("Pad output: \(padOutputDetail)")
     }
 
     private var clickChannelStatus: some View {
         FutureSignalOpenChannelStatus(kind: .click, state: clickChannelState, detail: clickOutputDetail, showsStateLabel: false, detailLineLimit: 1)
+            .accessibilityLabel("Click \(clickChannelState.label)")
             .accessibilityValue("Click output: \(clickOutputDetail)")
     }
 
@@ -542,7 +595,8 @@ struct LiveServiceView: View {
             .buttonStyle(FutureSignalTransportStyle(role: .secondary))
             .frame(height: 52)
             .disabled(store.activeSetlist.entries.isEmpty)
-            .keyboardShortcut(.leftArrow, modifiers: [])
+            .keyboardShortcut(editingEntryID == nil && !isCreatingLiveSong
+                              ? KeyboardShortcut(.leftArrow, modifiers: []) : nil)
             .help("Previous")
             .accessibilityLabel("Previous song")
 
@@ -552,7 +606,8 @@ struct LiveServiceView: View {
             .buttonStyle(FutureSignalTransportStyle(role: .primary))
             .frame(height: 52)
             .disabled(store.cuedEntry == nil || store.isCuedSongPlaying || store.runtime.playbackPhase == .songStarting)
-            .keyboardShortcut(.return, modifiers: [])
+            .keyboardShortcut(editingEntryID == nil && !isCreatingLiveSong
+                              ? KeyboardShortcut(.return, modifiers: []) : nil)
             .help(startTitle)
             .accessibilityLabel(startTitle)
 
@@ -562,7 +617,8 @@ struct LiveServiceView: View {
             .buttonStyle(FutureSignalTransportStyle(role: .secondary))
             .frame(height: 52)
             .disabled(store.activeSetlist.entries.isEmpty)
-            .keyboardShortcut(.rightArrow, modifiers: [])
+            .keyboardShortcut(editingEntryID == nil && !isCreatingLiveSong
+                              ? KeyboardShortcut(.rightArrow, modifiers: []) : nil)
             .help("Next")
             .accessibilityLabel("Next song")
 
@@ -680,18 +736,26 @@ struct LiveServiceView: View {
 
     private var liveClickDescription: String? {
         guard let song = store.song(for: store.playingEntry) else { return nil }
+        let activePolicy = store.activeLiveCountoffPolicy ?? song.countoffPolicy
+        let nextPolicyDetail = song.countoffPolicy.after == .countoffOnly ? " · stops after countoff" : ""
+        let activePolicyDetail = activePolicy.after == .countoffOnly ? " · stops after countoff" : ""
+        let changedPolicyDetail = activePolicy != song.countoffPolicy ? " · new countoff setting at next start" : ""
+        let pulseDetail = " · \(pulseLabel(for: song))"
         if store.runtime.clickState == .off {
-            return "Click off · next start: \(song.clickSubdivision.label)"
+            return "Click off · next start: \(song.clickSubdivision.label)\(pulseDetail)\(nextPolicyDetail)"
         }
         if store.runtime.clickState == .preparing {
             let target = store.song(for: store.cuedEntry)?.clickSubdivision.label ?? song.clickSubdivision.label
-            return "Preparing click for cue: \(target)"
+            return "Preparing click for cue: \(target)\(pulseDetail)\(nextPolicyDetail)"
         }
         let audible = (store.audibleClickSubdivision ?? song.clickSubdivision).label
         if let pending = store.pendingClickSubdivision(for: song.id) {
-            return "Click: \(audible) · \(pending.label) at next measure"
+            let pendingDetail = pending == store.audibleClickSubdivision &&
+                song.clickAccentPattern != store.audibleClickAccentPattern
+                ? "beat accents at next measure" : "\(pending.label) at next measure"
+            return "Click: \(audible)\(pulseDetail) · \(pendingDetail)\(activePolicyDetail)\(changedPolicyDetail)"
         }
-        return "Click: \(audible)"
+        return "Click: \(audible)\(pulseDetail)\(activePolicyDetail)\(changedPolicyDetail)"
     }
 
     private var startTitle: String {
@@ -724,6 +788,7 @@ struct LiveServiceView: View {
 struct FutureSignalCountoffBadge: View {
     var beat: Int
     var total: Int?
+    var bars: Int = 1
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
@@ -732,15 +797,28 @@ struct FutureSignalCountoffBadge: View {
         FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
     }
 
+    private var pulsesPerBar: Int { max(1, (total ?? 1) / max(1, bars)) }
+    private var barNumber: Int { min(max(1, bars), (max(1, beat) - 1) / pulsesPerBar + 1) }
+    private var beatInBar: Int { (max(1, beat) - 1) % pulsesPerBar + 1 }
+    private var accessibilityText: String {
+        bars > 1
+            ? "Count in, bar \(barNumber) of \(bars), beat \(beatInBar) of \(pulsesPerBar)"
+            : "Count in, beat \(beat) of \(total ?? 0)"
+    }
+
     var body: some View {
         HStack(spacing: SustainSpace.sm) {
             Text("COUNT IN")
                 .font(.system(size: 11, weight: .semibold))
                 .tracking(2)
-            Text("\(beat)")
+            if bars > 1 {
+                Text("BAR \(barNumber)/\(bars)")
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+            }
+            Text("\(bars > 1 ? beatInBar : beat)")
                 .font(.system(size: 42, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(palette.activeSignal)
-            Text("of \(total ?? 0)")
+            Text("of \(bars > 1 ? pulsesPerBar : total ?? 0)")
                 .font(.system(size: 13, weight: .medium).monospacedDigit())
         }
         .foregroundStyle(palette.textPrimary)
@@ -752,7 +830,7 @@ struct FutureSignalCountoffBadge: View {
                 .strokeBorder(palette.activeSignal.opacity(0.65), lineWidth: 1)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Count in, beat \(beat) of \(total ?? 0)")
+        .accessibilityLabel(accessibilityText)
     }
 }
 
@@ -790,6 +868,7 @@ private struct LiveRoutingBadge: View {
 // MARK: - Setlist row
 
 private struct SetlistRowView: View {
+    @Environment(AppStore.self) private var store
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
     var index: Int
@@ -805,13 +884,20 @@ private struct SetlistRowView: View {
         FutureSignalColor(colorScheme: colorScheme, contrast: contrast)
     }
 
+    private var pulseLabel: String? {
+        guard let song else { return nil }
+        return ClickPulseGrid(timeSignature: song.timeSignature,
+                              pulseInterpretation: song.pulseInterpretation,
+                              bpm: max(40, song.defaultBPM), sampleRate: 44_100).pulseUnitLabel
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             Button(action: onCue) {
                 FutureSignalSetlistRowContent(
                     index: index,
                     title: song?.title ?? "Missing song",
-                    detail: song.map { "\(padDescription) · \($0.defaultBPM) BPM · \($0.timeSignature.description)" },
+                    detail: song.map { "\(padDescription) · \(store.effectiveBPM(for: entry, song: $0) ?? $0.defaultBPM) \(pulseLabel ?? "BPM")\(store.liveTempoOverrides[entry.id] == nil ? "" : " session") · \($0.timeSignature.description)\($0.countoffPolicy.after == .countoffOnly ? " · Countoff only" : "")" },
                     isPlaying: isPlaying,
                     isCued: isCued,
                     isSelected: isCued,
@@ -886,7 +972,6 @@ private struct SongInspectorPane: View {
                 )
             }
         }
-        .padding(.top, compact ? 0 : SustainLayout.topChrome)
         .onAppear { loadEntry() }
         .onChange(of: entryID) { _, _ in loadEntry() }
         .onChange(of: draft) { _, _ in

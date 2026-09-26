@@ -20,6 +20,10 @@ enum MIDIProtocolEventParser {
             switch status {
             case 0x90 where value > 0:
                 result.append(MIDIMessage(sourceUniqueID: sourceUniqueID, kind: .noteOn, channel: channel, number: number, value: value))
+            case 0x80, 0x90:
+                // Represent both Note Off and zero-velocity Note On as a release for
+                // the matching Note On mapping. The resolver needs this to rearm taps.
+                result.append(MIDIMessage(sourceUniqueID: sourceUniqueID, kind: .noteOn, channel: channel, number: number, value: 0))
             case 0xB0:
                 result.append(MIDIMessage(sourceUniqueID: sourceUniqueID, kind: .controlChange, channel: channel, number: number, value: value))
             default: break

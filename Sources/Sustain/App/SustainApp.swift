@@ -136,6 +136,10 @@ struct SustainCommands: Commands {
             .keyboardShortcut("c", modifiers: [.command, .option])
             .disabled(store.runtime.playbackPhase == .noSongPlaying)
 
+            Button("Tap Tempo") { store.tapTempo() }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(store.selectedScreen != .rehearse && store.selectedScreen != .live)
+
             if let padTitle = store.livePadControlTitle {
                 Button(padTitle) {
                     store.toggleLivePad()
@@ -147,7 +151,7 @@ struct SustainCommands: Commands {
         CommandMenu("Go") {
             ForEach(Array(AppScreen.allCases.enumerated()), id: \.element.id) { index, screen in
                 Button(screen.rawValue) {
-                    store.selectedScreen = screen
+                    store.navigate(to: screen)
                 }
                 .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
             }
@@ -155,7 +159,7 @@ struct SustainCommands: Commands {
 
         CommandMenu("Pad") {
             Button("Show Pad Library") {
-                store.selectedScreen = .pads
+                store.navigate(to: .pads)
             }
 
             Button("Add Audio\u{2026}") {

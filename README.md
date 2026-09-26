@@ -40,8 +40,12 @@ Full installation instructions are in **[INSTALL.md](INSTALL.md)**.
 - **Pads** — ambient pads in all 12 keys, with gapless looping and true
   crossfades between songs, plus a custom Pad Library that references your own
   mono or stereo audio files in place without copying or deleting them.
-- **Click & count-off** — sample-accurate click generated from BPM and time
-  signature, with spoken counts layered over audible beat clicks and an on-screen count-in.
+- **Click & count-off** — sample-accurate click with song-specific subdivisions,
+  beat accents or mutes, explicit grouped pulses for compound meters, and zero-,
+  one-, or two-bar count-offs. Count-off only can stop the click while pads continue.
+- **Tap tempo** — estimate a BPM in Rehearse or for a cued Live song using the
+  button, keyboard, or a mapped MIDI control. A Live tap stays a session tempo
+  until you explicitly save it as the song default.
 - **Rehearse mode** — free-play pads, click, and count-off, with live level
   control, without touching your setlist.
 - **MIDI controller mappings** — optionally learn MIDI Note On or Control

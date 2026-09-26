@@ -11,7 +11,7 @@ private final class LockedMIDIEvents: @unchecked Sendable {
 
 @Suite("Core MIDI input boundary")
 struct CoreMIDIControllerTests {
-    @Test func protocolParserCopiesOnlySupportedMIDI10ChannelVoiceEvents() {
+    @Test func protocolParserCopiesSupportedMIDI10ChannelVoiceEventsAndNoteReleases() {
         let words: [UInt32] = [
             0x20903C7F, // Note On, channel 1, note 60, velocity 127
             0x20B20A40, // CC, channel 3, controller 10, value 64
@@ -26,8 +26,34 @@ struct CoreMIDIControllerTests {
 
         #expect(messages == [
             MIDIMessage(sourceUniqueID: 42, kind: .noteOn, channel: 0, number: 60, value: 127),
-            MIDIMessage(sourceUniqueID: 42, kind: .controlChange, channel: 2, number: 10, value: 64)
+            MIDIMessage(sourceUniqueID: 42, kind: .controlChange, channel: 2, number: 10, value: 64),
+            MIDIMessage(sourceUniqueID: 42, kind: .noteOn, channel: 0, number: 60, value: 0),
+            MIDIMessage(sourceUniqueID: 42, kind: .noteOn, channel: 0, number: 61, value: 0)
         ])
+    }
+
+    @Test func parsedNoteReleasesRearmMIDITapTempo() {
+        let words: [UInt32] = [
+            0x2090467F, // press note 70
+            0x20804640, // release note 70 (Note Off velocity is ignored)
+            0x2090467F, // press again
+            0x20904600, // release encoded as zero-velocity Note On
+            0x2090467F  // third press
+        ]
+        let settings = MIDIControllerSettings(
+            isEnabled: true,
+            selectedSource: .any,
+            mappings: [MIDIMapping(
+                action: .tapTempo,
+                source: .any,
+                message: MIDIMessageIdentity(kind: .noteOn, channel: 0, number: 70)
+            )]
+        )
+        var resolver = MIDIControllerMappingResolver()
+        let actions = MIDIProtocolEventParser.messages(words: words, sourceUniqueID: 42)
+            .compactMap { resolver.action(for: $0, settings: settings) }
+
+        #expect(actions == [.tapTempo, .tapTempo, .tapTempo])
     }
 
     @Test func boundedRelayCoalescesCCStateAndDropsOverflowWithoutUnboundedQueue() {

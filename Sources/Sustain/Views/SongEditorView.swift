@@ -3,6 +3,11 @@ import SwiftUI
 enum SongEditorContext: Equatable {
     case library
     case live(SetlistEntry.ID)
+
+    var isLive: Bool {
+        if case .live = self { return true }
+        return false
+    }
 }
 
 /// Keeps related controls at their natural widths and wraps only when the pane needs it.
@@ -94,22 +99,30 @@ struct SongEditorView: View {
         isPlayingSong && store.runtime.clickState == .countoff
     }
 
+    private var pulseCount: Int {
+        ClickPulseGrid(timeSignature: draft.timeSignature,
+                       pulseInterpretation: draft.pulseInterpretation,
+                       bpm: max(40, draft.defaultBPM), sampleRate: 44_100).pulseCount
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             editorHeader
             Rectangle().fill(palette.divider).frame(height: 1)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: SustainSpace.xl) {
-                    songSection
-                    clickSection
-                    if let errorMessage {
-                        SustainInlineNotice(message: errorMessage, kind: .error)
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: SustainSpace.xl) {
+                        songSection
+                        clickSection
+                        if let errorMessage {
+                            SustainInlineNotice(message: errorMessage, kind: .error)
+                        }
+                        actionSection
                     }
-                    actionSection
+                    .padding(SustainSpace.lg)
+                    .frame(width: geometry.size.width, alignment: .leading)
                 }
-                .padding(SustainSpace.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Rectangle().fill(palette.divider).frame(height: 1)
@@ -170,14 +183,21 @@ struct SongEditorView: View {
     private var songSection: some View {
         VStack(alignment: .leading, spacing: SustainSpace.md) {
             sectionTitle("Song", symbol: "music.note")
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: SustainSpace.md) {
-                    titleField.frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
-                    padField.frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
-                }
+            if case .live = context {
                 VStack(alignment: .leading, spacing: SustainSpace.md) {
                     titleField
                     padField
+                }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: SustainSpace.md) {
+                        titleField.frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
+                        padField.frame(minWidth: 180, maxWidth: .infinity, alignment: .leading)
+                    }
+                    VStack(alignment: .leading, spacing: SustainSpace.md) {
+                        titleField
+                        padField
+                    }
                 }
             }
         }
@@ -195,6 +215,21 @@ struct SongEditorView: View {
                 subdivisionField.frame(width: 200, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            PulseInterpretationEditor(timeSignature: draft.timeSignature,
+                                      bpm: $draft.defaultBPM,
+                                      interpretation: $draft.pulseInterpretation,
+                                      accentPattern: $draft.clickAccentPattern)
+                .disabled(isPlayingSong && store.runtime.clickState != .off)
+            ClickAccentPatternEditor(pulseCount: pulseCount,
+                                     fallback: store.clickSettings.accentMode,
+                                     pattern: $draft.clickAccentPattern,
+                                     compact: context.isLive)
+                .disabled(subdivisionLocked)
+            CountoffPolicyEditor(policy: $draft.countoffPolicy)
+                .disabled(subdivisionLocked)
+            if case .live(let entryID) = context {
+                TapTempoControl(context: .live(entryID))
+            }
         }
         .padding(SustainSpace.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -283,6 +318,11 @@ struct SongEditorView: View {
         VStack(alignment: .leading, spacing: SustainSpace.xs) {
             Text("Tempo").font(.callout.weight(.medium))
             TempoControl(value: $draft.defaultBPM, label: "")
+            Text(ClickPulseGrid(timeSignature: draft.timeSignature,
+                                pulseInterpretation: draft.pulseInterpretation,
+                                bpm: max(40, draft.defaultBPM), sampleRate: 44_100).pulseUnitLabel)
+                .font(.caption)
+                .foregroundStyle(palette.textSecondary)
         }
     }
 
