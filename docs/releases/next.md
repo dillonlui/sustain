@@ -24,7 +24,7 @@ notarized Universal 2 apps for Apple silicon and Intel Macs.
 
 ## Updating to 2.0
 
-If you have 1.1.1 installed, use **Sustain → Check for Updates…** to update to
+If you have 1.1.2 installed, use **Sustain → Check for Updates…** to update to
 2.0. Automatic checks are optional, and installing always requires your choice.
-If you have 1.0.2 or an older release, install the 2.0 disk image manually;
-those versions do not include the updater.
+Sustain 1.1.1 contains an updater activation bug, so first install 1.1.2 from
+its disk image. Older versions also require a manual disk-image install.

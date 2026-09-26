@@ -67,7 +67,7 @@ its public hashes, then writes the signed rehearsal feed to the separate
 `staging-updates` branch. Its feed URL is
 `https://raw.githubusercontent.com/dillonlui/sustain/staging-updates/appcast.xml`.
 It does not edit the production `updates` branch. For a rehearsal from public
-1.1.1, set that URL as `SUFeedURL` in a disposable test account's
+1.1.2, set that URL as `SUFeedURL` in a disposable test account's
 `com.sustain.app` user defaults, then remove the override after testing.
 
 The gate includes manual and opted-in scheduled checks; current/later/skip and

@@ -61,8 +61,9 @@ Full installation instructions are in **[INSTALL.md](INSTALL.md)**.
   supports manual checks and optional daily checks, but never silently installs.
   Checks and updater relaunch wait until Live and Rehearse audio are fully idle.
 
-Sustain 1.1.1 introduced the updater. Users of 1.0.2 or older must install a
-newer DMG manually because those builds contain no updater.
+Sustain 1.1.1 introduced the updater but could not activate it. Install the
+corrected 1.1.2 DMG once to enable future in-app updates. Users of 1.0.2 or
+older also need a manual install because those builds contain no updater.
 Development, ad-hoc, CI, branch, and unpublished builds never contact the stable
 update feed.
 
