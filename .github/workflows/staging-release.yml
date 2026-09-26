@@ -100,7 +100,7 @@ jobs:
         run: |
           gh release create "$CANDIDATE_TAG" --verify-tag --prerelease \
             --title "Sustain ${CANDIDATE_TAG#v} Sparkle rehearsal" \
-            --notes 'Signed staging candidate for the 1.1.1 to 2.0 updater rehearsal. Do not install as a production release.' \
+            --notes 'Signed staging candidate for the 1.1.2 to 2.0 updater rehearsal. Do not install as a production release.' \
             dist/Sustain-*
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CANDIDATE_TAG" --jq .object.sha)" = "$GITHUB_SHA"
           VERSION="$(plutil -extract version raw config/release.json)"
