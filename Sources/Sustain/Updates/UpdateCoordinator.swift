@@ -61,7 +61,11 @@ struct DeveloperIDSignatureInspector {
         }
 
         var signingInformation: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, [], &signingInformation) == errSecSuccess,
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &signingInformation
+        ) == errSecSuccess,
               let information = signingInformation as? [CFString: Any],
               let certificates = information[kSecCodeInfoCertificates] as? [SecCertificate],
               let leaf = certificates.first,

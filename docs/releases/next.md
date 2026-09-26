@@ -1,6 +1,18 @@
-# Sustain 1.1.1
+# Sustain 1.1.2
 
-This release adds a custom Pad Library, early-pad Live workflow, catalog-based
+This maintenance release fixes the Developer ID signature check that prevented
+the public 1.1.1 app from starting Sparkle. Although 1.1.1 included Sparkle,
+its **Check for Updates…** command was hidden and automatic checks could not
+run. Install 1.1.2 from the notarized DMG once to enable future in-app updates.
+
+The library format and user-facing features are unchanged from 1.1.1. Songs,
+setlists, custom pads, MIDI mappings, and preferences remain in place. Automatic
+update checks are opt-in, and every update installation remains an explicit
+choice.
+
+## Features carried forward from 1.1.1
+
+The 1.1.1 line added a custom Pad Library, early-pad Live workflow, catalog-based
 Rehearse surface, safer setlist clearing, and optional MIDI controller mappings.
 
 Custom pads retain stable IDs and reference approved external audio files in
@@ -22,7 +34,7 @@ full automated test, Universal 2 packaging, launch-smoke, and artifact-validatio
 jobs on GitHub's Intel macOS runner, but this release has not been used on a
 physical Intel Mac. Real audio interfaces, removable and cloud-hosted external
 files, and assistive-technology workflows also have not completed manual QA.
-These limitations are accepted for 1.1.1 and are not claims of verified hardware
+These limitations are accepted for 1.1.2 and are not claims of verified hardware
 compatibility.
 
 Official stable Developer ID builds add Sparkle 2's standard native update
@@ -32,10 +44,6 @@ audio is preparing, fading, or playing, and a failed library save blocks
 relaunch. Development, ad-hoc, CI, branch, and unpublished builds do not start
 Sparkle or contact the stable feed.
 
-The first Sparkle-enabled build is a one-time manual-install bootstrap for users
-of older builds. The physical-device and manual QA items above are explicitly
+This corrective build is a one-time manual install for users of 1.1.1 and
+older builds. The physical-device and manual QA items above are explicitly
 deferred rather than represented as passed.
-
-The `v1.1.0` tag was not published: its protected workflow stopped before
-creating a release because the generated appcast had not yet received its
-feed-level signature. Version 1.1.1 corrects that release-pipeline ordering.
