@@ -105,12 +105,12 @@ jobs:
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CANDIDATE_TAG" --jq .object.sha)" = "$GITHUB_SHA"
           VERSION="$(plutil -extract version raw config/release.json)"
           BUILD="$(plutil -extract build raw config/release.json)"
-          mkdir -p /tmp/staging-dist
+          mkdir -p /tmp/dist
           for ASSET in "Sustain-$VERSION-$BUILD.dmg" "Sustain-$VERSION-$BUILD.zip" "Sustain-$VERSION-$BUILD-SHA256SUMS.txt"; do
-            curl --fail --location --retry 4 "https://github.com/${GITHUB_REPOSITORY}/releases/download/$CANDIDATE_TAG/$ASSET" -o "/tmp/staging-dist/$ASSET"
+            curl --fail --location --retry 4 "https://github.com/${GITHUB_REPOSITORY}/releases/download/$CANDIDATE_TAG/$ASSET" -o "/tmp/dist/$ASSET"
           done
           cd /tmp
-          shasum -a 256 -c "staging-dist/Sustain-$VERSION-$BUILD-SHA256SUMS.txt"
+          shasum -a 256 -c "dist/Sustain-$VERSION-$BUILD-SHA256SUMS.txt"
       - name: Publish signed staging appcast last
         env:
           GH_TOKEN: ${{ github.token }}
