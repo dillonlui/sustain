@@ -1,0 +1,121 @@
+name: Protected Sparkle rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_tag:
+        description: Unique prerelease tag for this 2.0 rehearsal, for example v2.0.0-rc1
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  staging:
+    runs-on: macos-26
+    environment: production-release
+    concurrency:
+      group: sustain-staging-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Validate rehearsal target and protected inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+          SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_IDENTITY }}
+          SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+          STABLE_APPCAST_URL: ${{ vars.STABLE_APPCAST_URL }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          VERSION="$(plutil -extract version raw config/release.json)"
+          [[ "$CANDIDATE_TAG" =~ ^v${VERSION//./\.}-rc[1-9][0-9]*$ ]]
+          test -n "$SIGN_IDENTITY" && test -n "$SPARKLE_PUBLIC_KEY" && test -n "$SPARKLE_PRIVATE_KEY"
+          [[ "$STABLE_APPCAST_URL" =~ ^https://[^[:space:]]+$ ]]
+          test "$(curl --silent --show-error --location --output previous-appcast.xml --write-out '%{http_code}' "$STABLE_APPCAST_URL")" = 200
+          scripts/validate-release.sh config/release.json "v$VERSION" previous-appcast.xml
+          if gh release view "$CANDIDATE_TAG" >/dev/null 2>&1; then
+            echo 'Candidate release identifier already exists'; exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CANDIDATE_TAG" >/dev/null 2>&1; then
+            echo 'Candidate tag already exists'; exit 1
+          fi
+      - name: Test once
+        run: swift test
+      - name: Import Developer ID identity
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.RELEASE_KEYCHAIN_PASSWORD }}
+        run: |
+          security create-keychain -p "$KEYCHAIN_PASSWORD" release.keychain-db
+          security set-keychain-settings -lut 21600 release.keychain-db
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" release.keychain-db
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > certificate.p12
+          security import certificate.p12 -k release.keychain-db -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s release.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" release.keychain-db
+      - name: Configure notarization API key
+        env:
+          NOTARY_KEY_BASE64: ${{ secrets.NOTARY_API_KEY_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          printf '%s' "$NOTARY_KEY_BASE64" | base64 --decode > notary-key.p8
+          xcrun notarytool store-credentials sustain-release --key notary-key.p8 --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID"
+      - name: Build, sign, notarize, staple, and verify candidate
+        env:
+          SUSTAIN_SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_IDENTITY }}
+          SUSTAIN_NOTARY_PROFILE: sustain-release
+          SUSTAIN_OFFICIAL_STABLE_UPDATES: "1"
+          SUSTAIN_UPDATE_FEED_URL: ${{ vars.STABLE_APPCAST_URL }}
+          SUSTAIN_UPDATE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+        run: scripts/package.sh release
+      - name: Sign staging appcast
+        env:
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+        run: |
+          VERSION="$(plutil -extract version raw config/release.json)"
+          BUILD="$(plutil -extract build raw config/release.json)"
+          mkdir appcast-stage
+          cp "dist/Sustain-$VERSION-$BUILD.zip" appcast-stage/
+          cp docs/releases/next.md "appcast-stage/Sustain-$VERSION-$BUILD.md"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast \
+            --ed-key-file - --embed-release-notes --maximum-deltas 0 \
+            --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/$CANDIDATE_TAG/" \
+            appcast-stage
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update \
+            --ed-key-file - appcast-stage/appcast.xml
+          scripts/validate-appcast.sh appcast-stage/appcast.xml
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update \
+            --verify --ed-key-file - appcast-stage/appcast.xml
+      - name: Publish prerelease assets and verify public hashes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        run: |
+          gh release create "$CANDIDATE_TAG" --target "$GITHUB_SHA" --prerelease \
+            --title "Sustain ${CANDIDATE_TAG#v} Sparkle rehearsal" \
+            --notes 'Signed staging candidate for the 1.1.1 to 2.0 updater rehearsal. Do not install as a production release.' \
+            dist/Sustain-*
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CANDIDATE_TAG" --jq .object.sha)" = "$GITHUB_SHA"
+          VERSION="$(plutil -extract version raw config/release.json)"
+          BUILD="$(plutil -extract build raw config/release.json)"
+          mkdir -p /tmp/staging-dist
+          for ASSET in "Sustain-$VERSION-$BUILD.dmg" "Sustain-$VERSION-$BUILD.zip" "Sustain-$VERSION-$BUILD-SHA256SUMS.txt"; do
+            curl --fail --location --retry 4 "https://github.com/${GITHUB_REPOSITORY}/releases/download/$CANDIDATE_TAG/$ASSET" -o "/tmp/staging-dist/$ASSET"
+          done
+          cd /tmp
+          shasum -a 256 -c "staging-dist/Sustain-$VERSION-$BUILD-SHA256SUMS.txt"
+      - name: Publish signed staging appcast last
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUSTAIN_PUBLISH_STAGING: "1"
+          SUSTAIN_STAGING_REPOSITORY: ${{ github.repository }}
+          SUSTAIN_STAGING_BRANCH: staging-updates
+        run: scripts/publish-staging-appcast-last.sh appcast-stage/appcast.xml

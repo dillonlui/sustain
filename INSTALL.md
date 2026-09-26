@@ -8,7 +8,7 @@ it has been validated with real Intel audio hardware; details are in the
 
 ## 1. Download & install
 
-1. Download **`Sustain-<version>.dmg`** from the release page.
+1. Download **`Sustain-<version>-<build>.dmg`** from the release page.
 2. Open the downloaded disk image.
 3. In the window that opens, drag **Sustain.app** onto the **Applications**
    folder shortcut.
@@ -18,6 +18,10 @@ it has been validated with real Intel audio hardware; details are in the
 Sustain is signed with a Developer ID certificate and notarized by Apple. Open
 it normally from Applications; macOS verifies the app without the previous
 **Open Anyway** or right-click workaround.
+
+If you have Sustain 1.1.1 installed, use **Sustain → Check for Updates…** to
+update to 2.0. For 1.0.2 or older, install from the disk image; those versions
+do not include the updater.
 
 ## 3. Set up your audio (recommended)
 

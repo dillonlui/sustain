@@ -18,7 +18,7 @@ cloud, no internet required.
 Requires **macOS 14 (Sonoma) or newer**. Release downloads are Universal 2 and
 run natively on both Apple-silicon and Intel Macs. Intel support is currently a
 preview: it is covered by an Intel CI build and test run, but still needs
-physical-hardware audio validation. See the [1.0.2 release notes](docs/releases/1.0.2.md).
+physical-hardware audio validation. See the [installation guide](INSTALL.md).
 
 ### Install
 
@@ -61,8 +61,8 @@ Full installation instructions are in **[INSTALL.md](INSTALL.md)**.
   supports manual checks and optional daily checks, but never silently installs.
   Checks and updater relaunch wait until Live and Rehearse audio are fully idle.
 
-The first Sparkle-enabled release is a one-time bootstrap: users of earlier
-builds must install its DMG manually because those builds contain no updater.
+Sustain 1.1.1 introduced the updater. Users of 1.0.2 or older must install a
+newer DMG manually because those builds contain no updater.
 Development, ad-hoc, CI, branch, and unpublished builds never contact the stable
 update feed.
 

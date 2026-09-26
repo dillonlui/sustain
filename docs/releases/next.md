@@ -21,3 +21,10 @@ setlist with the audio devices and MIDI controller you will use live.
 
 This release requires macOS 14 or newer. Official downloads are signed and
 notarized Universal 2 apps for Apple silicon and Intel Macs.
+
+## Updating to 2.0
+
+If you have 1.1.1 installed, use **Sustain → Check for Updates…** to update to
+2.0. Automatic checks are optional, and installing always requires your choice.
+If you have 1.0.2 or an older release, install the 2.0 disk image manually;
+those versions do not include the updater.
