@@ -22,6 +22,15 @@ setlist with the audio devices and MIDI controller you will use live.
 This release requires macOS 14 or newer. Official downloads are signed and
 notarized Universal 2 apps for Apple silicon and Intel Macs.
 
+## Testing scope
+
+The signed 1.1.2 → 2.0 Sparkle update was exercised on an Apple silicon Mac,
+including installation, relaunch, and migration of a test library. Apple silicon
+and Intel CI and Universal 2 package checks passed. Physical Intel hardware,
+USB/Bluetooth MIDI controllers, external audio interfaces and file locations,
+assistive-technology workflows, and updater failure paths have not completed
+manual QA for this release.
+
 ## Updating to 2.0
 
 If you have 1.1.2 installed, use **Sustain → Check for Updates…** to update to
