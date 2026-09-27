@@ -28,8 +28,9 @@ The signed 1.1.2 → 2.0 Sparkle update was exercised on an Apple silicon Mac,
 including installation, relaunch, and migration of a test library. Apple silicon
 and Intel CI and Universal 2 package checks passed. Physical Intel hardware,
 USB/Bluetooth MIDI controllers, external audio interfaces and file locations,
-assistive-technology workflows, and updater failure paths have not completed
-manual QA for this release.
+Live/Rehearse playback on representative hardware, assistive-technology
+workflows, and updater failure paths have not completed manual QA for this
+release.
 
 ## Updating to 2.0
 
