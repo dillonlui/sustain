@@ -19,9 +19,9 @@ Sustain is signed with a Developer ID certificate and notarized by Apple. Open
 it normally from Applications; macOS verifies the app without the previous
 **Open Anyway** or right-click workaround.
 
-If you have Sustain 1.1.1 installed, use **Sustain → Check for Updates…** to
-update to 2.0. For 1.0.2 or older, install from the disk image; those versions
-do not include the updater.
+Sustain 1.1.1 included Sparkle but could not start it. Install the corrected
+1.1.2 disk image once, then use **Sustain → Check for Updates…** to move to 2.0.
+Versions older than 1.1.1 also need a manual disk-image install.
 
 ## 3. Set up your audio (recommended)
 
