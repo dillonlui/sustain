@@ -56,7 +56,7 @@ struct CoreMIDIControllerTests {
         #expect(actions == [.tapTempo, .tapTempo, .tapTempo])
     }
 
-    @Test func boundedRelayCoalescesCCStateAndDropsOverflowWithoutUnboundedQueue() {
+    @Test @MainActor func boundedRelayCoalescesCCStateAndDropsOverflowWithoutUnboundedQueue() {
         let received = LockedMIDIEvents()
         let relay = BoundedMIDIEventRelay(capacity: 2, delivery: received.append)
         relay.offer(MIDIMessage(sourceUniqueID: 1, kind: .controlChange, channel: 0, number: 7, value: 1))
