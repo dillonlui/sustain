@@ -119,6 +119,13 @@ final class SustainAudioEngine: AudioControlling {
     private let externalAudioReferencer: any ExternalAudioReferencing
     private let voiceRenderer: CountoffVoiceRendering?
 
+    // Keep the existing Strong/Normal beat loudness; give Soft a clearer step down.
+    // Shared by loop rendering, subdivisions, and the click under spoken count-ins.
+    nonisolated private static let strongClickAmplitude: Float = 0.78
+    nonisolated private static let normalClickAmplitude: Float = 0.48
+    nonisolated private static let softClickGain: Float = 0.32
+    nonisolated private static let subdivisionClickGain: Float = 0.48
+
     /// Below this beat length a spoken word cannot stay intelligible, so the count-off
     /// falls back to clicks (matching how Ableton only clicks at fast tempos).
     nonisolated private static let minSpokenBeatDuration: TimeInterval = 0.33
@@ -951,7 +958,7 @@ final class SustainAudioEngine: AudioControlling {
             if level == .mute { continue }
             let startFrame = grid.frame(forPulse: beat)
             let accented = level == .strong || (level == nil && settings.accentMode == .downbeat && beat % grid.pulseCount == 0)
-            let gain: Float = level == .soft ? 0.45 : 1
+            let gain: Float = level == .soft ? softClickGain : 1
             writeClickTone(into: buffer, format: format, startFrame: startFrame, accented: accented, gain: gain)
             if subdivision != .beat {
                 for slot in 1..<subdivision.rawValue {
@@ -961,7 +968,9 @@ final class SustainAudioEngine: AudioControlling {
                         startFrame: grid.frame(forPulse: beat, subdivision: slot,
                                                subdivisionsPerPulse: subdivision.rawValue),
                         accented: false,
-                        gain: 0.48 * gain
+                        // Retain the pulse's dynamic level on its in-between clicks.
+                        // Use the ordinary pitch so the main beat still marks the pulse.
+                        gain: subdivisionClickGain * gain * (accented ? strongClickAmplitude / normalClickAmplitude : 1)
                     )
                 }
             }
@@ -982,7 +991,7 @@ final class SustainAudioEngine: AudioControlling {
         let frameCount = Int(buffer.frameLength)
         let clickLength = Int(sampleRate * 0.045)
         let frequency = accented ? 1_760.0 : 1_200.0
-        let amplitude = Float(accented ? 0.78 : 0.48) * gain
+        let amplitude = (accented ? strongClickAmplitude : normalClickAmplitude) * gain
 
         for offset in 0..<clickLength {
             let frame = startFrame + offset
@@ -1095,7 +1104,7 @@ final class SustainAudioEngine: AudioControlling {
                     format: format,
                     startFrame: startFrame,
                     accented: accented,
-                    gain: level == .soft ? 0.09 : 0.2
+                    gain: 0.2 * (level == .soft ? softClickGain : 1)
                 )
             }
 

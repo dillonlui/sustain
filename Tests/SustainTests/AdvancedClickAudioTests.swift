@@ -12,6 +12,19 @@ private final class NumberProbeVoice: CountoffVoiceRendering {
     }
 }
 
+private final class ConstantProbeVoice: CountoffVoiceRendering {
+    func prewarm(numbers: [Int], format: AVAudioFormat) {}
+    func renderedWord(for number: Int, format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(format.sampleRate * 0.1)),
+              let samples = buffer.floatChannelData else { return nil }
+        buffer.frameLength = buffer.frameCapacity
+        for channel in 0..<Int(format.channelCount) {
+            samples[channel].update(repeating: 0.25, count: Int(buffer.frameLength))
+        }
+        return buffer
+    }
+}
+
 struct AdvancedClickAudioTests {
     private func peak(_ buffer: AVAudioPCMBuffer, at frame: Int, width: Int = 500) throws -> Float {
         let samples = try #require(buffer.floatChannelData?[0])
@@ -60,6 +73,73 @@ struct AdvancedClickAudioTests {
         #expect(try peak(buffer, at: grid.frame(forPulse: 3)) == 0)
         #expect(try peak(buffer, at: grid.frame(forPulse: 3, subdivision: 1,
                                                 subdivisionsPerPulse: 2)) == 0)
+    }
+
+    @Test func accentDynamicsStayDistinctAcrossSubdivisionSlots() throws {
+        try exportAccentListeningPreviewWhenRequested()
+        for sampleRate in [44_100.0, 48_000.0] {
+            let format = try #require(AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2))
+            for subdivision in ClickSubdivision.allCases {
+                let buffer = try SustainAudioEngine.makeClickBuffer(
+                    format: format, bpm: 100, timeSignature: .fourFour, subdivision: subdivision,
+                    measures: 1, settings: .default, accentPattern: [.strong, .normal, .soft, .mute])
+                let grid = ClickPulseGrid(timeSignature: .fourFour, pulseInterpretation: .legacy,
+                                          bpm: 100, sampleRate: sampleRate)
+                for slot in 0..<subdivision.rawValue {
+                    let levels = try (0..<4).map { pulse in
+                        try peak(buffer, at: grid.frame(forPulse: pulse, subdivision: slot,
+                                                       subdivisionsPerPulse: subdivision.rawValue))
+                    }
+                    let strongOverNormalDB = 20 * log10(Double(levels[0] / levels[1]))
+                    let softBelowNormalDB = 20 * log10(Double(levels[2] / levels[1]))
+                    // Strong is noticeable but restrained; Soft remains audible as a guide.
+                    #expect((3.5...5.0).contains(strongOverNormalDB))
+                    #expect((-11.0 ... -9.0).contains(softBelowNormalDB))
+                    #expect(levels[2] > 0.03)
+                    #expect(levels[3] == 0)
+                    #expect(levels[0] < 0.8)
+                }
+            }
+        }
+    }
+
+    @Test func countoffClickDynamicsMatchLoopWithoutChangingSpeechLevel() throws {
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
+        let pattern: [ClickAccentLevel] = [.strong, .normal, .soft, .mute]
+        let grid = ClickPulseGrid(timeSignature: .fourFour, pulseInterpretation: .legacy,
+                                  bpm: 100, sampleRate: format.sampleRate)
+        let loop = try SustainAudioEngine.makeClickBuffer(
+            format: format, bpm: 100, timeSignature: .fourFour, subdivision: .two,
+            measures: 1, settings: .default, accentPattern: pattern)
+        let counted = try SustainAudioEngine.makeCountoffBuffer(
+            format: format, voiceRenderer: nil, bpm: 100, timeSignature: .fourFour,
+            subdivision: .two, settings: .default, accentPattern: pattern)
+        for pulse in 0..<3 {
+            let frame = grid.frame(forPulse: pulse)
+            #expect(abs(try peak(counted, at: frame) / peak(loop, at: frame) - 0.2) < 0.001)
+        }
+        let spokenOnly = try SustainAudioEngine.makeCountoffBuffer(
+            format: format, voiceRenderer: ConstantProbeVoice(), bpm: 100, timeSignature: .fourFour,
+            settings: .default, accentPattern: pattern)
+        let samples = try #require(spokenOnly.floatChannelData?[0])
+        // After the click transient, speech has the same gain for every accent,
+        // including a muted click beat; accents must not obscure the spoken numbers.
+        let offset = Int(format.sampleRate * 0.06)
+        let reference = samples[grid.frame(forPulse: 0) + offset]
+        #expect(reference > 0)
+        for pulse in 1..<4 {
+            #expect(samples[grid.frame(forPulse: pulse) + offset] == reference)
+        }
+    }
+
+    private func exportAccentListeningPreviewWhenRequested() throws {
+        guard let path = ProcessInfo.processInfo.environment["SUSTAIN_CLICK_PREVIEW_PATH"] else { return }
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2))
+        let buffer = try SustainAudioEngine.makeClickBuffer(
+            format: format, bpm: 100, timeSignature: .fourFour, subdivision: .two,
+            measures: 3, settings: .default, accentPattern: [.strong, .normal, .soft, .mute])
+        let file = try AVAudioFile(forWriting: URL(fileURLWithPath: path), settings: format.settings)
+        try file.write(from: buffer)
     }
 
     @Test func groupedTwoBarCountoffRepeatsPulseNumbers() throws {

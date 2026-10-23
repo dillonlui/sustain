@@ -1,4 +1,4 @@
-# Sustain 2.0.1
+# Sustain 2.0.2
 
 A maintenance release focused on reliable playback and a clearer installation experience.
 
@@ -8,6 +8,10 @@ The disk image now opens with large Sustain and Applications icons, a clear drag
 arrow, and a designed background explaining how to install and open the app.
 
 ## Playback and routing
+
+- Click accent levels are more distinct: Soft is quieter, and Strong now weights
+  the in-between subdivision clicks as well as the main beat. Strong and Normal
+  main-beat levels and spoken count-in levels stay the same.
 
 - Stop fades pads to silence before stopping their players, including both voices
   during a song crossfade.
