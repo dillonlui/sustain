@@ -22,8 +22,8 @@ func centered(_ text: String, y: CGFloat, font: NSFont, color: NSColor, tracking
     ])
 }
 centered("SUSTAIN", y: 382, font: .systemFont(ofSize: 12, weight: .semibold), color: green, tracking: 4)
-centered("Install Sustain", y: 329, font: .systemFont(ofSize: 34, weight: .semibold), color: ink)
-centered("Drag Sustain into Applications to get started.", y: 291,
+centered("Install Sustain", y: 347, font: .systemFont(ofSize: 34, weight: .semibold), color: ink)
+centered("Drag Sustain into Applications to get started.", y: 309,
          font: .systemFont(ofSize: 16), color: muted)
 // Finder coordinates start at the top. The two real, draggable icons sit on these halos.
 for x: CGFloat in [180, 540] {
