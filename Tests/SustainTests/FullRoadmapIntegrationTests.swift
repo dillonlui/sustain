@@ -114,7 +114,8 @@ struct FullRoadmapIntegrationTests {
         #expect(audio.padActivateCount == 1)
 
         store.stop()
-        #expect(await waitUntil(timeout: .seconds(5)) { !store.isAnyAudioActivityActive })
+        // Allow other main-actor suites to finish on slower CI before observing the fade.
+        #expect(await waitUntil(timeout: .seconds(30)) { !store.isAnyAudioActivityActive })
         #expect(store.clearActiveSetlist())
         #expect(store.activeSetlist.entries.isEmpty)
 

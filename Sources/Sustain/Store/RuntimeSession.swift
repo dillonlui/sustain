@@ -914,8 +914,9 @@ final class AppStore {
         rehearse.padState = wasPreparing ? .off : .fadingOut
         rehearse.lastMessage = "Pad stopped"
         if !wasPreparing {
+            let fadeDeadline = ContinuousClock.now + .seconds(1)
             padStateTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(until: fadeDeadline, clock: .continuous)
                 guard let self, !Task.isCancelled else { return }
                 self.rehearse.padState = .off
                 self.refreshAudioStatus()
@@ -2643,8 +2644,9 @@ final class AppStore {
 
         runtime.padState = .fadingOut
         if let message { runtime.lastMessage = message }
+        let fadeDeadline = ContinuousClock.now + .seconds(1)
         padStateTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(until: fadeDeadline, clock: .continuous)
             guard let self, !Task.isCancelled, self.runtime.padState == .fadingOut else { return }
             self.runtime.padState = .off
             self.runtime.audiblePadTrackID = nil

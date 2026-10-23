@@ -21,7 +21,8 @@ struct RuntimeSessionTests {
         #expect(store.rehearse.clickState == .off)
         #expect(store.isAnyAudioActivityActive)
         #expect(audio.stopAllCount == 0)
-        let deadline = ContinuousClock.now + .seconds(5)
+        // Intel CI can spend over 15s in other main-actor tests before timers resume.
+        let deadline = ContinuousClock.now + .seconds(30)
         while store.rehearse.padState != .off, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }

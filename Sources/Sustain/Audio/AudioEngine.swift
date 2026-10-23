@@ -836,9 +836,9 @@ final class SustainAudioEngine: AudioControlling {
         let steps = max(2, Int((duration * 120).rounded()))
         let delay = UInt64(duration / Double(steps) * 1_000_000_000)
 
+        let clock = ContinuousClock()
+        let startTime = clock.now
         padFadeTasks[index] = Task { @MainActor in
-            let clock = ContinuousClock()
-            let startTime = clock.now
             for step in 1...steps {
                 // Absolute deadlines avoid accumulating scheduling delays at every step.
                 try? await clock.sleep(until: startTime + .nanoseconds(Int64(delay) * Int64(step)))
