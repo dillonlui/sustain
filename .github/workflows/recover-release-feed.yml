@@ -1,0 +1,91 @@
+name: Recover published release feed
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing public stable release whose verified assets should enter the feed
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    runs-on: macos-26
+    environment: production-release
+    concurrency:
+      group: sustain-production-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - name: Verify existing immutable release and public downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          STABLE_APPCAST_URL: ${{ vars.STABLE_APPCAST_URL }}
+          SPARKLE_PUBLIC_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+        run: |
+          set -euo pipefail
+          scripts/validate-release.sh config/release.json "$TAG"
+          test "$(git describe --tags --exact-match HEAD)" = "$TAG"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '(.draft or .prerelease)')" = false
+          VERSION="$(plutil -extract version raw config/release.json)"
+          BUILD="$(plutil -extract build raw config/release.json)"
+          mkdir -p dist recovered-app appcast-stage
+          gh release download "$TAG" --dir dist \
+            --pattern "Sustain-$VERSION-$BUILD.dmg" \
+            --pattern "Sustain-$VERSION-$BUILD.zip" \
+            --pattern "Sustain-$VERSION-$BUILD-SHA256SUMS.txt"
+          shasum -a 256 -c "dist/Sustain-$VERSION-$BUILD-SHA256SUMS.txt"
+          hdiutil verify "dist/Sustain-$VERSION-$BUILD.dmg"
+          ditto -x -k "dist/Sustain-$VERSION-$BUILD.zip" recovered-app
+          scripts/verify-release-artifact.sh recovered-app/Sustain.app --distribution
+          PLIST=recovered-app/Sustain.app/Contents/Info.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "$VERSION"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "$BUILD"
+          test -n "$SPARKLE_PUBLIC_KEY"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$PLIST")" = "$SPARKLE_PUBLIC_KEY"
+          curl --fail --location --retry 4 "$STABLE_APPCAST_URL" -o previous-appcast.xml
+          scripts/validate-release.sh config/release.json "$TAG" previous-appcast.xml
+          cp previous-appcast.xml appcast-stage/appcast.xml
+          cp "dist/Sustain-$VERSION-$BUILD.zip" appcast-stage/
+          cp docs/releases/next.md "appcast-stage/Sustain-$VERSION-$BUILD.md"
+      - name: Resolve pinned Sparkle signing tools
+        run: |
+          swift package resolve
+          test -x .build/artifacts/sparkle/Sparkle/bin/generate_appcast || swift build
+      - name: Sign and publish feed for the verified existing archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+          SUSTAIN_PUBLISH_PRODUCTION: "1"
+          SUSTAIN_FEED_REPOSITORY: ${{ vars.FEED_REPOSITORY }}
+          SUSTAIN_FEED_BRANCH: ${{ vars.FEED_BRANCH }}
+          SUSTAIN_FEED_PATH: ${{ vars.FEED_PATH }}
+        run: |
+          set -euo pipefail
+          test -n "$SPARKLE_PRIVATE_KEY"
+          test -n "$SUSTAIN_FEED_REPOSITORY" && test -n "$SUSTAIN_FEED_BRANCH" && test -n "$SUSTAIN_FEED_PATH"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/generate_appcast \
+            --ed-key-file - --embed-release-notes --maximum-deltas 0 \
+            --download-url-prefix "https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/" appcast-stage
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update \
+            --ed-key-file - appcast-stage/appcast.xml
+          scripts/validate-appcast.sh appcast-stage/appcast.xml
+          printf '%s' "$SPARKLE_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update \
+            --verify --ed-key-file - appcast-stage/appcast.xml
+          # Retry the complete atomic publication after transient GitHub API failures.
+          for ATTEMPT in 1 2 3; do
+            if scripts/publish-appcast-last.sh appcast-stage/appcast.xml; then break; fi
+            test "$ATTEMPT" -lt 3 || exit 1
+            sleep 5
+          done
+          gh api "repos/$SUSTAIN_FEED_REPOSITORY/contents/$SUSTAIN_FEED_PATH?ref=$SUSTAIN_FEED_BRANCH" \
+            --jq .content | base64 --decode > published-appcast.xml
+          cmp appcast-stage/appcast.xml published-appcast.xml
