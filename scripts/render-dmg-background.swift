@@ -28,7 +28,7 @@ centered("Drag Sustain into Applications to get started.", y: 291,
 // Finder coordinates start at the top. The two real, draggable icons sit on these halos.
 for x: CGFloat in [180, 540] {
     green.withAlphaComponent(0.055).setFill()
-    NSBezierPath(ovalIn: NSRect(x: x - 100, y: 110, width: 200, height: 200)).fill()
+    NSBezierPath(ovalIn: NSRect(x: x - 120, y: 80, width: 240, height: 240)).fill()
 }
 green.withAlphaComponent(0.7).setStroke()
 let arrow = NSBezierPath()
