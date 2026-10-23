@@ -4,6 +4,64 @@ import Testing
 @testable import Sustain
 
 extension RuntimeSessionTests {
+    @Test func idleRunningEngineStillReestablishesRoutingBeforeStart() {
+        let audio = RecordingAudioEngine()
+        audio.keepsEngineRunningWhileIdle = true
+        let store = AppStore.preview(audioEngine: audio)
+        let initial = audio.configureRoutingCount
+        store.startCuedSong()
+        #expect(audio.configureRoutingCount == initial + 1)
+        #expect(audio.padStartCount == 1)
+    }
+
+    @Test func reusedDeviceIDCannotSelectAnUnrelatedOutput() {
+        let snapshot = AudioRoutingResolver().snapshot(
+            settings: AudioRoutingSettings(padOutputID: 10, padOutputName: "Interface",
+                                           clickOutputID: 20, clickOutputName: "Speakers"),
+            outputs: [AudioOutputDevice(id: 10, name: "Speakers", isDefault: true),
+                      AudioOutputDevice(id: 30, name: "Interface", isDefault: false)]
+        )
+        #expect(snapshot.padOutputID == 30)
+        #expect(snapshot.clickOutputID == 10)
+        #expect(snapshot.independentRoutingEnabled)
+    }
+
+    @Test func actualRoutingDriftStopsEvenWhenHardwareSnapshotIsUnchanged() {
+        let audio = RecordingAudioEngine()
+        let monitor = NoopAudioHardwareMonitor()
+        let store = AppStore.preview(audioEngine: audio, audioHardwareMonitor: monitor)
+        store.startCuedSong()
+        audio.routingIsValid = false
+        monitor.simulateChange()
+        #expect(audio.stopAllCount == 1)
+        #expect(store.runtime.playingEntryID == nil)
+    }
+
+    @Test func interfaceFormatChangeStopsWithSameDeviceIDs() {
+        let audio = RecordingAudioEngine()
+        let provider = MutableAudioRoutingProvider(snapshotValue: .previewDefault)
+        let monitor = NoopAudioHardwareMonitor()
+        let store = AppStore.preview(audioEngine: audio, audioRoutingProvider: provider,
+                                     audioHardwareMonitor: monitor)
+        store.startCuedSong()
+        provider.snapshotValue.outputs[0].nominalSampleRate = 48_000
+        monitor.simulateChange()
+        #expect(audio.stopAllCount == 1)
+        #expect(store.runtime.playingEntryID == nil)
+    }
+
+    @Test func rehearsalCannotStartOnUnavailableRoute() {
+        let audio = RecordingAudioEngine()
+        let provider = MutableAudioRoutingProvider(snapshotValue: .previewDefault)
+        let store = AppStore.preview(audioEngine: audio, audioRoutingProvider: provider)
+        provider.snapshotValue.clickOutputUnavailable = true
+        store.startRehearsePad(key: .g)
+        store.startRehearseClick()
+        #expect(audio.padStartCount == 0)
+        #expect(audio.clickStartCount == 0)
+        #expect(store.rehearse.lastMessage == "Selected click output is unavailable.")
+    }
+
     @Test func sharedOutputRoutingWarnsButDoesNotBlockPlayback() {
         let store = AppStore.preview()
 

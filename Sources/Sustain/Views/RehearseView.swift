@@ -237,7 +237,7 @@ struct RehearseView: View {
                                           accentPattern: accentPatternBinding)
                     .disabled(store.rehearse.clickState != .off)
                 ClickAccentPatternEditor(pulseCount: rehearsePulseCount,
-                                         fallback: store.clickSettings.accentMode,
+                                         fallback: store.rehearseClickSettings.accentMode,
                                          pattern: accentPatternBinding)
                     .disabled(store.rehearse.clickState == .countoff)
                 CountoffPolicyEditor(policy: countoffPolicyBinding)
@@ -370,7 +370,7 @@ struct RehearseView: View {
             kind: .pad,
             value: padVolumeBinding,
             isActive: store.rehearse.padState != .off,
-            onCommit: { store.commitAudioLevels() }
+            onCommit: {}
         )
         .frame(minWidth: 160)
     }
@@ -380,7 +380,7 @@ struct RehearseView: View {
             kind: .click,
             value: clickVolumeBinding,
             isActive: store.rehearse.clickState != .off,
-            onCommit: { store.commitAudioLevels() }
+            onCommit: {}
         )
         .frame(minWidth: 160)
     }
@@ -568,9 +568,9 @@ struct RehearseView: View {
 
     private var clickAccentModeBinding: Binding<ClickAccentMode> {
         Binding {
-            store.clickSettings.accentMode
+            store.rehearseClickSettings.accentMode
         } set: { accentMode in
-            store.setClickAccentMode(accentMode)
+            store.setRehearseAccentMode(accentMode)
         }
     }
 
@@ -584,25 +584,25 @@ struct RehearseView: View {
 
     private var countoffSoundBinding: Binding<CountoffSound> {
         Binding {
-            store.clickSettings.countoffSound
+            store.rehearseClickSettings.countoffSound
         } set: { countoffSound in
-            store.setCountoffSound(countoffSound)
+            store.setRehearseCountoffSound(countoffSound)
         }
     }
 
     private var padVolumeBinding: Binding<Double> {
         Binding {
-            store.padVolume
+            store.rehearsePadVolume
         } set: { volume in
-            store.setPadVolumeLive(volume)
+            store.setRehearsePadVolume(volume)
         }
     }
 
     private var clickVolumeBinding: Binding<Double> {
         Binding {
-            store.clickVolume
+            store.rehearseClickVolume
         } set: { volume in
-            store.setClickVolumeLive(volume)
+            store.setRehearseClickVolume(volume)
         }
     }
 }

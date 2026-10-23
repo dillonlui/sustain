@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 struct RuntimeSessionTests {
-    @Test func globalStopEndsRehearseAudioAndClearsDisplayedState() {
+    @Test func globalStopEndsRehearseAudioAndClearsDisplayedState() async throws {
         let audio = RecordingAudioEngine()
         let store = AppStore.preview(audioEngine: audio)
         store.startRehearsePad(key: .g)
@@ -17,9 +17,67 @@ struct RuntimeSessionTests {
 
         #expect(!audio.isPadActive)
         #expect(!audio.isClickActive)
-        #expect(store.rehearse.padState == .off)
+        #expect(store.rehearse.padState == .fadingOut)
         #expect(store.rehearse.clickState == .off)
+        #expect(store.isAnyAudioActivityActive)
+        #expect(audio.stopAllCount == 0)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while store.rehearse.padState != .off, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(store.rehearse.padState == .off)
         #expect(!store.isAnyAudioActivityActive)
+    }
+
+    @Test func rehearsalSoundAndLevelsDoNotLeakIntoLive() throws {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        let liveSettings = store.clickSettings
+        let livePadVolume = store.padVolume
+        let liveClickVolume = store.clickVolume
+        store.setRehearsePadVolume(0.12)
+        store.setRehearseClickVolume(0.23)
+        store.setRehearseAccentMode(.downbeat)
+        store.setRehearseCountoffSound(.click)
+        store.startRehearsePad(key: .g)
+        store.startRehearseClick()
+        #expect(audio.lastPadVolume == 0.12)
+        #expect(audio.lastClickVolume == 0.23)
+        #expect(audio.clickSettingsHistory.last == store.rehearseClickSettings)
+
+        store.navigate(to: .live)
+        store.startCuedSong()
+        #expect(store.clickSettings == liveSettings)
+        #expect(store.padVolume == livePadVolume)
+        #expect(store.clickVolume == liveClickVolume)
+        #expect(audio.lastPadVolume == livePadVolume)
+        #expect(audio.lastClickVolume == liveClickVolume)
+        #expect(audio.clickSettingsHistory.last == liveSettings)
+        #expect(audio.stopAllCount == 0)
+    }
+
+    @Test func rehearseStopIsIdempotentAndRemainsActiveDuringFade() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        store.startRehearsePad(key: .g)
+        store.stopRehearsePad()
+        store.stopRehearsePad()
+        #expect(audio.padStopCount == 1)
+        #expect(audio.stopAllCount == 0)
+        #expect(store.rehearse.padState == .fadingOut)
+        #expect(store.isAnyAudioActivityActive)
+    }
+
+    @Test func audiblePrerollOwnerCannotBeDeletedOrRemoved() throws {
+        let store = AppStore.preview(audioEngine: RecordingAudioEngine())
+        let entry = try #require(store.cuedEntry)
+        store.startCuedPad()
+        #expect(store.runtime.audiblePadEntryID == entry.id)
+        store.removeSetlistEntry(entry.id)
+        #expect(store.activeSetlist.entries.contains { $0.id == entry.id })
+        store.deleteSong(entry.songID)
+        #expect(store.songs.contains { $0.id == entry.songID })
+        #expect(store.runtime.audiblePadEntryID == entry.id)
     }
 
     @Test func navigationWaitsForDirtySongEditorDecision() {
@@ -147,7 +205,7 @@ struct RuntimeSessionTests {
         let store = AppStore.preview(audioEngine: audio)
 
         store.startRehearseClick()
-        store.setClickAccentMode(.downbeat)
+        store.setRehearseAccentMode(.downbeat)
 
         #expect(audio.clickStartCount == 2)
         #expect(audio.clickSettingsHistory.last?.accentMode == .downbeat)
@@ -256,6 +314,19 @@ struct RuntimeSessionTests {
         #expect(store.systemCheck.canStartPlayback)
         #expect(store.systemCheck.warnings.contains("Setlist entry 4: references a missing song."))
         #expect(store.systemCheck.messages.contains("Warning: Setlist entry 4: references a missing song."))
+    }
+
+    @Test func clickActivationFailureCannotLeaveUnownedPadPlaying() {
+        let audio = RecordingAudioEngine()
+        let store = AppStore.preview(audioEngine: audio)
+        audio.shouldFailClickActivation = true
+        store.startCuedSong()
+        #expect(store.runtime.playingEntryID == nil)
+        #expect(store.runtime.clickState == .off)
+        #expect(store.runtime.padState == .fadingOut)
+        #expect(!audio.isPadActive)
+        #expect(audio.padStopCount == 1)
+        #expect(audio.stopAllCount == 0)
     }
 
     @Test func clickStartupFailureDoesNotStartNewPadDuringTransition() {
@@ -525,7 +596,7 @@ struct RuntimeSessionTests {
         store.selectedScreen = .pads
         #expect(store.padPlaybackState(for: padID) == .fadingIn)
         store.togglePadPlayback(for: padID)
-        #expect(store.padPlaybackState(for: padID) == .off)
+        #expect(store.padPlaybackState(for: padID) == .fadingOut)
         #expect(store.selectedScreen == .pads)
     }
 

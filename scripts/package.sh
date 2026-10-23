@@ -38,17 +38,19 @@ fi
 
 ARCHIVE="dist/${APP_NAME}-${VERSION}-${BUILD_NUMBER}.zip"
 DMG="dist/${APP_NAME}-${VERSION}-${BUILD_NUMBER}.dmg"
-DMG_STAGE="build/dmg-stage"
 rm -f "$ARCHIVE" "$DMG"
-rm -rf "$DMG_STAGE"
-mkdir -p "$DMG_STAGE"
 
 echo "==> Creating Sparkle full archive"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ARCHIVE"
-echo "==> Preparing drag-to-install disk image"
-ditto "$APP" "$DMG_STAGE/$APP_NAME.app"
-ln -s /Applications "$DMG_STAGE/Applications"
-hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_STAGE" -format UDZO -ov "$DMG" >/dev/null
+echo "==> Preparing designed drag-to-install disk image"
+DMG_PYTHON="build/dmg-tools/bin/python"
+if [ ! -x "$DMG_PYTHON" ]; then
+    python3 -m venv build/dmg-tools
+fi
+"$DMG_PYTHON" -m pip install --disable-pip-version-check -r scripts/dmg-requirements.txt
+swift scripts/render-dmg-background.swift build/dmg-background.tiff
+"$DMG_PYTHON" -m dmgbuild -s scripts/dmg-settings.py \
+    -D app="$APP" -D background=build/dmg-background.tiff "$APP_NAME" "$DMG"
 
 if [ "$SIGN_IDENTITY" != "-" ]; then
     codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"

@@ -153,6 +153,11 @@ private actor SuspendedFailingCreateReferencer: ExternalAudioReferencing {
         while !createStarted { await Task.yield() }
     }
 
+    func finishCreate(_ reference: ExternalAudioReference) {
+        createContinuation?.resume(returning: reference)
+        createContinuation = nil
+    }
+
     func failCreate() {
         createContinuation?.resume(throwing: ExternalAudioReferenceError.unreadable)
         createContinuation = nil
@@ -384,6 +389,30 @@ struct ExternalAudioReferenceServiceTests {
         await refresh.value
 
         #expect(store.padAssetStates[padID] == .available(newReference.audioMetadata))
+    }
+
+    @Test @MainActor func relinkSurvivesConcurrentPadReorderAndRename() async throws {
+        let referencer = SuspendedFailingCreateReferencer()
+        let store = AppStore.preview(externalAudioReferencer: referencer)
+        let reference = ExternalAudioReference(
+            bookmarkData: Data([1]), lastKnownPath: "/tmp/Old.wav", originalFilename: "Old.wav",
+            fingerprint: ExternalFileFingerprint(resourceIdentifierData: Data([1]), fileSize: 64, modificationDate: nil),
+            audioMetadata: PadAudioMetadata(duration: 1, channelCount: 2, sampleRate: 48_000, decodedByteCount: 64)
+        )
+        let pad = PadTrack(id: UUID(), label: "Original", source: .external(reference))
+        store.padTracks.append(pad)
+        let locate = Task { await store.locateExternalPad(pad.id, at: URL(fileURLWithPath: "/tmp/New.wav")) }
+        await referencer.waitUntilCreateStarts()
+        #expect(store.movePad(pad.id, by: -1))
+        #expect(store.renamePad(pad.id, label: "Renamed while loading"))
+        var replacement = reference
+        replacement.lastKnownPath = "/tmp/New.wav"
+        replacement.originalFilename = "New.wav"
+        await referencer.finishCreate(replacement)
+        #expect(await locate.value)
+        let restored = try #require(store.padTracks.first { $0.id == pad.id })
+        #expect(restored.label == "Renamed while loading")
+        #expect(restored.source == .external(replacement))
     }
 
     @Test @MainActor func failedLocateDoesNotRestoreAConcurrentlyRemovedPad() async throws {

@@ -47,7 +47,8 @@ Full installation instructions are in **[INSTALL.md](INSTALL.md)**.
   button, keyboard, or a mapped MIDI control. A Live tap stays a session tempo
   until you explicitly save it as the song default.
 - **Rehearse mode** — free-play pads, click, and count-off, with live level
-  control, without touching your setlist.
+  control, without touching your setlist. Rehearse levels, accent mode, and countoff
+  sound are session controls, separate from Live settings.
 - **MIDI controller mappings** — optionally learn MIDI Note On or Control
   Change messages for Start/Transition, cue navigation, Stop all, click, and
   the same context-aware pad action used by the Live screen.

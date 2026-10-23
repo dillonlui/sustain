@@ -122,6 +122,9 @@ final class AppStore {
     var padVolume: Double
     var clickVolume: Double
     var clickSettings: ClickSettings
+    var rehearseClickSettings: ClickSettings
+    var rehearsePadVolume: Double
+    var rehearseClickVolume: Double
     var audibleClickSubdivision: ClickSubdivision?
     var audibleClickAccentPattern: [ClickAccentLevel]?
     var activeLiveCountoffPolicy: CountoffPolicy?
@@ -166,6 +169,7 @@ final class AppStore {
     @ObservationIgnored private var clickChangeGeneration: UInt64 = 0
     @ObservationIgnored private var clickChangeInFlight = false
     @ObservationIgnored private var rehearsePadPreparationGeneration: UInt64 = 0
+    @ObservationIgnored private var padRelinkRequests: [PadTrack.ID: UUID] = [:]
     @ObservationIgnored private var audioRoutingFailureMessage: String?
 
     init(
@@ -201,6 +205,9 @@ final class AppStore {
         self.routingSettings = routingSettings
         self.padVolume = min(1, max(0, padVolume))
         self.clickVolume = min(1, max(0, clickVolume))
+        self.rehearseClickSettings = clickSettings
+        self.rehearsePadVolume = min(1, max(0, padVolume))
+        self.rehearseClickVolume = min(1, max(0, clickVolume))
         self.clickSettings = clickSettings
         self.midiControllerSettings = midiControllerSettings
         self.midiController = midiController
@@ -409,6 +416,7 @@ final class AppStore {
         let preparedClickSettings = clickSettings
         let preparedBPM = effectiveBPM(for: cuedEntry, song: cuedSong) ?? cuedSong.defaultBPM
         stopRehearsalForLiveSession()
+        applyLiveAudioLevels()
         runtime.playbackPhase = .songStarting
         let assignedPad = padTrack(for: cuedSong)
         let preservesMatchingPreroll = previousRuntime.playingEntryID == nil &&
@@ -453,11 +461,13 @@ final class AppStore {
                     self.startCuedSong()
                     return
                 }
+                var didBeginAudioCommit = false
                 do {
                     let preparedClick = try clickResult.get()
+                    didBeginAudioCommit = true
                     let countoffStartedAt = ContinuousClock.now
-                    // Commit only after every target resource is ready. These activation calls
-                    // schedule already-owned buffers and are deliberately nonthrowing.
+                    // Commit only after every target resource is ready. Pad activation
+                    // schedules owned buffers; click activation can still fail to start a device.
                     if let preparedPad {
                         guard self.audioEngine.activatePad(preparedPad) else {
                             self.restoreRuntimeAfterFailedPreparation(
@@ -501,10 +511,23 @@ final class AppStore {
                     self.refreshAudioStatus()
                 } catch {
                     if let preparedPad { self.audioEngine.discardPreparedPad(preparedPad) }
-                    self.restoreRuntimeAfterFailedPreparation(
-                        previousRuntime,
-                        message: error.localizedDescription
-                    )
+                    if didBeginAudioCommit {
+                        // Activation can fail after a pad was scheduled (e.g. device loss).
+                        // The old runtime snapshot no longer describes the actual audio.
+                        // Stop click and fade the audible pad rather than orphaning it.
+                        self.clickStateTask?.cancel()
+                        self.audioEngine.stopClick()
+                        self.runtime.playingEntryID = nil
+                        self.runtime.playbackPhase = .noSongPlaying
+                        self.runtime.clickState = .off
+                        self.clearCountoff()
+                        self.activeLiveCountoffPolicy = nil
+                        self.audibleClickSubdivision = nil
+                        self.audibleClickAccentPattern = nil
+                        self.beginLivePadFadeOut(message: error.localizedDescription)
+                    } else {
+                        self.restoreRuntimeAfterFailedPreparation(previousRuntime, message: error.localizedDescription)
+                    }
                     self.refreshAudioStatus()
                 }
             }
@@ -715,6 +738,7 @@ final class AppStore {
                     if self.liveStartGeneration == generation { self.runtime.padState = .off }
                     return
                 }
+                self.audioEngine.setPadVolume(self.padVolume)
                 guard self.audioEngine.activatePad(prepared) else {
                     self.runtime.padState = .off
                     self.runtime.lastMessage = "Pad preparation was superseded; try again"
@@ -761,6 +785,7 @@ final class AppStore {
                     self.audioEngine.discardPreparedPad(prepared)
                     return
                 }
+                self.audioEngine.setPadVolume(self.padVolume)
                 guard self.audioEngine.activatePad(prepared) else {
                     self.runtime.padState = self.runtime.audiblePadTrackID == nil ? .off : .playing
                     self.runtime.lastMessage = "Pad preparation was superseded; try again"
@@ -814,11 +839,14 @@ final class AppStore {
             rehearse.lastMessage = "\(pad.label) is already playing"
             return
         }
+        prepareCurrentAudioRoutingForStart()
+        guard canStartRehearseAudio() else { return }
         stopLiveSessionForRehearsal()
+        audioEngine.setPadVolume(rehearsePadVolume)
+        audioEngine.setClickVolume(rehearseClickVolume)
         rehearse.selectedPadTrackID = padID
         rehearse.selectedPadLabel = pad.label
         if let key = pad.source.bundledKey { rehearse.selectedKey = key }
-        prepareCurrentAudioRoutingForStart()
         rehearsePadPreparationGeneration &+= 1
         let preparationGeneration = rehearsePadPreparationGeneration
         rehearse.padState = .preparing
@@ -877,19 +905,32 @@ final class AppStore {
     }
 
     func stopRehearsePad() {
+        guard rehearse.padState != .off, rehearse.padState != .fadingOut else { return }
+        let wasPreparing = rehearse.padState == .preparing
         rehearsePadPreparationGeneration &+= 1
         padStateTask?.cancel()
         audioEngine.cancelPendingPadPreparation()
         audioEngine.stopPad()
-        rehearse.padState = .off
+        rehearse.padState = wasPreparing ? .off : .fadingOut
         rehearse.lastMessage = "Pad stopped"
+        if !wasPreparing {
+            padStateTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(1))
+                guard let self, !Task.isCancelled else { return }
+                self.rehearse.padState = .off
+                self.refreshAudioStatus()
+            }
+        }
         refreshAudioStatus()
     }
 
     func startRehearseClick() {
         cancelPendingClickChange()
-        stopLiveSessionForRehearsal()
         prepareCurrentAudioRoutingForStart()
+        guard canStartRehearseAudio() else { return }
+        stopLiveSessionForRehearsal()
+        audioEngine.setPadVolume(rehearsePadVolume)
+        audioEngine.setClickVolume(rehearseClickVolume)
         liveStartGeneration &+= 1
         let generation = liveStartGeneration
         let preparedBPM = rehearse.bpm
@@ -900,7 +941,7 @@ final class AppStore {
         let preparedPolicy = rehearse.countoffEnabled
             ? rehearse.countoffPolicy
             : CountoffPolicy(bars: 0, after: .continueClick)
-        let preparedClickSettings = clickSettings
+        let preparedClickSettings = rehearseClickSettings
         rehearse.clickState = .preparing
         rehearse.countoffBeat = nil
         rehearse.countoffTotal = nil
@@ -923,7 +964,7 @@ final class AppStore {
                   self.rehearse.pulseInterpretation == preparedPulse,
                   self.rehearse.clickAccentPattern == preparedAccents,
                   (self.rehearse.countoffEnabled ? self.rehearse.countoffPolicy : CountoffPolicy(bars: 0, after: .continueClick)) == preparedPolicy,
-                  self.clickSettings == preparedClickSettings else {
+                  self.rehearseClickSettings == preparedClickSettings else {
                 self.startRehearseClick()
                 return
             }
@@ -1245,7 +1286,7 @@ final class AppStore {
         let signature = rehearse.timeSignature
         let pulse = rehearse.pulseInterpretation
         let accents = rehearse.clickAccentPattern
-        let settings = clickSettings
+        let settings = rehearseClickSettings
         audioEngine.prepareClick(
             bpm: bpm,
             timeSignature: signature,
@@ -1383,12 +1424,14 @@ final class AppStore {
         midiLearnTimeoutTask?.cancel()
         midiLearnTimeoutTask = nil
         midiLearnState = .idle
+        midiMappingResolver.resetAllSources()
         saveLibrary()
         return true
     }
 
     func clearMIDIMapping(for action: MIDIAction) {
         midiControllerSettings.mappings.removeAll { $0.action == action }
+        midiMappingResolver.resetAllSources()
         saveLibrary()
     }
 
@@ -1446,7 +1489,7 @@ final class AppStore {
             pulseInterpretation: rehearse.pulseInterpretation,
             accentPattern: rehearse.clickAccentPattern,
             countoffPolicy: CountoffPolicy(bars: 0, after: .continueClick),
-            settings: clickSettings
+            settings: rehearseClickSettings
         ) { [weak self] result in
             guard let self else { return }
             guard self.liveStartGeneration == generation,
@@ -1466,6 +1509,41 @@ final class AppStore {
                 self.refreshAudioStatus()
             }
         }
+    }
+
+    private func canStartRehearseAudio() -> Bool {
+        let message = audioRoutingFailureMessage
+            ?? (routingSnapshot.outputs.isEmpty ? "No output audio device is available." : nil)
+            ?? routingSnapshot.missingSelectionMessages.first
+        if let message {
+            rehearse.lastMessage = message
+            return false
+        }
+        return true
+    }
+
+    private func applyLiveAudioLevels() {
+        audioEngine.setPadVolume(padVolume)
+        audioEngine.setClickVolume(clickVolume)
+    }
+
+    func setRehearsePadVolume(_ volume: Double) {
+        rehearsePadVolume = min(1, max(0, volume))
+        if rehearse.padState != .off { audioEngine.setPadVolume(rehearsePadVolume) }
+    }
+
+    func setRehearseClickVolume(_ volume: Double) {
+        rehearseClickVolume = min(1, max(0, volume))
+        if rehearse.clickState != .off { audioEngine.setClickVolume(rehearseClickVolume) }
+    }
+
+    func setRehearseAccentMode(_ mode: ClickAccentMode) {
+        rehearseClickSettings.accentMode = mode
+        restartActiveRehearseClickIfNeeded(message: "Click accent updated")
+    }
+
+    func setRehearseCountoffSound(_ sound: CountoffSound) {
+        rehearseClickSettings.countoffSound = sound
     }
 
     /// Applies pad volume to the engine and state without persisting — for continuous
@@ -1764,7 +1842,7 @@ final class AppStore {
         }
 
         let referencesPlaying = activeSetlist.entries.contains {
-            $0.songID == songID && $0.id == runtime.playingEntryID
+            $0.songID == songID && ($0.id == runtime.playingEntryID || $0.id == runtime.audiblePadEntryID)
         }
         guard !referencesPlaying else {
             persistenceStatus = "Stop playback before deleting the playing song"
@@ -1810,7 +1888,7 @@ final class AppStore {
     }
 
     func removeSetlistEntry(_ entryID: SetlistEntry.ID) {
-        guard runtime.playingEntryID != entryID else {
+        guard runtime.playingEntryID != entryID, runtime.audiblePadEntryID != entryID else {
             runtime.lastMessage = "Stop playback before removing the playing song"
             return
         }
@@ -1998,8 +2076,12 @@ final class AppStore {
             songs = previousSongs
             return false
         }
+        let removedTracks = padTracks
+        let reassignedSongs = songs
         undoManager?.registerUndo(withTarget: self) { target in
-            target.restorePadCatalog(tracks: previousTracks, songs: previousSongs, undoManager: undoManager)
+            target.restorePadCatalog(tracks: previousTracks, songs: previousSongs,
+                                     replacingTracks: removedTracks, replacingSongs: reassignedSongs,
+                                     undoManager: undoManager)
         }
         undoManager?.setActionName(targets.count == 1 ? "Remove Pad" : "Remove Pads")
         refreshReadiness()
@@ -2009,7 +2091,9 @@ final class AppStore {
 
     private func restorePadOrder(_ tracks: [PadTrack], undoManager: UndoManager?) {
         let current = padTracks
-        padTracks = tracks
+        let orderedIDs = Set(tracks.map(\.id))
+        padTracks = tracks.compactMap { track in current.first { $0.id == track.id } }
+            + current.filter { !orderedIDs.contains($0.id) }
         guard saveLibrary() else {
             padTracks = current
             return
@@ -2020,18 +2104,53 @@ final class AppStore {
         undoManager?.setActionName("Reorder Pads")
     }
 
-    private func restorePadCatalog(tracks: [PadTrack], songs restoredSongs: [Song], undoManager: UndoManager?) {
+    private func restorePadCatalog(
+        tracks: [PadTrack], songs restoredSongs: [Song],
+        replacingTracks: [PadTrack], replacingSongs: [Song], undoManager: UndoManager?
+    ) {
         let currentTracks = padTracks
         let currentSongs = songs
-        padTracks = tracks
-        songs = restoredSongs
+        let targetIDs = Set(tracks.map(\.id))
+        let previousIDs = Set(replacingTracks.map(\.id))
+        let removingIDs = previousIDs.subtracting(targetIDs)
+        guard !removingIDs.contains(where: { padPlaybackState(for: $0) != .off }) else {
+            runtime.lastMessage = "Stop the audible pad before removing it"
+            return
+        }
+        // Undo only the catalog membership and assignments changed by this operation.
+        // Titles, later songs/pads, and assignments explicitly changed since then survive.
+        padTracks.removeAll { removingIDs.contains($0.id) }
+        for (index, track) in tracks.enumerated()
+            where !previousIDs.contains(track.id) && !padTracks.contains(where: { $0.id == track.id }) {
+            let nextID = tracks.dropFirst(index + 1).first { candidate in
+                padTracks.contains { $0.id == candidate.id }
+            }?.id
+            let insertion = nextID.flatMap { next in padTracks.firstIndex { $0.id == next } } ?? padTracks.endIndex
+            padTracks.insert(track, at: insertion)
+        }
+        for index in songs.indices {
+            guard let restored = restoredSongs.first(where: { $0.id == songs[index].id }),
+                  let previous = replacingSongs.first(where: { $0.id == songs[index].id }),
+                  restored.padTrackID != previous.padTrackID,
+                  songs[index].padTrackID == previous.padTrackID else { continue }
+            if let padID = restored.padTrackID, !padTracks.contains(where: { $0.id == padID }) { continue }
+            songs[index].padTrackID = restored.padTrackID
+        }
+        // Redo must also remove references from songs added after the original undo.
+        for index in songs.indices where songs[index].padTrackID.map(removingIDs.contains) == true {
+            songs[index].padTrackID = nil
+        }
         guard saveLibrary() else {
             padTracks = currentTracks
             songs = currentSongs
             return
         }
+        let resultingTracks = padTracks
+        let resultingSongs = songs
         undoManager?.registerUndo(withTarget: self) { target in
-            target.restorePadCatalog(tracks: currentTracks, songs: currentSongs, undoManager: undoManager)
+            target.restorePadCatalog(tracks: currentTracks, songs: currentSongs,
+                                     replacingTracks: resultingTracks, replacingSongs: resultingSongs,
+                                     undoManager: undoManager)
         }
         undoManager?.setActionName("Remove Pads")
         refreshReadiness()
@@ -2046,13 +2165,21 @@ final class AppStore {
             runtime.lastMessage = "Included pads cannot be relinked"
             return false
         }
-        let previous = padTracks[index]
+        let originalSource = padTracks[index].source
+        let requestID = UUID()
+        padRelinkRequests[padID] = requestID
+        defer {
+            if padRelinkRequests[padID] == requestID { padRelinkRequests[padID] = nil }
+        }
         do {
             let reference = try await externalAudioReferencer.createReference(for: url)
-            guard padTracks.indices.contains(index), padTracks[index].id == padID else {
+            guard padRelinkRequests[padID] == requestID else { return false }
+            guard let index = padTracks.firstIndex(where: { $0.id == padID }),
+                  padTracks[index].source == originalSource else {
                 runtime.lastMessage = "The pad changed before the file was ready"
                 return false
             }
+            let previous = padTracks[index]
             padTracks[index].source = .external(reference)
             if !saveLibrary() {
                 padTracks[index] = previous
@@ -2064,6 +2191,7 @@ final class AppStore {
             runtime.lastMessage = "Located \(previous.label)"
             return true
         } catch {
+            guard padRelinkRequests[padID] == requestID else { return false }
             runtime.lastMessage = error.localizedDescription
             return false
         }
@@ -2632,9 +2760,9 @@ final class AppStore {
     private func prepareCurrentAudioRoutingForStart() {
         refreshRoutingSnapshot()
 
-        guard !audioEngine.isEngineRunning else {
-            return
-        }
+        // A pad engine stays running after its last player fades out. Engine-running
+        // alone must not prevent an idle reconnect from restoring device/channel routes.
+        guard !isAnyAudioActivityActive else { return }
 
         configureAudioRouting()
     }
@@ -2666,7 +2794,9 @@ final class AppStore {
     ) {
         let previousSnapshot = routingSnapshot
         refreshRoutingSnapshot()
-        guard forceValidation || routingSnapshot != previousSnapshot else { return }
+        let actualRoutingMatches = audioEngine.routingMatches(routingSnapshot)
+        guard forceValidation || routingSnapshot != previousSnapshot ||
+                (isAnyAudioActivityActive && !actualRoutingMatches) else { return }
 
         if let cuedEntry, let cuedSong = song(for: cuedEntry) {
             systemCheck = validate(entry: cuedEntry, song: cuedSong)
@@ -2678,21 +2808,25 @@ final class AppStore {
             return
         }
 
-        let isPlaying = runtime.playbackPhase != .noSongPlaying
-            || rehearse.padState != .off
-            || rehearse.clickState != .off
+        let isPlaying = isAnyAudioActivityActive
 
         if isPlaying {
-            // Keep playing when the devices we're actually using are unchanged: with the same
-            // resolved output IDs (or the same nil "follow default"), the running engine is
-            // provably unaffected — it's pinned to those devices, or its default output node
-            // already tracks the OS default. A bumped cable or an unrelated default switch no
-            // longer silences the service mid-song. We still surface the prompt so the operator
-            // can switch on purpose. If our output IDs actually shifted (e.g. a replug reassigned
-            // one), fall through to the safe stop so routing can be re-established.
+            // Ignore unrelated default changes, but revalidate the actual interface
+            // format as well as its ID after reconnects or Audio MIDI Setup edits.
+            func sameOutput(_ id: AudioDeviceID?) -> Bool {
+                let before = previousSnapshot.outputs.first { $0.id == id }
+                let after = routingSnapshot.outputs.first { $0.id == id }
+                return before?.name == after?.name &&
+                    before?.outputChannelCount == after?.outputChannelCount &&
+                    before?.nominalSampleRate == after?.nominalSampleRate
+            }
             let outputsUnchanged = routingSnapshot.padOutputID == previousSnapshot.padOutputID
                 && routingSnapshot.clickOutputID == previousSnapshot.clickOutputID
-            if outputsUnchanged {
+                && routingSnapshot.padOutputChannel == previousSnapshot.padOutputChannel
+                && routingSnapshot.clickOutputChannel == previousSnapshot.clickOutputChannel
+                && sameOutput(routingSnapshot.padOutputID)
+                && sameOutput(routingSnapshot.clickOutputID)
+            if outputsUnchanged && actualRoutingMatches {
                 runtime.lastMessage = readyMessage
                 refreshAudioStatus()
                 setRouteChangePrompt(from: routingSnapshot, previousSnapshot: previousSnapshot)

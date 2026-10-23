@@ -236,7 +236,7 @@ struct AudioRoutingResolver {
         outputs: [AudioOutputDevice],
         fallback: AudioOutputDevice?
     ) -> AudioOutputDevice? {
-        if let id, let output = outputs.first(where: { $0.id == id }) {
+        if let id, let output = outputs.first(where: { $0.id == id && (name == nil || $0.name == name) }) {
             return output
         }
 

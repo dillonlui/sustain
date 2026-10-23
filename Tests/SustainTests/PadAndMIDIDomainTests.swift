@@ -19,6 +19,89 @@ struct PadAndMIDIDomainTests {
         )
     }
 
+    @Test func padRemovalUndoPreservesSubsequentLibraryEdits() throws {
+        let store = AppStore.preview()
+        let custom = customPad()
+        store.padTracks.append(custom)
+        let songID = try #require(store.songs.first?.id)
+        #expect(store.setSongPadTrackID(songID, padTrackID: custom.id))
+        let reassignedSongID = store.songs[1].id
+        let deletedSongID = store.songs[2].id
+        #expect(store.setSongPadTrackID(reassignedSongID, padTrackID: custom.id))
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        #expect(store.removePads([custom.id], replacementPadID: nil, undoManager: undo))
+        undo.endUndoGrouping()
+        var draft = SongDraft(song: try #require(store.songs.first { $0.id == songID }))
+        draft.title = "Edited after removal"
+        #expect(store.saveSongDraft(draft) == songID)
+        let addedSong = store.addSong()
+        store.deleteSong(deletedSongID)
+        #expect(store.setSongPadTrackID(reassignedSongID, padTrackID: PadTrack.includedID(for: .e)))
+        let laterPad = customPad(label: "Later")
+        store.padTracks.append(laterPad)
+
+        undo.undo()
+        #expect(store.songs.first { $0.id == songID }?.title == "Edited after removal")
+        #expect(store.songs.first { $0.id == songID }?.padTrackID == custom.id)
+        #expect(store.songs.contains { $0.id == addedSong })
+        #expect(store.padTracks.contains { $0.id == laterPad.id })
+        #expect(!store.songs.contains { $0.id == deletedSongID })
+        #expect(store.songs.first { $0.id == reassignedSongID }?.padTrackID == PadTrack.includedID(for: .e))
+        undo.redo()
+        #expect(!store.padTracks.contains { $0.id == custom.id })
+        #expect(store.songs.first { $0.id == songID }?.title == "Edited after removal")
+        #expect(store.songs.contains { $0.id == addedSong })
+    }
+
+    @Test func padReorderUndoPreservesCurrentCatalogAndLabels() {
+        let store = AppStore.preview()
+        let first = customPad(label: "First")
+        let second = customPad(label: "Second")
+        store.padTracks.append(contentsOf: [first, second])
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        #expect(store.movePad(first.id, by: -2, undoManager: undo))
+        undo.endUndoGrouping()
+        #expect(store.renamePad(first.id, label: "Renamed"))
+        #expect(store.removePads([second.id], replacementPadID: nil))
+        let later = customPad(label: "Later")
+        store.padTracks.append(later)
+        undo.undo()
+        #expect(store.padTracks.first { $0.id == first.id }?.label == "Renamed")
+        #expect(!store.padTracks.contains { $0.id == second.id })
+        #expect(store.padTracks.contains { $0.id == later.id })
+    }
+
+    @Test func padRemovalRedoCannotRemoveAudiblePad() {
+        let store = AppStore.preview()
+        let pad = customPad()
+        store.padTracks.append(pad)
+        let undo = UndoManager()
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        #expect(store.removePads([pad.id], replacementPadID: nil, undoManager: undo))
+        undo.endUndoGrouping()
+        undo.undo()
+        store.runtime.audiblePadTrackID = pad.id
+        store.runtime.padState = .playing
+        undo.redo()
+        #expect(store.padTracks.contains { $0.id == pad.id })
+        #expect(store.runtime.lastMessage == "Stop the audible pad before removing it")
+    }
+
+    @Test func midiAnyControllerMappingConflictsWithSpecificSource() {
+        let message = MIDIMessageIdentity(kind: .controlChange, channel: 0, number: 12)
+        let specific = MIDIMapping(action: .stopAll, source: .source(uniqueID: 7), message: message)
+        let any = MIDIMapping(action: .startTransition, source: .any, message: message)
+        #expect(MIDIControllerMappingResolver.duplicateIdentity(in: [specific], candidate: any) == specific)
+        #expect(MIDIControllerMappingResolver.duplicateIdentity(in: [any], candidate: specific) == any)
+        let other = MIDIMapping(action: .toggleClick, source: .source(uniqueID: 8), message: message)
+        #expect(MIDIControllerMappingResolver.duplicateIdentity(in: [specific], candidate: other) == nil)
+    }
+
     @Test func includedPadIDsAreStableUniqueLiterals() {
         let expected = [
             "7B14A9F0-0A01-4B75-9000-000000000001",

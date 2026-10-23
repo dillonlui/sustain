@@ -14,6 +14,7 @@ trap cleanup EXIT
 
 hdiutil verify "$DMG" >/dev/null
 hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$MOUNT_POINT" >/dev/null
+build/dmg-tools/bin/python scripts/verify-dmg-layout.py "$MOUNT_POINT"
 ditto -x -k "$ARCHIVE" "$ZIP_POINT"
 scripts/compare-app-manifests.sh "$CANONICAL_APP" "$MOUNT_POINT/Sustain.app"
 scripts/compare-app-manifests.sh "$CANONICAL_APP" "$ZIP_POINT/Sustain.app"

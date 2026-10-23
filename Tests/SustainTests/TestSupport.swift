@@ -8,13 +8,16 @@ import Testing
 final class RecordingAudioEngine: AudioControlling {
     private var padIsActive = false
     private var clickIsActive = false
-    var isEngineRunning: Bool { padIsActive || clickIsActive }
+    var keepsEngineRunningWhileIdle = false
+    var isEngineRunning: Bool { keepsEngineRunningWhileIdle || padIsActive || clickIsActive }
     var padStartCount = 0
     var padPrepareCount = 0
     var padActivateCount = 0
     var clickStartCount = 0
     var clickStopCount = 0
     var padStopCount = 0
+    var routingIsValid = true
+    func routingMatches(_ snapshot: AudioRoutingSnapshot) -> Bool { routingIsValid }
     var stopAllCount = 0
     var startedPadKeys: [MusicalKey] = []
     var clickBPMHistory: [Int] = []
@@ -29,6 +32,7 @@ final class RecordingAudioEngine: AudioControlling {
     var missingPadKeys: Set<MusicalKey>
     var preloadedKeys: [MusicalKey] = []
     var shouldFailPadStart = false
+    var shouldFailClickActivation = false
     var shouldFailClickStart = false
     var shouldRejectPadActivation = false
     var shouldFailConfigureRouting = false
@@ -147,6 +151,7 @@ final class RecordingAudioEngine: AudioControlling {
     }
 
     func activateClick(_ prepared: PreparedClick) throws {
+        if shouldFailClickActivation { throw AudioEngineError.invalidOutputFormat }
         clickStartCount += 1
         clickIsActive = true
     }

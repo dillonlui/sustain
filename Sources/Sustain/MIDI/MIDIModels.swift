@@ -48,6 +48,13 @@ enum MIDIControllerSelection: Codable, Equatable, Hashable {
     case any
     case source(uniqueID: Int32)
 
+    func overlaps(_ other: Self) -> Bool {
+        switch (self, other) {
+        case (.any, _), (_, .any): true
+        case let (.source(left), .source(right)): left == right
+        }
+    }
+
     func matches(sourceUniqueID: Int32) -> Bool {
         switch self {
         case .any: true
@@ -119,7 +126,7 @@ struct MIDIControllerMappingResolver {
     static func duplicateIdentity(in mappings: [MIDIMapping], candidate: MIDIMapping) -> MIDIMapping? {
         mappings.first {
             $0.action != candidate.action &&
-                $0.source == candidate.source &&
+                $0.source.overlaps(candidate.source) &&
                 $0.message == candidate.message
         }
     }
@@ -239,12 +246,8 @@ struct MIDILearnCoordinator {
         guard case let .preview(candidate) = state else { return false }
         var mapping = candidate.mapping
         if useAnyController { mapping.source = .any }
-        guard MIDIControllerMappingResolver.duplicateIdentity(in: settings.mappings, candidate: mapping) == nil else {
-            if let existing = settings.mappings.first(where: {
-                $0.action != mapping.action && $0.source == mapping.source && $0.message == mapping.message
-            }) {
-                state = .duplicate(candidate: candidate, existingAction: existing.action)
-            }
+        if let existing = MIDIControllerMappingResolver.duplicateIdentity(in: settings.mappings, candidate: mapping) {
+            state = .duplicate(candidate: candidate, existingAction: existing.action)
             return false
         }
         settings.mappings.removeAll { $0.action == mapping.action }

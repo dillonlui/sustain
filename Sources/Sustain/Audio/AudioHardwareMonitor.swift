@@ -88,10 +88,10 @@ final class CoreAudioHardwareMonitor: AudioHardwareMonitoring {
         defaultOutputListenerRegistered = addListener(for: &defaultOutputAddress)
         isListening = devicesListenerRegistered || defaultOutputListenerRegistered
 
-        if !isListening {
-            fallbackMonitor.start(onChange: onChange)
-            isFallbackActive = true
-        }
+        // Device-list notifications do not cover sample-rate/channel changes on an
+        // existing interface. Poll as a backstop even when listeners registered.
+        fallbackMonitor.start(onChange: onChange)
+        isFallbackActive = true
     }
 
     func stop() {

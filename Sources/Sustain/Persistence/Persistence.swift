@@ -62,6 +62,12 @@ struct LibrarySnapshot: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         // Legacy files (shipped before versioning) have no field → treat as v1.
         let decodedSchemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        // Check the version before decoding any version-dependent content. A future
+        // schema may legitimately change those fields; it must never be quarantined
+        // as corruption or replaced with an older backup.
+        guard decodedSchemaVersion <= Self.currentSchemaVersion else {
+            throw LibraryLoadError.newerSchema(found: decodedSchemaVersion, supported: Self.currentSchemaVersion)
+        }
         let decodedSongs = try container.decode([Song].self, forKey: .songs)
         let decodedPadPacks = try container.decodeIfPresent([PadPack].self, forKey: .padPacks)
         let decodedSetlist = try container.decode(Setlist.self, forKey: .activeSetlist)
@@ -144,11 +150,7 @@ struct LibrarySnapshot: Codable, Equatable {
             forKey: .midiControllerSettings
         ) ?? .disabled
 
-        // Preserve a future version so LocalLibraryStore can reject it without quarantining.
-        // Successfully decoded v1 data is fully migrated in memory to the v2 canonical model.
-        schemaVersion = decodedSchemaVersion > Self.currentSchemaVersion
-            ? decodedSchemaVersion
-            : Self.currentSchemaVersion
+        schemaVersion = Self.currentSchemaVersion
         needsMigrationSave = decodedSchemaVersion < Self.currentSchemaVersion
     }
 

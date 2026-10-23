@@ -72,6 +72,21 @@ struct CoreMIDIControllerTests {
         #expect(received.values.last?.identity.number == 60)
     }
 
+    @Test @MainActor func quickCCPressAndReleaseBothReachTheResolver() {
+        let received = LockedMIDIEvents()
+        let relay = BoundedMIDIEventRelay(delivery: received.append)
+        for value: UInt8 in [127, 0, 127, 0] {
+            relay.offer(MIDIMessage(sourceUniqueID: 1, kind: .controlChange, channel: 0, number: 7, value: value))
+        }
+        relay.drainNowForTesting()
+        var resolver = MIDIControllerMappingResolver()
+        let settings = MIDIControllerSettings(isEnabled: true, selectedSource: .any, mappings: [
+            MIDIMapping(action: .stopAll, source: .any,
+                        message: MIDIMessageIdentity(kind: .controlChange, channel: 0, number: 7))
+        ])
+        #expect(received.values.compactMap { resolver.action(for: $0, settings: settings) } == [.stopAll, .stopAll])
+    }
+
     @Test func topologyDeltaReconnectsByUniqueIDNotDisplayMetadata() {
         let delta = MIDISourceTopologyDelta.compare(
             connected: [10, 20],

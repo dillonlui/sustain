@@ -76,10 +76,12 @@ protocol AudioControlling: AnyObject {
     func stopClick()
     func setPadVolume(_ volume: Double)
     func setClickVolume(_ volume: Double)
+    func routingMatches(_ snapshot: AudioRoutingSnapshot) -> Bool
     func stopAll()
 }
 
 extension AudioControlling {
+    func routingMatches(_ snapshot: AudioRoutingSnapshot) -> Bool { true }
     /// Optional: engines that decode real files override this to warm a cache off the
     /// main thread. No-op by default.
     func preloadPad(for key: MusicalKey, padPack: PadPack) {}
@@ -656,7 +658,7 @@ final class SustainAudioEngine: AudioControlling {
             let oldMixer = padMixers[oldIndex]
             let generation = nextPadGeneration(at: oldIndex)
             fade(mixer: oldMixer, at: oldIndex, to: 0, duration: 1.25)
-            scheduleStop(player: oldPlayer, at: oldIndex, generation: generation, after: 1.25)
+            scheduleStop(player: oldPlayer, at: oldIndex, generation: generation)
         }
 
         activePadIndex = newIndex
@@ -666,13 +668,15 @@ final class SustainAudioEngine: AudioControlling {
 
     func stopPad() {
         padStartGeneration &+= 1  // supersede any pending off-main decode
-        guard let activePadIndex else { return }
+        guard activePadIndex != nil else { return }
 
-        let player = padPlayers[activePadIndex]
-        let mixer = padMixers[activePadIndex]
-        let generation = nextPadGeneration(at: activePadIndex)
-        fade(mixer: mixer, at: activePadIndex, to: 0, duration: 1.0)
-        scheduleStop(player: player, at: activePadIndex, generation: generation, after: 1.0)
+        // A song transition can have both players audible. Fade both from their
+        // current levels so no older crossfade tail outlives the Stop fade.
+        for index in padPlayers.indices where padPlayers[index].isPlaying {
+            let generation = nextPadGeneration(at: index)
+            fade(mixer: padMixers[index], at: index, to: 0, duration: 1.0)
+            scheduleStop(player: padPlayers[index], at: index, generation: generation)
+        }
 
         self.activePadIndex = nil
         activePadKey = nil
@@ -733,8 +737,8 @@ final class SustainAudioEngine: AudioControlling {
         }
         activeCountoffGeneration = try clickRenderer.start(prepared, stopsAfterCountoff: prepared.stopsAfterCountoff)
         activeClickStopsAfterCountoff = prepared.stopsAfterCountoff
-        try startClickEngineIfNeeded()
         clickMixer.pan = clickOutputChannel.pan
+        try startClickEngineIfNeeded()
         clickIsActive = true
     }
 
@@ -801,6 +805,21 @@ final class SustainAudioEngine: AudioControlling {
         }
     }
 
+    func routingMatches(_ snapshot: AudioRoutingSnapshot) -> Bool {
+        func matches(_ engine: AVAudioEngine, expected: AudioDeviceID?) -> Bool {
+            guard let expected, let unit = engine.outputNode.audioUnit else { return false }
+            var actual = AudioDeviceID()
+            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+            return AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
+                                        kAudioUnitScope_Global, 0, &actual, &size) == noErr
+                && actual == expected
+        }
+        return matches(padEngine, expected: snapshot.padOutputID)
+            && matches(clickEngine, expected: snapshot.clickOutputID)
+            && padPlayers.allSatisfy { $0.pan == snapshot.padOutputChannel.pan }
+            && clickMixer.pan == snapshot.clickOutputChannel.pan
+    }
+
     private func applyOutputChannelRouting() {
         for player in padPlayers {
             player.pan = padOutputChannel.pan
@@ -818,8 +837,11 @@ final class SustainAudioEngine: AudioControlling {
         let delay = UInt64(duration / Double(steps) * 1_000_000_000)
 
         padFadeTasks[index] = Task { @MainActor in
+            let clock = ContinuousClock()
+            let startTime = clock.now
             for step in 1...steps {
-                try? await Task.sleep(nanoseconds: delay)
+                // Absolute deadlines avoid accumulating scheduling delays at every step.
+                try? await clock.sleep(until: startTime + .nanoseconds(Int64(delay) * Int64(step)))
                 guard !Task.isCancelled else { return }
                 let progress = Float(step) / Float(steps)
                 mixer.outputVolume = start + (target - start) * progress
@@ -830,12 +852,14 @@ final class SustainAudioEngine: AudioControlling {
     private func scheduleStop(
         player: AVAudioPlayerNode,
         at index: Int,
-        generation: Int,
-        after duration: TimeInterval
+        generation: Int
     ) {
         padStopTasks[index]?.cancel()
+        let fadeTask = padFadeTasks[index]
         padStopTasks[index] = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            // Stop only after the ramp actually reaches zero. A wall-clock timer can
+            // beat a ramp delayed by main-actor work and cut a still-audible pad.
+            await fadeTask?.value
             guard !Task.isCancelled, padGenerations[index] == generation else { return }
             player.stop()
         }
@@ -859,6 +883,7 @@ final class SustainAudioEngine: AudioControlling {
     }
 
     private func stopPadsImmediately() {
+        padStartGeneration &+= 1
         for index in padPlayers.indices {
             cancelPadTasks(at: index)
             padGenerations[index] += 1

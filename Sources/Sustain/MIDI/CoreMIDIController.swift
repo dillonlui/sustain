@@ -41,8 +41,8 @@ enum MIDIProtocolEventParser {
     }
 }
 
-/// A callback-safe bounded relay. CC state for the same source/channel/number is replaced in
-/// place; when full, new non-coalescible events are dropped. One main-queue drain is scheduled
+/// A callback-safe bounded relay. CC values within the same pressed/released state coalesce
+/// in place; when full, new non-coalescible events are dropped. One main-queue drain is scheduled
 /// regardless of callback burst size, so callback work and retained memory stay bounded.
 final class BoundedMIDIEventRelay: @unchecked Sendable {
     typealias Delivery = @Sendable ([MIDIMessage]) -> Void
@@ -70,7 +70,10 @@ final class BoundedMIDIEventRelay: @unchecked Sendable {
         let shouldSchedule = lock.withLock {
             if event.identity.kind == .controlChange {
                 let key = CCKey(source: event.sourceUniqueID, channel: event.identity.channel, number: event.identity.number)
-                if let index = ccIndices[key], queued.indices.contains(index) {
+                if let index = ccIndices[key], queued.indices.contains(index),
+                   (queued[index].value == 0) == (event.value == 0) {
+                    // Coalesce value changes only within the same button state.
+                    // A press/release pair in one drain must retain both edges.
                     queued[index] = event
                     return false
                 }

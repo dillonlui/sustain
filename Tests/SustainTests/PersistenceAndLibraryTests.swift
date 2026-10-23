@@ -224,6 +224,22 @@ extension RuntimeSessionTests {
         #expect(store.persistenceStatus.hasPrefix("Library save failed"))
     }
 
+    @Test func incompatibleFutureLibraryIsPreservedBeforeDecodingContents() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = LocalLibraryStore(directoryOverride: directory)
+        try store.saveLibrary(AppStore.seedSnapshot())
+        try store.saveLibrary(AppStore.seedSnapshot()) // valid older backup must not replace future primary
+        let primary = directory.appendingPathComponent("Library.json")
+        let future = try JSONSerialization.data(withJSONObject: [
+            "schemaVersion": LibrarySnapshot.currentSchemaVersion + 1,
+            "songs": "a future incompatible representation"
+        ])
+        try future.write(to: primary)
+        #expect(throws: LibraryLoadError.self) { try store.loadLibrary() }
+        #expect(try Data(contentsOf: primary) == future)
+    }
+
     @Test func newerSchemaFileThrowsDistinctErrorAndIsNotQuarantined() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SustainTests-\(UUID().uuidString)", isDirectory: true)
