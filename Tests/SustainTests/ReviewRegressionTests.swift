@@ -149,7 +149,9 @@ struct ReviewRegressionTests {
     }
 
     private func waitForClickState(_ state: ClickPlaybackState, in store: AppStore) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        // Match the existing transport tests: Intel CI may spend over 15 seconds
+        // in other main-actor suites before countoff tasks get scheduled.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
         while store.rehearse.clickState != state && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
