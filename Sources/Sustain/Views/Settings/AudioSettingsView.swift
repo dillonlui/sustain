@@ -20,6 +20,21 @@ struct AudioSettingsView: View {
                 Button("Refresh Devices", systemImage: "arrow.clockwise") {
                     store.refreshAudioDiagnostics()
                 }
+                VStack(alignment: .leading, spacing: SustainSpace.xs) {
+                    Button("Restart Audio", systemImage: "arrow.counterclockwise") {
+                        store.restartAudio()
+                    }
+                    Text("Stops playback and reconnects your selected outputs. Your output settings will be kept.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let result = store.audioRestartResult {
+                    SustainInlineNotice(message: result.message, kind: result.succeeded ? .success : .error)
+                    if result.succeeded {
+                        LabeledContent("Pad", value: store.routingSnapshot.padRouteName)
+                        LabeledContent("Metronome", value: store.routingSnapshot.clickRouteName)
+                    }
+                }
             }
 
             Section("Pad Output") {
@@ -78,6 +93,7 @@ struct AudioSettingsView: View {
     }
 
     private var routeStatusTitle: String {
+        if store.audioRestartResult?.succeeded == false { return "Audio needs attention" }
         if store.routingSnapshot.warning == nil {
             return "Routes are ready"
         }

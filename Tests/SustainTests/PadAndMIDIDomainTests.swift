@@ -35,7 +35,7 @@ struct PadAndMIDIDomainTests {
         undo.endUndoGrouping()
         var draft = SongDraft(song: try #require(store.songs.first { $0.id == songID }))
         draft.title = "Edited after removal"
-        #expect(store.saveSongDraft(draft) == songID)
+        #expect(store.saveSongDraft(&draft) == songID)
         let addedSong = store.addSong()
         store.deleteSong(deletedSongID)
         #expect(store.setSongPadTrackID(reassignedSongID, padTrackID: PadTrack.includedID(for: .e)))

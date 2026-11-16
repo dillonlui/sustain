@@ -18,6 +18,8 @@ final class RecordingAudioEngine: AudioControlling {
     var padStopCount = 0
     var routingIsValid = true
     func routingMatches(_ snapshot: AudioRoutingSnapshot) -> Bool { routingIsValid }
+    var resetAudioConnectionCount = 0
+    func resetAudioConnection() { resetAudioConnectionCount += 1; stopAll() }
     var stopAllCount = 0
     var startedPadKeys: [MusicalKey] = []
     var clickBPMHistory: [Int] = []
