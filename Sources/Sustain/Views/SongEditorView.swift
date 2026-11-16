@@ -317,7 +317,7 @@ struct SongEditorView: View {
     private var tempoField: some View {
         VStack(alignment: .leading, spacing: SustainSpace.xs) {
             Text("Tempo").font(.callout.weight(.medium))
-            TempoControl(value: $draft.defaultBPM, label: "")
+            TempoControl(value: $draft.defaultBPM, label: "", commitsWhileEditing: true)
             Text(ClickPulseGrid(timeSignature: draft.timeSignature,
                                 pulseInterpretation: draft.pulseInterpretation,
                                 bpm: max(40, draft.defaultBPM), sampleRate: 44_100).pulseUnitLabel)
@@ -389,7 +389,7 @@ struct SongEditorView: View {
     }
 
     private func save() {
-        guard let savedID = store.saveSongDraft(draft) else {
+        guard let savedID = store.saveSongDraft(&draft) else {
             errorMessage = store.persistenceStatus
             return
         }

@@ -1,3 +1,4 @@
+import AudioToolbox
 import CoreAudio
 import Foundation
 
@@ -28,6 +29,21 @@ enum AudioOutputChannelSelection: String, CaseIterable, Codable, Identifiable {
         case .stereo: false
         case .output1, .output2: true
         }
+    }
+
+    /// Destination hardware channels map to the mono fold-down or stereo source.
+    /// -1 explicitly silences every unselected output, including outputs beyond 1–2.
+    func channelMap(outputChannelCount: Int) -> [Int32]? {
+        guard outputChannelCount >= requiredChannelCount else { return nil }
+        var map = [Int32](repeating: -1, count: outputChannelCount)
+        switch self {
+        case .stereo:
+            map[0] = 0
+            if outputChannelCount > 1 { map[1] = 1 }
+        case .output1: map[0] = 0
+        case .output2: map[1] = 0
+        }
+        return map
     }
 
     var pan: Float {
@@ -421,5 +437,30 @@ struct StaticAudioRoutingProvider: AudioRoutingProviding {
 
     func snapshot(settings: AudioRoutingSettings = .default) -> AudioRoutingSnapshot {
         snapshotValue
+    }
+}
+
+/// Shared by the device output and signal-level converter tests.
+enum OutputChannelMap {
+    static func apply(_ map: [Int32], to unit: AudioUnit) throws {
+        guard !map.isEmpty else { throw AudioEngineError.invalidOutputFormat }
+        let status = map.withUnsafeBufferPointer {
+            AudioUnitSetProperty(unit, kAudioOutputUnitProperty_ChannelMap,
+                                 kAudioUnitScope_Output, 0, $0.baseAddress!,
+                                 UInt32($0.count * MemoryLayout<Int32>.size))
+        }
+        guard status == noErr else { throw AudioEngineError.outputChannelAssignmentFailed(status) }
+    }
+
+    static func matches(_ expected: [Int32], on unit: AudioUnit) -> Bool {
+        guard !expected.isEmpty else { return false }
+        var actual = [Int32](repeating: -2, count: expected.count)
+        var size = UInt32(actual.count * MemoryLayout<Int32>.size)
+        let status = actual.withUnsafeMutableBufferPointer {
+            AudioUnitGetProperty(unit, kAudioOutputUnitProperty_ChannelMap,
+                                 kAudioUnitScope_Output, 0, $0.baseAddress!, &size)
+        }
+        return status == noErr && size == UInt32(expected.count * MemoryLayout<Int32>.size)
+            && actual == expected
     }
 }

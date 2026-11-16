@@ -5,6 +5,7 @@ import Foundation
 enum AudioEngineError: LocalizedError {
     case invalidBPM(Int)
     case invalidOutputFormat
+    case outputChannelAssignmentFailed(OSStatus)
     case outputDeviceAssignmentFailed(deviceID: AudioDeviceID, status: OSStatus)
     case missingPadFile(pack: String, key: MusicalKey)
     case unreadablePadFile(URL)
@@ -13,6 +14,8 @@ enum AudioEngineError: LocalizedError {
         switch self {
         case .invalidBPM(let bpm):
             "BPM must be greater than zero. Received \(bpm)."
+        case .outputChannelAssignmentFailed(let status):
+            "Could not isolate the selected output channel. Core Audio status: \(status)."
         case .invalidOutputFormat:
             "The system output format is not available."
         case .outputDeviceAssignmentFailed(let deviceID, let status):
@@ -35,6 +38,7 @@ protocol AudioControlling: AnyObject {
 
     func prepare()
     func configureRouting(_ snapshot: AudioRoutingSnapshot) throws
+    func resetAudioConnection()
     func padAssetState(for pad: PadTrack) -> PadAssetState
     func preparePad(
         _ pad: PadTrack,
@@ -81,6 +85,7 @@ protocol AudioControlling: AnyObject {
 }
 
 extension AudioControlling {
+    func resetAudioConnection() { stopAll() }
     func routingMatches(_ snapshot: AudioRoutingSnapshot) -> Bool { true }
     /// Optional: engines that decode real files override this to warm a cache off the
     /// main thread. No-op by default.
@@ -143,6 +148,7 @@ final class SustainAudioEngine: AudioControlling {
     private var padVolume: Float = 0.42
     private var clickVolume: Float = 0.75
     private var routingSummary = "Default output"
+    private var configuredRouting: AudioRoutingSnapshot?
     private var padOutputChannel: AudioOutputChannelSelection = .stereo
     private var clickOutputChannel: AudioOutputChannelSelection = .stereo
     private var padFadeTasks: [Task<Void, Never>?] = [nil, nil]
@@ -203,7 +209,7 @@ final class SustainAudioEngine: AudioControlling {
 
         let hardwareFormat = clickEngine.outputNode.inputFormat(forBus: 0)
         let sampleRate = hardwareFormat.sampleRate > 0 ? hardwareFormat.sampleRate : 44_100
-        let channelCount = hardwareFormat.channelCount > 0 ? min(hardwareFormat.channelCount, 2) : 2
+        let channelCount: AVAudioChannelCount = 2
         // Safe unwrap: sampleRate is guaranteed > 0 and channelCount ∈ {1,2} above, which is a
         // valid standard PCM format. `init` can't throw; there's no non-failable AVAudioFormat
         // initializer, so the fallback is a hardcoded, always-valid format.
@@ -247,7 +253,19 @@ final class SustainAudioEngine: AudioControlling {
         clickEngine.prepare()
     }
 
+    func resetAudioConnection() {
+        stopAll()
+        padEngine.stop()
+        clickEngine.stop()
+        padEngine.reset()
+        clickEngine.reset()
+        // Drop the old output connections before configureRouting rebuilds them.
+        padEngine.disconnectNodeOutput(padEngine.mainMixerNode)
+        clickEngine.disconnectNodeOutput(clickEngine.mainMixerNode)
+    }
+
     func configureRouting(_ snapshot: AudioRoutingSnapshot) throws {
+        configuredRouting = nil
         if padEngine.isRunning || clickEngine.isRunning {
             stopAll()
             padEngine.stop()
@@ -264,7 +282,13 @@ final class SustainAudioEngine: AudioControlling {
 
         padOutputChannel = snapshot.padOutputChannel
         clickOutputChannel = snapshot.clickOutputChannel
-        applyOutputChannelRouting()
+        try configureOutputChannels(on: padEngine, selection: padOutputChannel)
+        try configureOutputChannels(on: clickEngine, selection: clickOutputChannel)
+        guard deviceMatches(padEngine, expected: snapshot.padOutputID),
+              deviceMatches(clickEngine, expected: snapshot.clickOutputID) else {
+            throw AudioEngineError.invalidOutputFormat
+        }
+        configuredRouting = snapshot
         routingSummary = snapshot.summary
     }
 
@@ -426,6 +450,12 @@ final class SustainAudioEngine: AudioControlling {
     }
 
     @discardableResult func activatePad(_ prepared: PreparedPad) -> Bool {
+        guard deviceMatches(padEngine, expected: configuredRouting?.padOutputID),
+              outputChannelsMatch(on: padEngine, selection: padOutputChannel) else {
+            stopAll()
+            padEngine.stop()
+            return false
+        }
         guard prepared.generation == preparationGeneration,
               preparedKeysByToken.removeValue(forKey: prepared.token) != nil else {
             discardPreparedPad(prepared)
@@ -542,10 +572,11 @@ final class SustainAudioEngine: AudioControlling {
             clickRenderer.stop()
             clickIsActive = false
         }
-        clickMixer.pan = clickOutputChannel.pan
+        clickMixer.pan = 0
+        // Validate the silent output first so startup muting cannot swallow beat one.
+        try startClickEngineIfNeeded()
         activeCountoffGeneration = try clickRenderer.start(prepared, stopsAfterCountoff: prepared.stopsAfterCountoff)
         activeClickStopsAfterCountoff = prepared.stopsAfterCountoff
-        try startClickEngineIfNeeded()
         clickIsActive = true
     }
 
@@ -653,7 +684,7 @@ final class SustainAudioEngine: AudioControlling {
         cancelPadTasks(at: newIndex)
         padGenerations[newIndex] += 1
         player.stop()
-        player.pan = padOutputChannel.pan
+        player.pan = 0
         mixer.outputVolume = 0
         player.scheduleBuffer(buffer, at: nil, options: .loops)
         player.play()
@@ -742,10 +773,10 @@ final class SustainAudioEngine: AudioControlling {
             clickRenderer.stop()
             clickIsActive = false
         }
+        clickMixer.pan = 0
+        try startClickEngineIfNeeded()
         activeCountoffGeneration = try clickRenderer.start(prepared, stopsAfterCountoff: prepared.stopsAfterCountoff)
         activeClickStopsAfterCountoff = prepared.stopsAfterCountoff
-        clickMixer.pan = clickOutputChannel.pan
-        try startClickEngineIfNeeded()
         clickIsActive = true
     }
 
@@ -782,15 +813,13 @@ final class SustainAudioEngine: AudioControlling {
     }
 
     private func startPadEngineIfNeeded() throws {
-        if !padEngine.isRunning {
-            try padEngine.start()
-        }
+        try startRoutedEngine(padEngine, selection: padOutputChannel,
+                              expectedDevice: configuredRouting?.padOutputID)
     }
 
     private func startClickEngineIfNeeded() throws {
-        if !clickEngine.isRunning {
-            try clickEngine.start()
-        }
+        try startRoutedEngine(clickEngine, selection: clickOutputChannel,
+                              expectedDevice: configuredRouting?.clickOutputID)
     }
 
     private func setOutputDevice(_ deviceID: AudioDeviceID, on engine: AVAudioEngine) throws {
@@ -812,26 +841,91 @@ final class SustainAudioEngine: AudioControlling {
         }
     }
 
-    func routingMatches(_ snapshot: AudioRoutingSnapshot) -> Bool {
-        func matches(_ engine: AVAudioEngine, expected: AudioDeviceID?) -> Bool {
-            guard let expected, let unit = engine.outputNode.audioUnit else { return false }
-            var actual = AudioDeviceID()
-            var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-            return AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
-                                        kAudioUnitScope_Global, 0, &actual, &size) == noErr
-                && actual == expected
-        }
-        return matches(padEngine, expected: snapshot.padOutputID)
-            && matches(clickEngine, expected: snapshot.clickOutputID)
-            && padPlayers.allSatisfy { $0.pan == snapshot.padOutputChannel.pan }
-            && clickMixer.pan == snapshot.clickOutputChannel.pan
+    private func deviceMatches(_ engine: AVAudioEngine, expected: AudioDeviceID?) -> Bool {
+        guard let expected, let unit = engine.outputNode.audioUnit else { return false }
+        var actual = AudioDeviceID()
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        return AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
+                                    kAudioUnitScope_Global, 0, &actual, &size) == noErr
+            && actual == expected
     }
 
-    private func applyOutputChannelRouting() {
-        for player in padPlayers {
-            player.pan = padOutputChannel.pan
+    func routingMatches(_ snapshot: AudioRoutingSnapshot) -> Bool {
+        return deviceMatches(padEngine, expected: snapshot.padOutputID)
+            && deviceMatches(clickEngine, expected: snapshot.clickOutputID)
+            && outputChannelsMatch(on: padEngine, selection: snapshot.padOutputChannel)
+            && outputChannelsMatch(on: clickEngine, selection: snapshot.clickOutputChannel)
+    }
+
+    private func expectedChannelMap(on engine: AVAudioEngine,
+                                    selection: AudioOutputChannelSelection) throws -> [Int32] {
+        let count = Int(engine.outputNode.outputFormat(forBus: 0).channelCount)
+        guard let map = selection.channelMap(outputChannelCount: count) else {
+            throw AudioEngineError.invalidOutputFormat
         }
-        clickMixer.pan = clickOutputChannel.pan
+        return map
+    }
+
+    private func configureOutputChannels(on engine: AVAudioEngine,
+                                         selection: AudioOutputChannelSelection) throws {
+        let hardware = engine.outputNode.outputFormat(forBus: 0)
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: hardware.sampleRate,
+                                        channels: selection.isExclusiveMono ? 1 : min(2, hardware.channelCount)) else {
+            throw AudioEngineError.invalidOutputFormat
+        }
+        // Fold stereo pads down before mapping. No routing decision depends on pan state
+        // surviving a graph initialization or an output-device change.
+        engine.disconnectNodeOutput(engine.mainMixerNode)
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: format)
+        engine.prepare()
+        try applyChannelMap(on: engine, selection: selection)
+    }
+
+    private func applyChannelMap(on engine: AVAudioEngine,
+                                 selection: AudioOutputChannelSelection) throws {
+        guard let unit = engine.outputNode.audioUnit else { throw AudioEngineError.invalidOutputFormat }
+        let map = try expectedChannelMap(on: engine, selection: selection)
+        try OutputChannelMap.apply(map, to: unit)
+        guard outputChannelsMatch(on: engine, selection: selection) else {
+            throw AudioEngineError.invalidOutputFormat
+        }
+    }
+
+    private func outputChannelsMatch(on engine: AVAudioEngine,
+                                     selection: AudioOutputChannelSelection) -> Bool {
+        guard let unit = engine.outputNode.audioUnit,
+              let expected = try? expectedChannelMap(on: engine, selection: selection) else { return false }
+        let expectedChannels: AVAudioChannelCount = selection.isExclusiveMono ? 1 : min(2, AVAudioChannelCount(expected.count))
+        return OutputChannelMap.matches(expected, on: unit)
+            && engine.mainMixerNode.outputFormat(forBus: 0).channelCount == expectedChannels
+    }
+
+    private func startRoutedEngine(_ engine: AVAudioEngine,
+                                   selection: AudioOutputChannelSelection,
+                                   expectedDevice: AudioDeviceID?) throws {
+        guard deviceMatches(engine, expected: expectedDevice) else {
+            engine.stop()
+            throw AudioEngineError.invalidOutputFormat
+        }
+        if engine.isRunning {
+            guard outputChannelsMatch(on: engine, selection: selection) else {
+                engine.stop()
+                throw AudioEngineError.invalidOutputFormat
+            }
+            return
+        }
+        // Keep the first render buffers silent while startup may rebuild the graph.
+        let volume = engine.mainMixerNode.outputVolume
+        engine.mainMixerNode.outputVolume = 0
+        defer { engine.mainMixerNode.outputVolume = volume }
+        engine.prepare()
+        try applyChannelMap(on: engine, selection: selection)
+        try engine.start()
+        guard deviceMatches(engine, expected: expectedDevice),
+              outputChannelsMatch(on: engine, selection: selection) else {
+            engine.stop()
+            throw AudioEngineError.invalidOutputFormat
+        }
     }
 
     private func fade(mixer: AVAudioMixerNode, at index: Int, to target: Float, duration: TimeInterval) {

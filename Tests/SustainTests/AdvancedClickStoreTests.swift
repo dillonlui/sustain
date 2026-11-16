@@ -35,10 +35,10 @@ import Testing
 
         var firstDraft = SongDraft(song: song)
         firstDraft.clickAccentPattern = first
-        #expect(store.saveSongDraft(firstDraft) == song.id)
+        #expect(store.saveSongDraft(&firstDraft) == song.id)
         var lastDraft = SongDraft(song: try #require(store.songs.first { $0.id == song.id }))
         lastDraft.clickAccentPattern = last
-        #expect(store.saveSongDraft(lastDraft) == song.id)
+        #expect(store.saveSongDraft(&lastDraft) == song.id)
         audio.completePendingClickSwitch()
         #expect(store.audibleClickAccentPattern == first)
         #expect(store.pendingClickSubdivision(for: song.id) != nil)
@@ -77,13 +77,13 @@ import Testing
 
         var draft = SongDraft(song: song)
         draft.defaultBPM = 80
-        #expect(store.saveSongDraft(draft) == song.id)
+        #expect(store.saveSongDraft(&draft) == song.id)
         #expect(audio.clickBPMHistory.count == initialStarts)
         #expect(store.effectiveBPM(for: entry) == 120)
 
         var meterDraft = SongDraft(song: try #require(store.song(for: entry)))
         meterDraft.timeSignature = .threeFour
-        #expect(store.saveSongDraft(meterDraft) == song.id)
+        #expect(store.saveSongDraft(&meterDraft) == song.id)
         #expect(audio.clickBPMHistory.last == 120)
     }
 

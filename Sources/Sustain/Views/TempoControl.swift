@@ -5,6 +5,7 @@ struct TempoControl: View {
     @Binding var value: Int
     var label = "Tempo"
     var range = 40...220
+    var commitsWhileEditing = false
 
     @State private var draft = ""
     @FocusState private var textFieldFocused: Bool
@@ -17,7 +18,12 @@ struct TempoControl: View {
                 Spacer(minLength: SustainSpace.md)
             }
 
-            TextField("", text: $draft)
+            TextField("", text: Binding(get: { draft }, set: { text in
+                draft = text
+                if commitsWhileEditing, let candidate = Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    value = min(range.upperBound, max(range.lowerBound, candidate))
+                }
+            }))
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 52)

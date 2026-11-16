@@ -16,6 +16,7 @@ struct LibrarySnapshot: Codable, Equatable {
     var padVolume: Double
     var clickVolume: Double
     var clickSettings: ClickSettings
+    var rehearsePreferences: RehearsePreferences?
     var midiControllerSettings: MIDIControllerSettings
     /// Runtime-only signal used by LocalLibraryStore to durably rewrite an older schema.
     /// Omitted from CodingKeys, so it is never part of the persisted format.
@@ -30,7 +31,8 @@ struct LibrarySnapshot: Codable, Equatable {
         padVolume: Double = 0.42,
         clickVolume: Double = 0.75,
         clickSettings: ClickSettings = .default,
-        midiControllerSettings: MIDIControllerSettings = .disabled
+        midiControllerSettings: MIDIControllerSettings = .disabled,
+        rehearsePreferences: RehearsePreferences? = nil
     ) {
         self.schemaVersion = Self.currentSchemaVersion
         let canonical = Self.promotingLegacyOverrides(in: songs, setlist: activeSetlist)
@@ -43,6 +45,7 @@ struct LibrarySnapshot: Codable, Equatable {
         self.clickVolume = Self.clampedVolume(clickVolume)
         self.clickSettings = clickSettings
         self.midiControllerSettings = midiControllerSettings
+        self.rehearsePreferences = rehearsePreferences
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -56,6 +59,7 @@ struct LibrarySnapshot: Codable, Equatable {
         case clickVolume
         case clickSettings
         case midiControllerSettings
+        case rehearsePreferences
     }
 
     init(from decoder: Decoder) throws {
@@ -145,6 +149,7 @@ struct LibrarySnapshot: Codable, Equatable {
         padVolume = Self.clampedVolume(try container.decodeIfPresent(Double.self, forKey: .padVolume) ?? 0.42)
         clickVolume = Self.clampedVolume(try container.decodeIfPresent(Double.self, forKey: .clickVolume) ?? 0.75)
         clickSettings = try container.decodeIfPresent(ClickSettings.self, forKey: .clickSettings) ?? .default
+        rehearsePreferences = try container.decodeIfPresent(RehearsePreferences.self, forKey: .rehearsePreferences)
         midiControllerSettings = try container.decodeIfPresent(
             MIDIControllerSettings.self,
             forKey: .midiControllerSettings
@@ -244,11 +249,14 @@ struct LibrarySnapshot: Codable, Equatable {
 
 enum LibraryValidationError: LocalizedError {
     case unusableSetlist
+    case recoveryRequired
 
     var errorDescription: String? {
         switch self {
         case .unusableSetlist:
             "Saved library does not include a usable setlist."
+        case .recoveryRequired:
+            "A previous library could not be recovered. Its archived files are preserved for recovery."
         }
     }
 }
@@ -302,7 +310,12 @@ struct LocalLibraryStore {
     func loadLibrary() throws -> LibrarySnapshot? {
         let url = try libraryURL()
         guard fileManager.fileExists(atPath: url.path) else {
-            return try recoverFromBackup(to: url)
+            if let recovered = try recoverFromBackup(to: url) { return recovered }
+            let archived = try fileManager.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
+            guard !archived.contains(where: { $0.hasPrefix("Library.invalid-") }) else {
+                throw LibraryValidationError.recoveryRequired
+            }
+            return nil
         }
 
         do {
@@ -375,15 +388,11 @@ struct LocalLibraryStore {
     private func recoverFromBackup(to primary: URL) throws -> LibrarySnapshot? {
         let backup = try backupURL()
         guard fileManager.fileExists(atPath: backup.path) else { return nil }
-        do {
-            let recovered = try decodeSnapshot(at: backup)
-            try? restorePrimary(from: backup, to: primary)
-            return recovered
-        } catch let error as LibraryLoadError {
-            throw error
-        } catch {
-            return nil
-        }
+        // Existing unreadable backups are evidence of a prior library. Propagate
+        // the error even when the primary is absent after quarantine.
+        let recovered = try decodeSnapshot(at: backup)
+        try? restorePrimary(from: backup, to: primary)
+        return recovered
     }
 
     private func quarantineLibrary(at url: URL) throws {

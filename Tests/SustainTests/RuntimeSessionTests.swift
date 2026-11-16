@@ -696,15 +696,15 @@ struct RuntimeSessionTests {
         #expect(store.songs == original)
 
         var draft = SongDraft.newSong()
-        #expect(store.saveSongDraft(draft) == nil)
+        #expect(store.saveSongDraft(&draft) == nil)
         #expect(store.persistenceStatus == "Enter a song title")
         draft.title = "  New Song  "
         draft.defaultBPM = 221
-        #expect(store.saveSongDraft(draft) == nil)
+        #expect(store.saveSongDraft(&draft) == nil)
         #expect(store.persistenceStatus == "BPM must be between 40 and 220")
         draft.defaultBPM = 72
         draft.padTrackID = UUID()
-        #expect(store.saveSongDraft(draft) == nil)
+        #expect(store.saveSongDraft(&draft) == nil)
         #expect(store.persistenceStatus == "The selected pad is unavailable")
         #expect(store.songs == original)
     }
@@ -718,7 +718,7 @@ struct RuntimeSessionTests {
         draft.timeSignature = .sixEight
         draft.clickSubdivision = .three
 
-        let id = try #require(store.saveSongDraft(draft))
+        let id = try #require(store.saveSongDraft(&draft))
         let created = try #require(store.songs.first { $0.id == id })
         #expect(created.title == "Gratitude")
         #expect(created.defaultKey == .bb)
@@ -731,7 +731,7 @@ struct RuntimeSessionTests {
         var edit = SongDraft(song: created)
         edit.title = "Gratitude (Live)"
         edit.padTrackID = nil
-        #expect(store.saveSongDraft(edit) == id)
+        #expect(store.saveSongDraft(&edit) == id)
         #expect(store.songs.filter { $0.id == id }.count == 1)
         #expect(store.activeSetlist.entries.contains { $0.id == entryID && $0.songID == id })
         let edited = try #require(store.songs.first { $0.id == id })
@@ -757,7 +757,7 @@ struct RuntimeSessionTests {
         var draft = SongDraft(song: original)
         draft.padTrackID = custom.id
 
-        #expect(store.saveSongDraft(draft) == original.id)
+        #expect(store.saveSongDraft(&draft) == original.id)
         let updated = try #require(store.songs.first { $0.id == original.id })
         #expect(updated.padTrackID == custom.id)
         #expect(updated.defaultKey == original.defaultKey)
@@ -776,7 +776,7 @@ struct RuntimeSessionTests {
         draft.timeSignature = .fiveFour
         draft.clickSubdivision = .three
 
-        let id = try #require(store.saveSongDraft(draft))
+        let id = try #require(store.saveSongDraft(&draft))
         let snapshot = try #require(try libraryStore.loadLibrary())
         let saved = try #require(snapshot.songs.first { $0.id == id })
         #expect(saved.title == "No Pad Song")
@@ -829,7 +829,7 @@ struct RuntimeSessionTests {
         draft.clickSubdivision = .two
         draft.padTrackID = PadTrack.includedID(for: .bb)
 
-        #expect(store.saveSongDraft(draft) == song.id)
+        #expect(store.saveSongDraft(&draft) == song.id)
         #expect(audio.clickBPMHistory.last == 96)
         #expect(audio.clickTimeSignatureHistory.last == .sixEight)
         #expect(audio.clickSubdivisionHistory.last == .two)
@@ -851,7 +851,7 @@ struct RuntimeSessionTests {
         draft.padTrackID = nil
         audio.shouldFailClickStart = true
 
-        #expect(store.saveSongDraft(draft) == nil)
+        #expect(store.saveSongDraft(&draft) == nil)
         #expect(store.songs.first { $0.id == song.id } == song)
         #expect(store.runtime.audiblePadTrackID == song.padTrackID)
     }
